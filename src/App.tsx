@@ -148,12 +148,48 @@ type InspectionRecord = {
   odometerKm: string;
   concern: string;
   underHoodState: InspectionCheckValue;
+  engineOilLevel: InspectionCheckValue;
+  engineOilCondition: InspectionCheckValue;
+  engineOilLeaks: InspectionCheckValue;
+  coolantLevel: InspectionCheckValue;
+  coolantCondition: InspectionCheckValue;
+  radiatorHoseCondition: InspectionCheckValue;
+  coolingLeaks: InspectionCheckValue;
+  brakeFluidLevel: InspectionCheckValue;
+  brakeFluidCondition: InspectionCheckValue;
+  powerSteeringLevel: InspectionCheckValue;
+  powerSteeringCondition: InspectionCheckValue;
+  batteryCondition: InspectionCheckValue;
+  batteryTerminalCondition: InspectionCheckValue;
+  batteryHoldDownCondition: InspectionCheckValue;
+  driveBeltCondition: InspectionCheckValue;
+  airFilterCondition: InspectionCheckValue;
+  intakeHoseCondition: InspectionCheckValue;
+  engineMountCondition: InspectionCheckValue;
+  wiringCondition: InspectionCheckValue;
+  unusualSmellState: InspectionCheckValue;
+  unusualSoundState: InspectionCheckValue;
+  visibleEngineLeakState: InspectionCheckValue;
+  engineOilNotes: string;
+  coolantNotes: string;
+  brakeFluidNotes: string;
+  powerSteeringNotes: string;
+  batteryNotes: string;
+  beltNotes: string;
+  intakeNotes: string;
+  leakNotes: string;
   underHoodSummary: string;
   recommendedWork: string;
   recommendationLines: string[];
   inspectionPhotoNotes: string;
+  arrivalFrontPhotoNote: string;
+  arrivalDriverSidePhotoNote: string;
+  arrivalRearPhotoNote: string;
+  arrivalPassengerSidePhotoNote: string;
+  additionalFindingPhotoNotes: string[];
   enableSafetyChecks: boolean;
   enableTires: boolean;
+  enableUnderHood: boolean;
   enableBrakes: boolean;
   arrivalLights: InspectionCheckValue;
   arrivalBrokenGlass: InspectionCheckValue;
@@ -163,6 +199,10 @@ type InspectionRecord = {
   frontRightTreadMm: string;
   rearLeftTreadMm: string;
   rearRightTreadMm: string;
+  frontLeftWearPattern: string;
+  frontRightWearPattern: string;
+  rearLeftWearPattern: string;
+  rearRightWearPattern: string;
   frontLeftTireState: InspectionCheckValue;
   frontRightTireState: InspectionCheckValue;
   rearLeftTireState: InspectionCheckValue;
@@ -448,7 +488,7 @@ type PaymentRecord = {
 };
 
 
-const BUILD_VERSION = "Phase 12 — Approval UI + Deferred Work Tracking";
+const BUILD_VERSION = "Phase 13C.3 — Final Merged Inspection";
 
 const STORAGE_KEYS = {
   users: "dvi_phase1_users_v2",
@@ -738,12 +778,48 @@ function getDefaultInspectionForm(): InspectionForm {
   return {
     status: "In Progress",
     underHoodState: "Good",
+    engineOilLevel: "Not Checked",
+    engineOilCondition: "Not Checked",
+    engineOilLeaks: "Not Checked",
+    coolantLevel: "Not Checked",
+    coolantCondition: "Not Checked",
+    radiatorHoseCondition: "Not Checked",
+    coolingLeaks: "Not Checked",
+    brakeFluidLevel: "Not Checked",
+    brakeFluidCondition: "Not Checked",
+    powerSteeringLevel: "Not Checked",
+    powerSteeringCondition: "Not Checked",
+    batteryCondition: "Not Checked",
+    batteryTerminalCondition: "Not Checked",
+    batteryHoldDownCondition: "Not Checked",
+    driveBeltCondition: "Not Checked",
+    airFilterCondition: "Not Checked",
+    intakeHoseCondition: "Not Checked",
+    engineMountCondition: "Not Checked",
+    wiringCondition: "Not Checked",
+    unusualSmellState: "Not Checked",
+    unusualSoundState: "Not Checked",
+    visibleEngineLeakState: "Not Checked",
+    engineOilNotes: "",
+    coolantNotes: "",
+    brakeFluidNotes: "",
+    powerSteeringNotes: "",
+    batteryNotes: "",
+    beltNotes: "",
+    intakeNotes: "",
+    leakNotes: "",
     underHoodSummary: "",
     recommendedWork: "",
     recommendationLines: [],
     inspectionPhotoNotes: "",
-    enableSafetyChecks: false,
-    enableTires: false,
+    arrivalFrontPhotoNote: "",
+    arrivalDriverSidePhotoNote: "",
+    arrivalRearPhotoNote: "",
+    arrivalPassengerSidePhotoNote: "",
+    additionalFindingPhotoNotes: [],
+    enableSafetyChecks: true,
+    enableTires: true,
+    enableUnderHood: true,
     enableBrakes: false,
     arrivalLights: "Not Checked",
     arrivalBrokenGlass: "Not Checked",
@@ -753,6 +829,10 @@ function getDefaultInspectionForm(): InspectionForm {
     frontRightTreadMm: "",
     rearLeftTreadMm: "",
     rearRightTreadMm: "",
+    frontLeftWearPattern: "Even Wear",
+    frontRightWearPattern: "Even Wear",
+    rearLeftWearPattern: "Even Wear",
+    rearRightWearPattern: "Even Wear",
     frontLeftTireState: "Not Checked",
     frontRightTireState: "Not Checked",
     rearLeftTireState: "Not Checked",
@@ -900,9 +980,56 @@ function parseRecommendationLines(input: string) {
     .filter(Boolean);
 }
 
+function buildDetailedUnderHoodRecommendations(form: InspectionForm) {
+  const recommendations: string[] = [];
+
+  const push = (condition: boolean, rec: string) => {
+    if (condition && !recommendations.includes(rec)) recommendations.push(rec);
+  };
+
+  push(form.engineOilLevel === "Needs Attention" || form.engineOilCondition === "Needs Attention", "Engine oil service / oil change");
+  push(form.engineOilLeaks === "Needs Attention" || form.visibleEngineLeakState === "Needs Attention", "Engine oil leak inspection");
+  push(form.coolantLevel === "Needs Attention" || form.coolantCondition === "Needs Attention", "Coolant service / coolant top-up and system check");
+  push(form.radiatorHoseCondition === "Needs Attention" || form.coolingLeaks === "Needs Attention", "Cooling system leak and hose inspection");
+  push(form.brakeFluidLevel === "Needs Attention" || form.brakeFluidCondition === "Needs Attention", "Brake fluid inspection / flush recommendation");
+  push(form.powerSteeringLevel === "Needs Attention" || form.powerSteeringCondition === "Needs Attention", "Power steering fluid and hose inspection");
+  push(form.batteryCondition === "Needs Attention" || form.batteryTerminalCondition === "Needs Attention", "Battery and terminal service");
+  push(form.batteryHoldDownCondition === "Needs Attention", "Battery hold-down correction");
+  push(form.driveBeltCondition === "Needs Attention", "Drive belt inspection / replacement");
+  push(form.airFilterCondition === "Needs Attention" || form.intakeHoseCondition === "Needs Attention", "Air intake / air filter service");
+  push(form.engineMountCondition === "Needs Attention", "Engine mounting inspection");
+  push(form.wiringCondition === "Needs Attention", "Visible wiring / connector inspection");
+  push(form.unusualSmellState === "Needs Attention" || form.unusualSoundState === "Needs Attention", "Engine noise / smell diagnosis");
+
+  return recommendations;
+}
+
+
 function hasInspectionCriticalState(record: InspectionRecord) {
   return [
     record.underHoodState,
+    record.engineOilLevel,
+    record.engineOilCondition,
+    record.engineOilLeaks,
+    record.coolantLevel,
+    record.coolantCondition,
+    record.radiatorHoseCondition,
+    record.coolingLeaks,
+    record.brakeFluidLevel,
+    record.brakeFluidCondition,
+    record.powerSteeringLevel,
+    record.powerSteeringCondition,
+    record.batteryCondition,
+    record.batteryTerminalCondition,
+    record.batteryHoldDownCondition,
+    record.driveBeltCondition,
+    record.airFilterCondition,
+    record.intakeHoseCondition,
+    record.engineMountCondition,
+    record.wiringCondition,
+    record.unusualSmellState,
+    record.unusualSoundState,
+    record.visibleEngineLeakState,
     record.arrivalLights,
     record.arrivalBrokenGlass,
     record.arrivalWipers,
@@ -970,8 +1097,48 @@ function migrateInspectionRecord(record: InspectionRecord): InspectionRecord {
   return {
     ...record,
     underHoodState: (record as any).underHoodState ?? "Good",
+    engineOilLevel: (record as any).engineOilLevel ?? "Not Checked",
+    engineOilCondition: (record as any).engineOilCondition ?? "Not Checked",
+    engineOilLeaks: (record as any).engineOilLeaks ?? "Not Checked",
+    coolantLevel: (record as any).coolantLevel ?? "Not Checked",
+    coolantCondition: (record as any).coolantCondition ?? "Not Checked",
+    radiatorHoseCondition: (record as any).radiatorHoseCondition ?? "Not Checked",
+    coolingLeaks: (record as any).coolingLeaks ?? "Not Checked",
+    brakeFluidLevel: (record as any).brakeFluidLevel ?? "Not Checked",
+    brakeFluidCondition: (record as any).brakeFluidCondition ?? "Not Checked",
+    powerSteeringLevel: (record as any).powerSteeringLevel ?? "Not Checked",
+    powerSteeringCondition: (record as any).powerSteeringCondition ?? "Not Checked",
+    batteryCondition: (record as any).batteryCondition ?? "Not Checked",
+    batteryTerminalCondition: (record as any).batteryTerminalCondition ?? "Not Checked",
+    batteryHoldDownCondition: (record as any).batteryHoldDownCondition ?? "Not Checked",
+    driveBeltCondition: (record as any).driveBeltCondition ?? "Not Checked",
+    airFilterCondition: (record as any).airFilterCondition ?? "Not Checked",
+    intakeHoseCondition: (record as any).intakeHoseCondition ?? "Not Checked",
+    engineMountCondition: (record as any).engineMountCondition ?? "Not Checked",
+    wiringCondition: (record as any).wiringCondition ?? "Not Checked",
+    unusualSmellState: (record as any).unusualSmellState ?? "Not Checked",
+    unusualSoundState: (record as any).unusualSoundState ?? "Not Checked",
+    visibleEngineLeakState: (record as any).visibleEngineLeakState ?? "Not Checked",
+    engineOilNotes: (record as any).engineOilNotes ?? "",
+    coolantNotes: (record as any).coolantNotes ?? "",
+    brakeFluidNotes: (record as any).brakeFluidNotes ?? "",
+    powerSteeringNotes: (record as any).powerSteeringNotes ?? "",
+    batteryNotes: (record as any).batteryNotes ?? "",
+    beltNotes: (record as any).beltNotes ?? "",
+    intakeNotes: (record as any).intakeNotes ?? "",
+    leakNotes: (record as any).leakNotes ?? "",
     recommendationLines: (record as any).recommendationLines ?? parseRecommendationLines(record.recommendedWork || ""),
     inspectionPhotoNotes: (record as any).inspectionPhotoNotes ?? "",
+    arrivalFrontPhotoNote: (record as any).arrivalFrontPhotoNote ?? "",
+    arrivalDriverSidePhotoNote: (record as any).arrivalDriverSidePhotoNote ?? "",
+    arrivalRearPhotoNote: (record as any).arrivalRearPhotoNote ?? "",
+    arrivalPassengerSidePhotoNote: (record as any).arrivalPassengerSidePhotoNote ?? "",
+    additionalFindingPhotoNotes: (record as any).additionalFindingPhotoNotes ?? [],
+    enableUnderHood: (record as any).enableUnderHood ?? true,
+    frontLeftWearPattern: (record as any).frontLeftWearPattern ?? "Even Wear",
+    frontRightWearPattern: (record as any).frontRightWearPattern ?? "Even Wear",
+    rearLeftWearPattern: (record as any).rearLeftWearPattern ?? "Even Wear",
+    rearRightWearPattern: (record as any).rearRightWearPattern ?? "Even Wear",
     frontLeftTireState: (record as any).frontLeftTireState ?? "Not Checked",
     frontRightTireState: (record as any).frontRightTireState ?? "Not Checked",
     rearLeftTireState: (record as any).rearLeftTireState ?? "Not Checked",
@@ -1151,7 +1318,7 @@ function LoginScreen({
         <div style={styles.buildNoteBox}>
           <div style={styles.buildNoteTitle}>Latest Update</div>
           <div style={styles.buildNoteText}>
-            Reports and technician performance are now integrated on top of payment, invoice, QC, and release data.
+            Detailed under-the-hood inspection is now added on top of approval, payment, invoice, QC, release, and reports.
           </div>
         </div>
 
@@ -1186,7 +1353,7 @@ function LoginScreen({
           </button>
         </form>
 
-        <div style={styles.updateNoteBox}><div style={styles.updateNoteTitle}>Latest Build Update</div><div style={styles.updateNoteText}>Phase 11 adds dashboard reporting, workflow bottlenecks, and technician performance without changing your single-file workshop flow.</div></div><div style={styles.demoBox}>
+        <div style={styles.updateNoteBox}><div style={styles.updateNoteTitle}>Latest Build Update</div><div style={styles.updateNoteText}>Phase 13A adds a detailed under-the-hood checklist while preserving the existing single-file workflow.</div></div><div style={styles.demoBox}>
           <div style={styles.demoTitle}>Starter Accounts</div>
           <div style={styles.demoGrid}>
             <div>admin / admin123</div>
@@ -2069,6 +2236,7 @@ function IntakePage({
   );
 }
 
+
 function InspectionPage({
   currentUser,
   intakeRecords,
@@ -2090,10 +2258,7 @@ function InspectionPage({
   const [search, setSearch] = useState("");
 
   const eligibleIntakes = useMemo(
-    () =>
-      intakeRecords.filter(
-        (row) => row.status === "Waiting Inspection" || row.status === "Draft"
-      ),
+    () => intakeRecords.filter((row) => row.status === "Waiting Inspection" || row.status === "Draft"),
     [intakeRecords]
   );
 
@@ -2103,16 +2268,13 @@ function InspectionPage({
   );
 
   const selectedInspection = useMemo(
-    () =>
-      selectedIntake
-        ? inspectionRecords.find((row) => row.intakeId === selectedIntake.id) ?? null
-        : null,
+    () => (selectedIntake ? inspectionRecords.find((row) => row.intakeId === selectedIntake.id) ?? null : null),
     [inspectionRecords, selectedIntake]
   );
 
   useEffect(() => {
-    if (!selectedIntakeId && eligibleIntakes.length > 0) {
-      setSelectedIntakeId(eligibleIntakes[0].id);
+    if (selectedIntakeId && !eligibleIntakes.some((row) => row.id === selectedIntakeId)) {
+      setSelectedIntakeId("");
     }
     if (eligibleIntakes.length === 0) {
       setSelectedIntakeId("");
@@ -2128,8 +2290,14 @@ function InspectionPage({
         recommendedWork: selectedInspection.recommendedWork,
         recommendationLines: selectedInspection.recommendationLines,
         inspectionPhotoNotes: selectedInspection.inspectionPhotoNotes,
+        arrivalFrontPhotoNote: selectedInspection.arrivalFrontPhotoNote,
+        arrivalDriverSidePhotoNote: selectedInspection.arrivalDriverSidePhotoNote,
+        arrivalRearPhotoNote: selectedInspection.arrivalRearPhotoNote,
+        arrivalPassengerSidePhotoNote: selectedInspection.arrivalPassengerSidePhotoNote,
+        additionalFindingPhotoNotes: selectedInspection.additionalFindingPhotoNotes,
         enableSafetyChecks: selectedInspection.enableSafetyChecks,
         enableTires: selectedInspection.enableTires,
+        enableUnderHood: (selectedInspection as any).enableUnderHood ?? true,
         enableBrakes: selectedInspection.enableBrakes,
         arrivalLights: selectedInspection.arrivalLights,
         arrivalBrokenGlass: selectedInspection.arrivalBrokenGlass,
@@ -2139,6 +2307,10 @@ function InspectionPage({
         frontRightTreadMm: selectedInspection.frontRightTreadMm,
         rearLeftTreadMm: selectedInspection.rearLeftTreadMm,
         rearRightTreadMm: selectedInspection.rearRightTreadMm,
+        frontLeftWearPattern: (selectedInspection as any).frontLeftWearPattern ?? "Even Wear",
+        frontRightWearPattern: (selectedInspection as any).frontRightWearPattern ?? "Even Wear",
+        rearLeftWearPattern: (selectedInspection as any).rearLeftWearPattern ?? "Even Wear",
+        rearRightWearPattern: (selectedInspection as any).rearRightWearPattern ?? "Even Wear",
         frontLeftTireState: selectedInspection.frontLeftTireState,
         frontRightTireState: selectedInspection.frontRightTireState,
         rearLeftTireState: selectedInspection.rearLeftTireState,
@@ -2148,6 +2320,36 @@ function InspectionPage({
         frontBrakeState: selectedInspection.frontBrakeState,
         rearBrakeState: selectedInspection.rearBrakeState,
         inspectionNotes: selectedInspection.inspectionNotes,
+        engineOilLevel: selectedInspection.engineOilLevel,
+        engineOilCondition: selectedInspection.engineOilCondition,
+        engineOilLeaks: selectedInspection.engineOilLeaks,
+        coolantLevel: selectedInspection.coolantLevel,
+        coolantCondition: selectedInspection.coolantCondition,
+        radiatorHoseCondition: selectedInspection.radiatorHoseCondition,
+        coolingLeaks: selectedInspection.coolingLeaks,
+        brakeFluidLevel: selectedInspection.brakeFluidLevel,
+        brakeFluidCondition: selectedInspection.brakeFluidCondition,
+        powerSteeringLevel: selectedInspection.powerSteeringLevel,
+        powerSteeringCondition: selectedInspection.powerSteeringCondition,
+        batteryCondition: selectedInspection.batteryCondition,
+        batteryTerminalCondition: selectedInspection.batteryTerminalCondition,
+        batteryHoldDownCondition: selectedInspection.batteryHoldDownCondition,
+        driveBeltCondition: selectedInspection.driveBeltCondition,
+        airFilterCondition: selectedInspection.airFilterCondition,
+        intakeHoseCondition: selectedInspection.intakeHoseCondition,
+        engineMountCondition: selectedInspection.engineMountCondition,
+        wiringCondition: selectedInspection.wiringCondition,
+        unusualSmellState: selectedInspection.unusualSmellState,
+        unusualSoundState: selectedInspection.unusualSoundState,
+        visibleEngineLeakState: selectedInspection.visibleEngineLeakState,
+        engineOilNotes: selectedInspection.engineOilNotes,
+        coolantNotes: selectedInspection.coolantNotes,
+        brakeFluidNotes: selectedInspection.brakeFluidNotes,
+        powerSteeringNotes: selectedInspection.powerSteeringNotes,
+        batteryNotes: selectedInspection.batteryNotes,
+        beltNotes: selectedInspection.beltNotes,
+        intakeNotes: selectedInspection.intakeNotes,
+        leakNotes: selectedInspection.leakNotes,
       });
       setError("");
       return;
@@ -2176,6 +2378,101 @@ function InspectionPage({
     );
   }, [inspectionRecords, search]);
 
+  const autoRecommendations = useMemo(() => {
+    const detailed = buildDetailedUnderHoodRecommendations(form);
+    const typed = parseRecommendationLines(form.recommendedWork);
+    return [...new Set([...typed, ...detailed])];
+  }, [form]);
+
+  const overallItems = [
+    form.underHoodState,
+    form.engineOilLevel,
+    form.engineOilCondition,
+    form.engineOilLeaks,
+    form.coolantLevel,
+    form.coolantCondition,
+    form.radiatorHoseCondition,
+    form.coolingLeaks,
+    form.brakeFluidLevel,
+    form.brakeFluidCondition,
+    form.powerSteeringLevel,
+    form.powerSteeringCondition,
+    form.batteryCondition,
+    form.batteryTerminalCondition,
+    form.batteryHoldDownCondition,
+    form.driveBeltCondition,
+    form.airFilterCondition,
+    form.intakeHoseCondition,
+    form.engineMountCondition,
+    form.wiringCondition,
+    form.unusualSmellState,
+    form.unusualSoundState,
+    form.visibleEngineLeakState,
+  ];
+
+  const overallUnderhoodLabel = overallItems.includes("Needs Attention")
+    ? "Needs Attention"
+    : overallItems.includes("Monitor")
+      ? "Monitor"
+      : overallItems.includes("Good")
+        ? "Good"
+        : "Not Checked";
+
+  const fluidsFields: Array<[string, keyof InspectionForm]> = [
+    ["Engine Oil Level", "engineOilLevel"],
+    ["Engine Oil Condition", "engineOilCondition"],
+    ["Engine Oil Leaks", "engineOilLeaks"],
+    ["Coolant Level", "coolantLevel"],
+    ["Coolant Condition", "coolantCondition"],
+    ["Radiator Hose Condition", "radiatorHoseCondition"],
+    ["Cooling Leaks", "coolingLeaks"],
+    ["Brake Fluid Level", "brakeFluidLevel"],
+    ["Brake Fluid Condition", "brakeFluidCondition"],
+    ["Power Steering Level", "powerSteeringLevel"],
+    ["Power Steering Condition", "powerSteeringCondition"],
+  ];
+
+  const supportFields: Array<[string, keyof InspectionForm]> = [
+    ["Battery Condition", "batteryCondition"],
+    ["Battery Terminals", "batteryTerminalCondition"],
+    ["Battery Hold-Down", "batteryHoldDownCondition"],
+    ["Drive Belt Condition", "driveBeltCondition"],
+    ["Air Filter Condition", "airFilterCondition"],
+    ["Intake Hose Condition", "intakeHoseCondition"],
+  ];
+
+  const watchFields: Array<[string, keyof InspectionForm]> = [
+    ["Engine Mount Condition", "engineMountCondition"],
+    ["Visible Wiring / Connectors", "wiringCondition"],
+    ["Unusual Smell", "unusualSmellState"],
+    ["Unusual Sound", "unusualSoundState"],
+    ["Visible Engine Leak", "visibleEngineLeakState"],
+  ];
+
+
+  const updateAdditionalFindingPhotoNote = (index: number, value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      additionalFindingPhotoNotes: prev.additionalFindingPhotoNotes.map((item, itemIndex) =>
+        itemIndex === index ? value : item
+      ),
+    }));
+  };
+
+  const addAdditionalFindingPhotoNote = () => {
+    setForm((prev) => ({
+      ...prev,
+      additionalFindingPhotoNotes: [...prev.additionalFindingPhotoNotes, ""],
+    }));
+  };
+
+  const removeAdditionalFindingPhotoNote = (index: number) => {
+    setForm((prev) => ({
+      ...prev,
+      additionalFindingPhotoNotes: prev.additionalFindingPhotoNotes.filter((_, itemIndex) => itemIndex !== index),
+    }));
+  };
+
   const saveInspection = (nextStatus?: InspectionStatus) => {
     if (!selectedIntake) {
       setError("Select an intake record first.");
@@ -2188,9 +2485,9 @@ function InspectionPage({
       return;
     }
 
-    const recommendationLines = parseRecommendationLines(form.recommendedWork);
+    const recommendationLines = autoRecommendations;
     const requiresPhotoEvidence =
-      form.underHoodState === "Needs Attention" ||
+      overallItems.includes("Needs Attention") ||
       [
         form.arrivalLights,
         form.arrivalBrokenGlass,
@@ -2203,6 +2500,7 @@ function InspectionPage({
         form.frontBrakeState,
         form.rearBrakeState,
       ].includes("Needs Attention");
+
     if (requiresPhotoEvidence && !form.inspectionPhotoNotes.trim()) {
       setError("Photo evidence / photo note is required when critical findings need attention.");
       return;
@@ -2214,8 +2512,7 @@ function InspectionPage({
       intakeNumber: selectedIntake.intakeNumber,
       updatedAt: now,
       status: nextStatus ?? form.status,
-      accountLabel:
-        selectedIntake.companyName || selectedIntake.customerName || "Unknown Customer",
+      accountLabel: selectedIntake.companyName || selectedIntake.customerName || "Unknown Customer",
       plateNumber: selectedIntake.plateNumber,
       conductionNumber: selectedIntake.conductionNumber,
       make: selectedIntake.make,
@@ -2226,11 +2523,17 @@ function InspectionPage({
       concern: selectedIntake.concern,
       underHoodState: form.underHoodState,
       underHoodSummary,
-      recommendedWork: form.recommendedWork.trim(),
+      recommendedWork: autoRecommendations.join("\n"),
       recommendationLines,
       inspectionPhotoNotes: form.inspectionPhotoNotes.trim(),
+      arrivalFrontPhotoNote: form.arrivalFrontPhotoNote.trim(),
+      arrivalDriverSidePhotoNote: form.arrivalDriverSidePhotoNote.trim(),
+      arrivalRearPhotoNote: form.arrivalRearPhotoNote.trim(),
+      arrivalPassengerSidePhotoNote: form.arrivalPassengerSidePhotoNote.trim(),
+      additionalFindingPhotoNotes: form.additionalFindingPhotoNotes.map((item) => item.trim()).filter(Boolean),
       enableSafetyChecks: form.enableSafetyChecks,
       enableTires: form.enableTires,
+      enableUnderHood: form.enableUnderHood,
       enableBrakes: form.enableBrakes,
       arrivalLights: form.arrivalLights,
       arrivalBrokenGlass: form.arrivalBrokenGlass,
@@ -2240,6 +2543,10 @@ function InspectionPage({
       frontRightTreadMm: form.frontRightTreadMm.trim(),
       rearLeftTreadMm: form.rearLeftTreadMm.trim(),
       rearRightTreadMm: form.rearRightTreadMm.trim(),
+      frontLeftWearPattern: form.frontLeftWearPattern,
+      frontRightWearPattern: form.frontRightWearPattern,
+      rearLeftWearPattern: form.rearLeftWearPattern,
+      rearRightWearPattern: form.rearRightWearPattern,
       frontLeftTireState: form.frontLeftTireState,
       frontRightTireState: form.frontRightTireState,
       rearLeftTireState: form.rearLeftTireState,
@@ -2249,19 +2556,42 @@ function InspectionPage({
       frontBrakeState: form.frontBrakeState,
       rearBrakeState: form.rearBrakeState,
       inspectionNotes: form.inspectionNotes.trim(),
+      engineOilLevel: form.engineOilLevel,
+      engineOilCondition: form.engineOilCondition,
+      engineOilLeaks: form.engineOilLeaks,
+      coolantLevel: form.coolantLevel,
+      coolantCondition: form.coolantCondition,
+      radiatorHoseCondition: form.radiatorHoseCondition,
+      coolingLeaks: form.coolingLeaks,
+      brakeFluidLevel: form.brakeFluidLevel,
+      brakeFluidCondition: form.brakeFluidCondition,
+      powerSteeringLevel: form.powerSteeringLevel,
+      powerSteeringCondition: form.powerSteeringCondition,
+      batteryCondition: form.batteryCondition,
+      batteryTerminalCondition: form.batteryTerminalCondition,
+      batteryHoldDownCondition: form.batteryHoldDownCondition,
+      driveBeltCondition: form.driveBeltCondition,
+      airFilterCondition: form.airFilterCondition,
+      intakeHoseCondition: form.intakeHoseCondition,
+      engineMountCondition: form.engineMountCondition,
+      wiringCondition: form.wiringCondition,
+      unusualSmellState: form.unusualSmellState,
+      unusualSoundState: form.unusualSoundState,
+      visibleEngineLeakState: form.visibleEngineLeakState,
+      engineOilNotes: form.engineOilNotes.trim(),
+      coolantNotes: form.coolantNotes.trim(),
+      brakeFluidNotes: form.brakeFluidNotes.trim(),
+      powerSteeringNotes: form.powerSteeringNotes.trim(),
+      batteryNotes: form.batteryNotes.trim(),
+      beltNotes: form.beltNotes.trim(),
+      intakeNotes: form.intakeNotes.trim(),
+      leakNotes: form.leakNotes.trim(),
     };
 
     setInspectionRecords((prev) => {
       const existing = prev.find((row) => row.intakeId === selectedIntake.id);
       if (existing) {
-        return prev.map((row) =>
-          row.intakeId === selectedIntake.id
-            ? {
-                ...row,
-                ...baseRecord,
-              }
-            : row
-        );
+        return prev.map((row) => (row.intakeId === selectedIntake.id ? { ...row, ...baseRecord } : row));
       }
 
       const created: InspectionRecord = {
@@ -2278,11 +2608,7 @@ function InspectionPage({
     setIntakeRecords((prev) =>
       prev.map((row) =>
         row.id === selectedIntake.id
-          ? {
-              ...row,
-              status: "Waiting Inspection",
-              updatedAt: now,
-            }
+          ? { ...row, status: "Waiting Inspection", updatedAt: now }
           : row
       )
     );
@@ -2291,409 +2617,524 @@ function InspectionPage({
     setError("");
   };
 
+  const renderCheckCard = (
+    title: string,
+    subtitle: string,
+    fields: Array<[string, keyof InspectionForm]>,
+    noteFields?: Array<[string, keyof InspectionForm, string]>
+  ) => (
+    <div style={{ ...styles.sectionCardMuted, borderRadius: 16 }}>
+      <div style={styles.mobileDataCardHeader}>
+        <strong>{title}</strong>
+        <span style={styles.statusNeutral}>{subtitle}</span>
+      </div>
+      <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+        {fields.map(([label, key]) => (
+          <div key={String(key)} style={styles.formGroup}>
+            <label style={styles.label}>{label}</label>
+            <select
+              style={styles.select}
+              value={form[key] as string}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  [key]: e.target.value as InspectionCheckValue,
+                }))
+              }
+            >
+              <option value="Not Checked">Not Checked</option>
+              <option value="Good">Good</option>
+              <option value="Monitor">Monitor</option>
+              <option value="Needs Attention">Needs Attention</option>
+            </select>
+          </div>
+        ))}
+      </div>
+      {noteFields?.length ? (
+        <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+          {noteFields.map(([label, key, placeholder]) => (
+            <div key={String(key)} style={styles.formGroup}>
+              <label style={styles.label}>{label}</label>
+              <input
+                style={styles.input}
+                value={(form[key] as string) || ""}
+                onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.value }))}
+                placeholder={placeholder}
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+
   return (
     <div style={styles.pageContent}>
       <div style={styles.grid}>
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(4, isCompactLayout) }}>
-          <Card
-            title="Inspection Queue"
-            subtitle="Select intake records waiting for inspection"
-            right={<span style={styles.statusInfo}>{eligibleIntakes.length} in queue</span>}
-          >
-            {eligibleIntakes.length === 0 ? (
-              <div style={styles.emptyState}>No intake records ready for inspection.</div>
-            ) : (
-              <div style={styles.queueStack}>
-                {eligibleIntakes.map((row) => {
-                  const active = row.id === selectedIntakeId;
-                  const hasInspection = inspectionRecords.some((item) => item.intakeId === row.id);
-                  return (
-                    <button
-                      key={row.id}
-                      type="button"
-                      onClick={() => setSelectedIntakeId(row.id)}
-                      style={{
-                        ...styles.queueCard,
-                        ...(active ? styles.queueCardActive : {}),
-                      }}
-                    >
-                      <div style={styles.queueCardHeader}>
-                        <strong>{row.intakeNumber}</strong>
-                        {hasInspection ? (
-                          <span style={styles.statusNeutral}>Started</span>
-                        ) : (
-                          <span style={styles.statusInfo}>New</span>
-                        )}
-                      </div>
-                      <div style={styles.queueLine}>{row.plateNumber || row.conductionNumber || "-"}</div>
-                      <div style={styles.queueLineMuted}>
-                        {row.companyName || row.customerName || "-"}
-                      </div>
-                      <div style={styles.queueLineMuted}>
-                        {[row.make, row.model, row.year].filter(Boolean).join(" • ")}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
-        </div>
+        {!selectedIntake ? (
+          <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(4, isCompactLayout) }}>
+            <Card
+              title="Inspection Queue"
+              subtitle="Safety check is first. Tires are second by default."
+              right={<span style={styles.statusInfo}>{eligibleIntakes.length} in queue</span>}
+            >
+              {eligibleIntakes.length === 0 ? (
+                <div style={styles.emptyState}>No intake records ready for inspection.</div>
+              ) : (
+                <div style={styles.queueStack}>
+                  {eligibleIntakes.map((row) => {
+                    const hasInspection = inspectionRecords.some((item) => item.intakeId === row.id);
+                    return (
+                      <button
+                        key={row.id}
+                        type="button"
+                        onClick={() => setSelectedIntakeId(row.id)}
+                        style={styles.queueCard}
+                      >
+                        <div style={styles.queueCardHeader}>
+                          <strong>{row.intakeNumber}</strong>
+                          {hasInspection ? <span style={styles.statusNeutral}>Started</span> : <span style={styles.statusInfo}>New</span>}
+                        </div>
+                        <div style={styles.queueLine}>{row.plateNumber || row.conductionNumber || "-"}</div>
+                        <div style={styles.queueLineMuted}>{row.companyName || row.customerName || "-"}</div>
+                        <div style={styles.queueLineMuted}>{[row.make, row.model, row.year].filter(Boolean).join(" • ")}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          </div>
+        ) : null}
 
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(8, isCompactLayout) }}>
+        <div style={{ ...styles.gridItem, gridColumn: !selectedIntake ? getResponsiveSpan(8, isCompactLayout) : "span 12" }}>
           <Card
             title="Inspection Form"
-            subtitle="Under the hood is the default inspection. Other sections are enabled only when needed."
-            right={
-              selectedInspection ? (
-                <InspectionStatusBadge status={selectedInspection.status} />
-              ) : (
-                <span style={styles.statusNeutral}>Not started</span>
-              )
-            }
+            subtitle="Safety first, tires second, under the hood always included, brakes triggered"
+            right={selectedIntake ? (<div style={styles.inlineActions}><button type="button" style={styles.secondaryButton} onClick={() => { setSelectedIntakeId(""); setError(""); }}>Change Vehicle</button>{selectedInspection ? <InspectionStatusBadge status={selectedInspection.status} /> : <span style={styles.statusNeutral}>Not started</span>}</div>) : (selectedInspection ? <InspectionStatusBadge status={selectedInspection.status} /> : <span style={styles.statusNeutral}>Not started</span>)}
           >
             {!selectedIntake ? (
               <div style={styles.emptyState}>Select an intake from the queue to start inspection.</div>
             ) : (
               <div style={styles.formStack}>
-                <div style={styles.summaryPanel}>
-                  <div style={styles.summaryGrid}>
-                    <div><strong>Intake No.:</strong> {selectedIntake.intakeNumber}</div>
-                    <div><strong>Plate:</strong> {selectedIntake.plateNumber || "-"}</div>
-                    <div><strong>Conduction:</strong> {selectedIntake.conductionNumber || "-"}</div>
-                    <div><strong>Customer:</strong> {selectedIntake.companyName || selectedIntake.customerName || "-"}</div>
-                    <div><strong>Vehicle:</strong> {[selectedIntake.make, selectedIntake.model, selectedIntake.year].filter(Boolean).join(" ") || "-"}</div>
-                    <div><strong>Odometer:</strong> {selectedIntake.odometerKm || "-"}</div>
+                <div style={styles.grid}>
+                  <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(4, isCompactLayout) }}>
+                    <div style={{ ...styles.sectionCard, position: isCompactLayout ? "static" : "sticky", top: 16 }}>
+                      <div style={styles.sectionTitle}>Vehicle & Inspection Summary</div>
+                      <div style={styles.summaryGrid}>
+                        <div><strong>Intake No.</strong><div>{selectedIntake.intakeNumber}</div></div>
+                        <div><strong>Status</strong><div>{form.status}</div></div>
+                        <div><strong>Plate</strong><div>{selectedIntake.plateNumber || "-"}</div></div>
+                        <div><strong>Conduction</strong><div>{selectedIntake.conductionNumber || "-"}</div></div>
+                        <div><strong>Customer</strong><div>{selectedIntake.companyName || selectedIntake.customerName || "-"}</div></div>
+                        <div><strong>Vehicle</strong><div>{[selectedIntake.make, selectedIntake.model, selectedIntake.year].filter(Boolean).join(" ") || "-"}</div></div>
+                        <div><strong>Odometer</strong><div>{selectedIntake.odometerKm || "-"}</div></div>
+                        <div><strong>Overall Under Hood</strong><div><span style={getCheckValueStyle(overallUnderhoodLabel as InspectionCheckValue)}>{overallUnderhoodLabel}</span></div></div>
+                      </div>
+
+                      <div style={styles.concernBanner}>
+                        <strong>Concern:</strong> {selectedIntake.concern}
+                      </div>
+
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Inspection Status</label>
+                        <select
+                          style={styles.select}
+                          value={form.status}
+                          onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value as InspectionStatus }))}
+                        >
+                          <option value="In Progress">In Progress</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      </div>
+
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Overall Under the Hood State</label>
+                        <select
+                          style={styles.select}
+                          value={form.underHoodState}
+                          onChange={(e) => setForm((prev) => ({ ...prev, underHoodState: e.target.value as InspectionCheckValue }))}
+                        >
+                          <option value="Good">Good</option>
+                          <option value="Monitor">Monitor</option>
+                          <option value="Needs Attention">Needs Attention</option>
+                        </select>
+                      </div>
+
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Photo Evidence / Photo Notes</label>
+                        <input
+                          style={styles.input}
+                          value={form.inspectionPhotoNotes}
+                          onChange={(e) => setForm((prev) => ({ ...prev, inspectionPhotoNotes: e.target.value }))}
+                          placeholder="File names, camera refs, or note about captured photos"
+                        />
+                      </div>
+
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Under the Hood Summary</label>
+                        <textarea
+                          style={styles.textareaLarge}
+                          value={form.underHoodSummary}
+                          onChange={(e) => setForm((prev) => ({ ...prev, underHoodSummary: e.target.value }))}
+                          placeholder="Required technician write-up"
+                        />
+                      </div>
+
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Recommended Work / Findings</label>
+                        <textarea
+                          style={styles.textarea}
+                          value={form.recommendedWork}
+                          onChange={(e) => setForm((prev) => ({ ...prev, recommendedWork: e.target.value }))}
+                          placeholder="Manual notes are merged with auto recommendations"
+                        />
+                      </div>
+
+                      <div style={styles.sectionCardMuted}>
+                        <div style={styles.sectionTitle}>Auto Recommendations</div>
+                        {autoRecommendations.length ? (
+                          <div style={styles.quickAccessList}>
+                            {autoRecommendations.map((item) => (
+                              <div key={item} style={styles.quickAccessRow}>
+                                <span>{item}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={styles.formHint}>No automatic recommendations yet.</div>
+                        )}
+                      </div>
+
+                      {error ? <div style={styles.errorBox}>{error}</div> : null}
+
+                      <div style={isCompactLayout ? styles.stickyActionBar : styles.inlineActionsColumn}>
+                        <button type="button" style={{ ...styles.primaryButton, width: "100%" }} onClick={() => saveInspection()}>
+                          Save Inspection
+                        </button>
+                        <button type="button" style={{ ...styles.smallButtonSuccess, width: "100%" }} onClick={() => saveInspection("Completed")}>
+                          Complete Inspection
+                        </button>
+                        <button type="button" style={{ ...styles.secondaryButton, width: "100%" }} onClick={() => setForm(getDefaultInspectionForm())}>
+                          Reset Form
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <div style={styles.concernBanner}>
-                    <strong>Concern:</strong> {selectedIntake.concern}
-                  </div>
-                </div>
 
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Inspection Status</label>
-                  <select
-                    style={styles.select}
-                    value={form.status}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, status: e.target.value as InspectionStatus }))
-                    }
-                  >
-                    <option value="In Progress">In Progress</option>
-                    <option value="Completed">Completed</option>
-                  </select>
-                </div>
+                  <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(8, isCompactLayout) }}>
+                    <div style={{ marginTop: 16 }}>
+                      <div style={isCompactLayout ? styles.formStack : styles.toggleGrid}>
+                        <label style={styles.checkboxTile}>
+                          <input
+                            type="checkbox"
+                            checked={form.enableSafetyChecks}
+                            onChange={(e) => setForm((prev) => ({ ...prev, enableSafetyChecks: e.target.checked }))}
+                          />
+                          <span>Enable Arrival / Safety Checks</span>
+                        </label>
+                        <label style={styles.checkboxTile}>
+                          <input
+                            type="checkbox"
+                            checked={form.enableTires}
+                            onChange={(e) => setForm((prev) => ({ ...prev, enableTires: e.target.checked }))}
+                          />
+                          <span>Enable Tire Inspection</span>
+                        </label>
+                        <label style={styles.checkboxTile}>
+                          <input
+                            type="checkbox"
+                            checked={form.enableBrakes}
+                            onChange={(e) => setForm((prev) => ({ ...prev, enableBrakes: e.target.checked }))}
+                          />
+                          <span>Enable Brake Inspection</span>
+                        </label>
+                      </div>
 
-                <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>Under the Hood State</label>
-                    <select
-                      style={styles.select}
-                      value={form.underHoodState}
-                      onChange={(e) =>
-                        setForm((prev) => ({ ...prev, underHoodState: e.target.value as InspectionCheckValue }))
-                      }
-                    >
-                      <option value="Good">Good</option>
-                      <option value="Monitor">Monitor</option>
-                      <option value="Needs Attention">Needs Attention</option>
-                    </select>
-                    <span style={getCheckValueStyle(form.underHoodState)}>{form.underHoodState}</span>
-                  </div>
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>Photo Evidence / Photo Notes</label>
-                    <input
-                      style={styles.input}
-                      value={form.inspectionPhotoNotes}
-                      onChange={(e) => setForm((prev) => ({ ...prev, inspectionPhotoNotes: e.target.value }))}
-                      placeholder="File names, camera refs, or note about captured photos"
-                    />
-                  </div>
-                </div>
+                      {form.enableSafetyChecks ? (
+                        <div style={{ ...styles.sectionCard, marginTop: 16 }}>
+                          <div style={styles.sectionTitle}>Arrival / Safety Checks</div>
+                          <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                            {[
+                              ["Lights", "arrivalLights"],
+                              ["Broken Glass", "arrivalBrokenGlass"],
+                              ["Wipers", "arrivalWipers"],
+                              ["Horn", "arrivalHorn"],
+                            ].map(([label, key]) => (
+                              <div key={key} style={styles.formGroup}>
+                                <label style={styles.label}>{label}</label>
+                                <select
+                                  style={styles.select}
+                                  value={form[key as keyof InspectionForm] as string}
+                                  onChange={(e) =>
+                                    setForm((prev) => ({
+                                      ...prev,
+                                      [key]: e.target.value as InspectionCheckValue,
+                                    }))
+                                  }
+                                >
+                                  <option value="Not Checked">Not Checked</option>
+                                  <option value="Good">Good</option>
+                                  <option value="Needs Attention">Needs Attention</option>
+                                </select>
+                                <span style={getCheckValueStyle(form[key as keyof InspectionForm] as InspectionCheckValue)}>
+                                  {form[key as keyof InspectionForm] as string}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
 
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Under the Hood Summary</label>
-                  <textarea
-                    style={styles.textareaLarge}
-                    value={form.underHoodSummary}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, underHoodSummary: e.target.value }))
-                    }
-                    placeholder="Required default inspection summary"
-                  />
-                </div>
+                          <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+                            <div style={styles.sectionTitle}>Exterior Photo Slots</div>
+                            <div style={styles.formHint}>
+                              Save notes, filenames, or placeholders for required exterior photos. Additional findings can be added manually when needed.
+                            </div>
 
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Recommended Work / Findings</label>
-                  <textarea
-                    style={styles.textarea}
-                    value={form.recommendedWork}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, recommendedWork: e.target.value }))
-                    }
-                    placeholder="Recommendations for later approval or RO creation"
-                  />
-                </div>
+                            <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                              <div style={styles.formGroup}>
+                                <label style={styles.label}>Front Photo</label>
+                                <input
+                                  style={styles.input}
+                                  value={form.arrivalFrontPhotoNote}
+                                  onChange={(e) => setForm((prev) => ({ ...prev, arrivalFrontPhotoNote: e.target.value }))}
+                                  placeholder="Filename, note, or placeholder"
+                                />
+                              </div>
 
-                <div style={isCompactLayout ? styles.formStack : styles.toggleGrid}>
-                  <label style={styles.checkboxTile}>
-                    <input
-                      type="checkbox"
-                      checked={form.enableSafetyChecks}
-                      onChange={(e) =>
-                        setForm((prev) => ({ ...prev, enableSafetyChecks: e.target.checked }))
-                      }
-                    />
-                    <span>Enable Arrival / Safety Checks</span>
-                  </label>
-                  <label style={styles.checkboxTile}>
-                    <input
-                      type="checkbox"
-                      checked={form.enableTires}
-                      onChange={(e) =>
-                        setForm((prev) => ({ ...prev, enableTires: e.target.checked }))
-                      }
-                    />
-                    <span>Enable Tire Inspection</span>
-                  </label>
-                  <label style={styles.checkboxTile}>
-                    <input
-                      type="checkbox"
-                      checked={form.enableBrakes}
-                      onChange={(e) =>
-                        setForm((prev) => ({ ...prev, enableBrakes: e.target.checked }))
-                      }
-                    />
-                    <span>Enable Brake Inspection</span>
-                  </label>
-                </div>
+                              <div style={styles.formGroup}>
+                                <label style={styles.label}>Driver Side Photo</label>
+                                <input
+                                  style={styles.input}
+                                  value={form.arrivalDriverSidePhotoNote}
+                                  onChange={(e) => setForm((prev) => ({ ...prev, arrivalDriverSidePhotoNote: e.target.value }))}
+                                  placeholder="Filename, note, or placeholder"
+                                />
+                              </div>
 
-                {form.enableSafetyChecks ? (
-                  <div style={styles.sectionCard}>
-                    <div style={styles.sectionTitle}>Arrival / Safety Checks</div>
-                    <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
-                      {[
-                        ["Lights", "arrivalLights"],
-                        ["Broken Glass", "arrivalBrokenGlass"],
-                        ["Wipers", "arrivalWipers"],
-                        ["Horn", "arrivalHorn"],
-                      ].map(([label, key]) => (
-                        <div key={key} style={styles.formGroup}>
-                          <label style={styles.label}>{label}</label>
-                          <select
-                            style={styles.select}
-                            value={form[key as keyof InspectionForm] as string}
-                            onChange={(e) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                [key]: e.target.value as InspectionCheckValue,
-                              }))
-                            }
-                          >
-                            <option value="Not Checked">Not Checked</option>
-                            <option value="Good">Good</option>
-                            <option value="Needs Attention">Needs Attention</option>
-                          </select>
-                          <span style={getCheckValueStyle(form[key as keyof InspectionForm] as InspectionCheckValue)}>
-                            {form[key as keyof InspectionForm] as string}
-                          </span>
+                              <div style={styles.formGroup}>
+                                <label style={styles.label}>Rear Photo</label>
+                                <input
+                                  style={styles.input}
+                                  value={form.arrivalRearPhotoNote}
+                                  onChange={(e) => setForm((prev) => ({ ...prev, arrivalRearPhotoNote: e.target.value }))}
+                                  placeholder="Filename, note, or placeholder"
+                                />
+                              </div>
+
+                              <div style={styles.formGroup}>
+                                <label style={styles.label}>Passenger Side Photo</label>
+                                <input
+                                  style={styles.input}
+                                  value={form.arrivalPassengerSidePhotoNote}
+                                  onChange={(e) => setForm((prev) => ({ ...prev, arrivalPassengerSidePhotoNote: e.target.value }))}
+                                  placeholder="Filename, note, or placeholder"
+                                />
+                              </div>
+                            </div>
+
+                            <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+                              <div style={styles.mobileDataCardHeader}>
+                                <div style={styles.sectionTitle}>Additional Findings Photo Slots</div>
+                                <button type="button" style={styles.secondaryButton} onClick={addAdditionalFindingPhotoNote}>
+                                  Add Optional Slot
+                                </button>
+                              </div>
+
+                              {form.additionalFindingPhotoNotes.length === 0 ? (
+                                <div style={styles.formHint}>No optional findings photo slots added yet.</div>
+                              ) : (
+                                <div style={styles.formStack}>
+                                  {form.additionalFindingPhotoNotes.map((item, index) => (
+                                    <div key={`finding_photo_${index}`} style={styles.mobileDataCard}>
+                                      <div style={styles.mobileDataCardHeader}>
+                                        <strong>Finding Photo Slot {index + 1}</strong>
+                                        <button
+                                          type="button"
+                                          style={styles.smallButtonMuted}
+                                          onClick={() => removeAdditionalFindingPhotoNote(index)}
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                      <input
+                                        style={styles.input}
+                                        value={item}
+                                        onChange={(e) => updateAdditionalFindingPhotoNote(index, e.target.value)}
+                                        placeholder="Optional filename, location, or note"
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
+                      ) : null}
 
-                {form.enableTires ? (
-                  <div style={styles.sectionCard}>
-                    <div style={styles.sectionTitle}>Tire Inspection</div>
-                    <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
-                      <div style={styles.formGroup}>
-                        <label style={styles.label}>Front Left Tread (mm)</label>
-                        <input
-                          style={styles.input}
-                          value={form.frontLeftTreadMm}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, frontLeftTreadMm: e.target.value }))
-                          }
-                        />
-                        <select
-                          style={styles.select}
-                          value={form.frontLeftTireState}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, frontLeftTireState: e.target.value as InspectionCheckValue }))
-                          }
-                        >
-                          <option value="Not Checked">Not Checked</option>
-                          <option value="Good">Good</option>
-                          <option value="Monitor">Monitor</option>
-                          <option value="Needs Attention">Needs Attention</option>
-                        </select>
-                      </div>
-                      <div style={styles.formGroup}>
-                        <label style={styles.label}>Front Right Tread (mm)</label>
-                        <input
-                          style={styles.input}
-                          value={form.frontRightTreadMm}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, frontRightTreadMm: e.target.value }))
-                          }
-                        />
-                        <select
-                          style={styles.select}
-                          value={form.frontRightTireState}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, frontRightTireState: e.target.value as InspectionCheckValue }))
-                          }
-                        >
-                          <option value="Not Checked">Not Checked</option>
-                          <option value="Good">Good</option>
-                          <option value="Monitor">Monitor</option>
-                          <option value="Needs Attention">Needs Attention</option>
-                        </select>
-                      </div>
-                      <div style={styles.formGroup}>
-                        <label style={styles.label}>Rear Left Tread (mm)</label>
-                        <input
-                          style={styles.input}
-                          value={form.rearLeftTreadMm}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, rearLeftTreadMm: e.target.value }))
-                          }
-                        />
-                        <select
-                          style={styles.select}
-                          value={form.rearLeftTireState}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, rearLeftTireState: e.target.value as InspectionCheckValue }))
-                          }
-                        >
-                          <option value="Not Checked">Not Checked</option>
-                          <option value="Good">Good</option>
-                          <option value="Monitor">Monitor</option>
-                          <option value="Needs Attention">Needs Attention</option>
-                        </select>
-                      </div>
-                      <div style={styles.formGroup}>
-                        <label style={styles.label}>Rear Right Tread (mm)</label>
-                        <input
-                          style={styles.input}
-                          value={form.rearRightTreadMm}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, rearRightTreadMm: e.target.value }))
-                          }
-                        />
-                        <select
-                          style={styles.select}
-                          value={form.rearRightTireState}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, rearRightTireState: e.target.value as InspectionCheckValue }))
-                          }
-                        >
-                          <option value="Not Checked">Not Checked</option>
-                          <option value="Good">Good</option>
-                          <option value="Monitor">Monitor</option>
-                          <option value="Needs Attention">Needs Attention</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
+                      {form.enableTires ? (
+                        <div style={{ ...styles.sectionCard, marginTop: 16 }}>
+                          <div style={styles.sectionTitle}>Tire Inspection</div>
 
-                {form.enableBrakes ? (
-                  <div style={styles.sectionCard}>
-                    <div style={styles.sectionTitle}>Brake Inspection</div>
-                    <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
-                      <div style={styles.formGroup}>
-                        <label style={styles.label}>Front Brake Condition</label>
-                        <input
-                          style={styles.input}
-                          value={form.frontBrakeCondition}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, frontBrakeCondition: e.target.value }))
-                          }
-                          placeholder="Good / Needs attention / Bad"
-                        />
-                        <select
-                          style={styles.select}
-                          value={form.frontBrakeState}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, frontBrakeState: e.target.value as InspectionCheckValue }))
-                          }
-                        >
-                          <option value="Not Checked">Not Checked</option>
-                          <option value="Good">Good</option>
-                          <option value="Monitor">Monitor</option>
-                          <option value="Needs Attention">Needs Attention</option>
-                        </select>
+                          <div style={styles.formStack}>
+                            <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                              <div style={styles.formGroup}>
+                                <label style={styles.label}>Front Left Tread (mm)</label>
+                                <input style={styles.input} value={form.frontLeftTreadMm} onChange={(e) => setForm((prev) => ({ ...prev, frontLeftTreadMm: e.target.value }))} />
+                                <select style={styles.select} value={form.frontLeftTireState} onChange={(e) => setForm((prev) => ({ ...prev, frontLeftTireState: e.target.value as InspectionCheckValue }))}>
+                                  <option value="Not Checked">Not Checked</option>
+                                  <option value="Good">Good</option>
+                                  <option value="Monitor">Monitor</option>
+                                  <option value="Needs Attention">Needs Attention</option>
+                                </select>
+                                <select style={styles.select} value={form.frontLeftWearPattern} onChange={(e) => setForm((prev) => ({ ...prev, frontLeftWearPattern: e.target.value }))}>
+                                  <option value="Even Wear">Even Wear</option>
+                                  <option value="Inner Wear">Inner Wear</option>
+                                  <option value="Outer Wear">Outer Wear</option>
+                                  <option value="Center Wear">Center Wear</option>
+                                  <option value="Uneven Wear">Uneven Wear</option>
+                                </select>
+                              </div>
+
+                              <div style={styles.formGroup}>
+                                <label style={styles.label}>Front Right Tread (mm)</label>
+                                <input style={styles.input} value={form.frontRightTreadMm} onChange={(e) => setForm((prev) => ({ ...prev, frontRightTreadMm: e.target.value }))} />
+                                <select style={styles.select} value={form.frontRightTireState} onChange={(e) => setForm((prev) => ({ ...prev, frontRightTireState: e.target.value as InspectionCheckValue }))}>
+                                  <option value="Not Checked">Not Checked</option>
+                                  <option value="Good">Good</option>
+                                  <option value="Monitor">Monitor</option>
+                                  <option value="Needs Attention">Needs Attention</option>
+                                </select>
+                                <select style={styles.select} value={form.frontRightWearPattern} onChange={(e) => setForm((prev) => ({ ...prev, frontRightWearPattern: e.target.value }))}>
+                                  <option value="Even Wear">Even Wear</option>
+                                  <option value="Inner Wear">Inner Wear</option>
+                                  <option value="Outer Wear">Outer Wear</option>
+                                  <option value="Center Wear">Center Wear</option>
+                                  <option value="Uneven Wear">Uneven Wear</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                              <div style={styles.formGroup}>
+                                <label style={styles.label}>Rear Left Tread (mm)</label>
+                                <input style={styles.input} value={form.rearLeftTreadMm} onChange={(e) => setForm((prev) => ({ ...prev, rearLeftTreadMm: e.target.value }))} />
+                                <select style={styles.select} value={form.rearLeftTireState} onChange={(e) => setForm((prev) => ({ ...prev, rearLeftTireState: e.target.value as InspectionCheckValue }))}>
+                                  <option value="Not Checked">Not Checked</option>
+                                  <option value="Good">Good</option>
+                                  <option value="Monitor">Monitor</option>
+                                  <option value="Needs Attention">Needs Attention</option>
+                                </select>
+                                <select style={styles.select} value={form.rearLeftWearPattern} onChange={(e) => setForm((prev) => ({ ...prev, rearLeftWearPattern: e.target.value }))}>
+                                  <option value="Even Wear">Even Wear</option>
+                                  <option value="Inner Wear">Inner Wear</option>
+                                  <option value="Outer Wear">Outer Wear</option>
+                                  <option value="Center Wear">Center Wear</option>
+                                  <option value="Uneven Wear">Uneven Wear</option>
+                                </select>
+                              </div>
+
+                              <div style={styles.formGroup}>
+                                <label style={styles.label}>Rear Right Tread (mm)</label>
+                                <input style={styles.input} value={form.rearRightTreadMm} onChange={(e) => setForm((prev) => ({ ...prev, rearRightTreadMm: e.target.value }))} />
+                                <select style={styles.select} value={form.rearRightTireState} onChange={(e) => setForm((prev) => ({ ...prev, rearRightTireState: e.target.value as InspectionCheckValue }))}>
+                                  <option value="Not Checked">Not Checked</option>
+                                  <option value="Good">Good</option>
+                                  <option value="Monitor">Monitor</option>
+                                  <option value="Needs Attention">Needs Attention</option>
+                                </select>
+                                <select style={styles.select} value={form.rearRightWearPattern} onChange={(e) => setForm((prev) => ({ ...prev, rearRightWearPattern: e.target.value }))}>
+                                  <option value="Even Wear">Even Wear</option>
+                                  <option value="Inner Wear">Inner Wear</option>
+                                  <option value="Outer Wear">Outer Wear</option>
+                                  <option value="Center Wear">Center Wear</option>
+                                  <option value="Uneven Wear">Uneven Wear</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
+                    <div style={styles.sectionCard}>
+                      <div style={styles.sectionTitle}>Detailed Under the Hood</div>
+                      <div style={styles.formHint}>
+                        Clean grouped cards for a more professional technician workflow. Notes stay beside the related checks.
                       </div>
-                      <div style={styles.formGroup}>
-                        <label style={styles.label}>Rear Brake Condition</label>
-                        <input
-                          style={styles.input}
-                          value={form.rearBrakeCondition}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, rearBrakeCondition: e.target.value }))
-                          }
-                          placeholder="Good / Needs attention / Bad"
-                        />
-                        <select
-                          style={styles.select}
-                          value={form.rearBrakeState}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, rearBrakeState: e.target.value as InspectionCheckValue }))
-                          }
-                        >
-                          <option value="Not Checked">Not Checked</option>
-                          <option value="Good">Good</option>
-                          <option value="Monitor">Monitor</option>
-                          <option value="Needs Attention">Needs Attention</option>
-                        </select>
+
+                      <div style={styles.formStack}>
+                        {renderCheckCard("Fluids", "Core checks", fluidsFields, [
+                          ["Engine Oil Notes", "engineOilNotes", "Oil color, top-up, leaks, sludge"],
+                          ["Coolant Notes", "coolantNotes", "Reservoir, hose issue, contamination"],
+                          ["Brake Fluid Notes", "brakeFluidNotes", "Dark fluid, low level, leaks"],
+                          ["Power Steering Notes", "powerSteeringNotes", "Whine, low fluid, hose seepage"],
+                        ])}
+
+                        {renderCheckCard("Battery / Belts / Intake", "Support systems", supportFields, [
+                          ["Battery Notes", "batteryNotes", "Corrosion, weak crank, loose terminal"],
+                          ["Belt Notes", "beltNotes", "Cracks, glazing, tension concern"],
+                          ["Air Intake Notes", "intakeNotes", "Dirty filter, torn hose, loose clamp"],
+                        ])}
+
+                        {renderCheckCard("Leaks / Noise / Visible Condition", "Watch items", watchFields, [
+                          ["Leak / Noise Notes", "leakNotes", "Seepage area, smell, ticking, vibration"],
+                        ])}
                       </div>
                     </div>
+
+
+
+                      {form.enableBrakes ? (
+                        <div style={{ ...styles.sectionCard, marginTop: 16 }}>
+                          <div style={styles.sectionTitle}>Brake Inspection</div>
+                          <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                            <div style={styles.formGroup}>
+                              <label style={styles.label}>Front Brake Condition</label>
+                              <input
+                                style={styles.input}
+                                value={form.frontBrakeCondition}
+                                onChange={(e) => setForm((prev) => ({ ...prev, frontBrakeCondition: e.target.value }))}
+                                placeholder="Good / Needs attention / Bad"
+                              />
+                              <select style={styles.select} value={form.frontBrakeState} onChange={(e) => setForm((prev) => ({ ...prev, frontBrakeState: e.target.value as InspectionCheckValue }))}>
+                                <option value="Not Checked">Not Checked</option>
+                                <option value="Good">Good</option>
+                                <option value="Monitor">Monitor</option>
+                                <option value="Needs Attention">Needs Attention</option>
+                              </select>
+                            </div>
+                            <div style={styles.formGroup}>
+                              <label style={styles.label}>Rear Brake Condition</label>
+                              <input
+                                style={styles.input}
+                                value={form.rearBrakeCondition}
+                                onChange={(e) => setForm((prev) => ({ ...prev, rearBrakeCondition: e.target.value }))}
+                                placeholder="Good / Needs attention / Bad"
+                              />
+                              <select style={styles.select} value={form.rearBrakeState} onChange={(e) => setForm((prev) => ({ ...prev, rearBrakeState: e.target.value as InspectionCheckValue }))}>
+                                <option value="Not Checked">Not Checked</option>
+                                <option value="Good">Good</option>
+                                <option value="Monitor">Monitor</option>
+                                <option value="Needs Attention">Needs Attention</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div style={{ ...styles.sectionCard, marginTop: 16 }}>
+                        <div style={styles.sectionTitle}>General Inspection Notes</div>
+                        <div style={styles.formGroup}>
+                          <label style={styles.label}>Inspection Notes</label>
+                          <textarea
+                            style={styles.textarea}
+                            value={form.inspectionNotes}
+                            onChange={(e) => setForm((prev) => ({ ...prev, inspectionNotes: e.target.value }))}
+                            placeholder="Additional notes"
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                ) : null}
-
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Inspection Notes</label>
-                  <textarea
-                    style={styles.textarea}
-                    value={form.inspectionNotes}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, inspectionNotes: e.target.value }))
-                    }
-                    placeholder="Additional notes"
-                  />
-                </div>
-
-                {error ? <div style={styles.errorBox}>{error}</div> : null}
-
-                <div
-                  style={{
-                    ...(isCompactLayout ? styles.stickyActionBar : styles.inlineActions),
-                    ...(isCompactLayout ? {} : styles.inlineActions),
-                  }}
-                >
-                  <button
-                    type="button"
-                    style={{ ...styles.primaryButton, ...(isCompactLayout ? styles.actionButtonWide : {}) }}
-                    onClick={() => saveInspection()}
-                  >
-                    Save Inspection
-                  </button>
-                  <button
-                    type="button"
-                    style={{ ...styles.smallButtonSuccess, ...(isCompactLayout ? styles.actionButtonWide : {}) }}
-                    onClick={() => saveInspection("Completed")}
-                  >
-                    Complete Inspection
-                  </button>
-                  <button
-                    type="button"
-                    style={{ ...styles.secondaryButton, ...(isCompactLayout ? styles.actionButtonWide : {}) }}
-                    onClick={() => setForm(getDefaultInspectionForm())}
-                  >
-                    Reset Form
-                  </button>
                 </div>
               </div>
             )}
@@ -2727,9 +3168,7 @@ function InspectionPage({
                       <InspectionStatusBadge status={row.status} />
                     </div>
                     <div style={styles.mobileDataSecondary}>Linked Intake: {row.intakeNumber}</div>
-                    <div style={styles.mobileDataPrimary}>
-                      {row.plateNumber || row.conductionNumber || "-"}
-                    </div>
+                    <div style={styles.mobileDataPrimary}>{row.plateNumber || row.conductionNumber || "-"}</div>
                     <div style={styles.mobileDataSecondary}>{row.accountLabel}</div>
                     <div style={styles.mobileDataSecondary}>
                       {[row.make, row.model, row.year, row.color].filter(Boolean).join(" • ") || "-"}
