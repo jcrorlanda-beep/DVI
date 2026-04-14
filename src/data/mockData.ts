@@ -72,6 +72,7 @@ export const defaultSettings: WorkshopSettings = {
   ],
   invoiceTerms: 'Due on receipt',
   invoiceNotes: 'Thank you for choosing DVI Workshop. All parts are warranted for 12 months / 12,000 miles.',
+  technicians: [],
 }
 
 // ─── Technicians ──────────────────────────────────────────────────────────────

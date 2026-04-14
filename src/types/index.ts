@@ -1,5 +1,7 @@
 // ─── Navigation ───────────────────────────────────────────────────────────────
 
+export type Page = 'dashboard' | 'workorders' | 'settings'
+
 export type NavState =
   | { page: 'dashboard' }
   | { page: 'customers' }
@@ -125,6 +127,18 @@ export interface WorkOrder {
   authorizationName: string
   createdAt: Date
   updatedAt: Date
+  // Denormalized display fields used by legacy component views
+  customerName?: string
+  phone?: string
+  vehicleYear?: string
+  vehicleMake?: string
+  vehicleModel?: string
+  vin?: string
+  services?: string
+  technician?: string
+  estimatedHours?: number
+  partsTotal?: number
+  notes?: string
 }
 
 // ─── Estimate ──────────────────────────────────────────────────────────────────
@@ -253,4 +267,5 @@ export interface WorkshopSettings {
   serviceCategories: ServiceCategory[]
   invoiceTerms: string
   invoiceNotes: string
+  technicians: string[]
 }

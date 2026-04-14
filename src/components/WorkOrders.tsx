@@ -13,7 +13,9 @@ interface WorkOrdersProps {
 const STATUS_COLORS: Record<WorkOrderStatus, { bg: string; text: string }> = {
   pending: { bg: '#fef3c7', text: '#92400e' },
   'in-progress': { bg: '#dbeafe', text: '#1e40af' },
+  'needs-parts': { bg: '#fce7f3', text: '#9d174d' },
   complete: { bg: '#dcfce7', text: '#166534' },
+  invoiced: { bg: '#ede9fe', text: '#5b21b6' },
   cancelled: { bg: '#fee2e2', text: '#991b1b' },
 }
 
@@ -31,12 +33,12 @@ const WorkOrdersPage: FC<WorkOrdersProps> = ({ workOrders, settings, onSave, onD
         if (search) {
           const q = search.toLowerCase()
           return (
-            wo.customerName.toLowerCase().includes(q) ||
-            wo.vehicleMake.toLowerCase().includes(q) ||
-            wo.vehicleModel.toLowerCase().includes(q) ||
+            (wo.customerName ?? '').toLowerCase().includes(q) ||
+            (wo.vehicleMake ?? '').toLowerCase().includes(q) ||
+            (wo.vehicleModel ?? '').toLowerCase().includes(q) ||
             wo.id.toLowerCase().includes(q) ||
-            wo.technician.toLowerCase().includes(q) ||
-            wo.services.toLowerCase().includes(q)
+            (wo.technician ?? '').toLowerCase().includes(q) ||
+            (wo.services ?? '').toLowerCase().includes(q)
           )
         }
         return true
@@ -224,7 +226,7 @@ const WorkOrdersPage: FC<WorkOrdersProps> = ({ workOrders, settings, onSave, onD
             ) : (
               filtered.map((wo, i) => {
                 const sc = STATUS_COLORS[wo.status]
-                const value = wo.estimatedHours * settings.laborRate + wo.partsTotal
+                const value = (wo.estimatedHours ?? 0) * settings.laborRate + (wo.partsTotal ?? 0)
                 return (
                   <tr
                     key={wo.id}

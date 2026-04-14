@@ -125,9 +125,25 @@ type IntakeForm = {
 
 type InspectionStatus = "In Progress" | "Completed";
 
-type InspectionCheckValue = "Good" | "Monitor" | "Needs Attention" | "Not Checked";
+type InspectionCheckValue = "Good" | "Monitor" | "Needs Attention" | "Needs Replacement" | "Not Checked";
+type WarningLightState = "Off" | "On" | "Not Checked";
+type RearSuspensionType = "Coil Spring" | "Leaf Spring" | "Other";
 type ApprovalDecision = "Pending" | "Approved" | "Declined" | "Deferred";
 type BackjobOutcome = "Customer Pay" | "Internal" | "Warranty" | "Goodwill";
+
+type InspectionEvidenceType = "Photo" | "Video";
+
+type InspectionEvidenceRecord = {
+  id: string;
+  type: InspectionEvidenceType;
+  section: string;
+  itemLabel: string;
+  fileName: string;
+  previewDataUrl: string;
+  addedAt: string;
+  mobileOptimized: boolean;
+};
+
 
 type InspectionRecord = {
   id: string;
@@ -191,10 +207,57 @@ type InspectionRecord = {
   enableTires: boolean;
   enableUnderHood: boolean;
   enableBrakes: boolean;
+  enableAlignmentCheck: boolean;
+  enableAcCheck: boolean;
+  acVentTemperature: string;
+  acCoolingPerformanceState: InspectionCheckValue;
+  acCompressorState: InspectionCheckValue;
+  acCondenserFanState: InspectionCheckValue;
+  acCabinFilterState: InspectionCheckValue;
+  acAirflowState: InspectionCheckValue;
+  acOdorState: InspectionCheckValue;
+  acNotes: string;
+  enableElectricalCheck: boolean;
+  electricalBatteryVoltage: string;
+  electricalChargingVoltage: string;
+  electricalStarterState: InspectionCheckValue;
+  electricalAlternatorState: InspectionCheckValue;
+  electricalFuseRelayState: InspectionCheckValue;
+  electricalWiringState: InspectionCheckValue;
+  electricalWarningLightState: InspectionCheckValue;
+  electricalNotes: string;
+  enableTransmissionCheck: boolean;
+  enableScanCheck: boolean;
+  scanPerformed: boolean;
+  scanToolUsed: string;
+  scanNotes: string;
+  scanUploadNames: string[];
+  transmissionFluidState: InspectionCheckValue;
+  transmissionFluidConditionState: InspectionCheckValue;
+  transmissionLeakState: InspectionCheckValue;
+  shiftingPerformanceState: InspectionCheckValue;
+  clutchOperationState: InspectionCheckValue;
+  drivetrainVibrationState: InspectionCheckValue;
+  cvJointDriveAxleState: InspectionCheckValue;
+  transmissionMountState: InspectionCheckValue;
+  transmissionNotes: string;
+  alignmentConcernNotes: string;
+  alignmentRecommended: boolean;
+  alignmentBeforePrintoutName: string;
+  alignmentAfterPrintoutName: string;
   arrivalLights: InspectionCheckValue;
   arrivalBrokenGlass: InspectionCheckValue;
   arrivalWipers: InspectionCheckValue;
   arrivalHorn: InspectionCheckValue;
+  arrivalCheckEngineLight: WarningLightState;
+  arrivalAbsLight: WarningLightState;
+  arrivalAirbagLight: WarningLightState;
+  arrivalBatteryLight: WarningLightState;
+  arrivalOilPressureLight: WarningLightState;
+  arrivalTempLight: WarningLightState;
+  arrivalTransmissionLight: WarningLightState;
+  arrivalOtherWarningLight: WarningLightState;
+  arrivalOtherWarningNote: string;
   frontLeftTreadMm: string;
   frontRightTreadMm: string;
   rearLeftTreadMm: string;
@@ -211,7 +274,37 @@ type InspectionRecord = {
   rearBrakeCondition: string;
   frontBrakeState: InspectionCheckValue;
   rearBrakeState: InspectionCheckValue;
+  enableSuspensionCheck: boolean;
+  frontShockState: InspectionCheckValue;
+  frontBallJointState: InspectionCheckValue;
+  frontTieRodEndState: InspectionCheckValue;
+  frontRackEndState: InspectionCheckValue;
+  frontStabilizerLinkState: InspectionCheckValue;
+  frontControlArmBushingState: InspectionCheckValue;
+  frontUpperControlArmState: InspectionCheckValue;
+  frontLowerControlArmState: InspectionCheckValue;
+  frontStrutMountState: InspectionCheckValue;
+  steeringRackConditionState: InspectionCheckValue;
+  frontCvBootState: InspectionCheckValue;
+  frontWheelBearingState: InspectionCheckValue;
+  rearSuspensionType: RearSuspensionType;
+  rearShockState: InspectionCheckValue;
+  rearStabilizerLinkState: InspectionCheckValue;
+  rearBushingState: InspectionCheckValue;
+  rearSpringState: InspectionCheckValue;
+  rearControlArmState: InspectionCheckValue;
+  rearCoilSpringState: InspectionCheckValue;
+  rearLeafSpringState: InspectionCheckValue;
+  rearLeafSpringBushingState: InspectionCheckValue;
+  rearUBoltMountState: InspectionCheckValue;
+  rearAxleMountState: InspectionCheckValue;
+  rearWheelBearingState: InspectionCheckValue;
+  frontSuspensionNotes: string;
+  rearSuspensionNotes: string;
+  steeringFeelNotes: string;
+  suspensionRoadTestNotes: string;
   inspectionNotes: string;
+  evidenceItems: InspectionEvidenceRecord[];
 };
 
 type InspectionForm = Omit<
@@ -488,7 +581,7 @@ type PaymentRecord = {
 };
 
 
-const BUILD_VERSION = "Phase 13C.3 — Final Merged Inspection";
+const BUILD_VERSION = "Phase 13M — Customer Approval UI";
 
 const STORAGE_KEYS = {
   users: "dvi_phase1_users_v2",
@@ -580,6 +673,7 @@ function todayStamp(date = new Date()) {
   const dd = `${date.getDate()}`.padStart(2, "0");
   return `${yyyy}${mm}${dd}`;
 }
+
 
 function readLocalStorage<T>(key: string, fallback: T): T {
   try {
@@ -821,10 +915,58 @@ function getDefaultInspectionForm(): InspectionForm {
     enableTires: true,
     enableUnderHood: true,
     enableBrakes: false,
+    enableSuspensionCheck: false,
+    enableAlignmentCheck: false,
+    enableAcCheck: false,
+    acVentTemperature: "",
+    acCoolingPerformanceState: "Not Checked",
+    acCompressorState: "Not Checked",
+    acCondenserFanState: "Not Checked",
+    acCabinFilterState: "Not Checked",
+    acAirflowState: "Not Checked",
+    acOdorState: "Not Checked",
+    acNotes: "",
+    enableElectricalCheck: false,
+    electricalBatteryVoltage: "",
+    electricalChargingVoltage: "",
+    electricalStarterState: "Not Checked",
+    electricalAlternatorState: "Not Checked",
+    electricalFuseRelayState: "Not Checked",
+    electricalWiringState: "Not Checked",
+    electricalWarningLightState: "Not Checked",
+    electricalNotes: "",
+    enableTransmissionCheck: false,
+    enableScanCheck: false,
+    scanPerformed: false,
+    scanToolUsed: "",
+    scanNotes: "",
+    scanUploadNames: [],
+    transmissionFluidState: "Not Checked",
+    transmissionFluidConditionState: "Not Checked",
+    transmissionLeakState: "Not Checked",
+    shiftingPerformanceState: "Not Checked",
+    clutchOperationState: "Not Checked",
+    drivetrainVibrationState: "Not Checked",
+    cvJointDriveAxleState: "Not Checked",
+    transmissionMountState: "Not Checked",
+    transmissionNotes: "",
+    alignmentConcernNotes: "",
+    alignmentRecommended: false,
+    alignmentBeforePrintoutName: "",
+    alignmentAfterPrintoutName: "",
     arrivalLights: "Not Checked",
     arrivalBrokenGlass: "Not Checked",
     arrivalWipers: "Not Checked",
     arrivalHorn: "Not Checked",
+    arrivalCheckEngineLight: "Not Checked",
+    arrivalAbsLight: "Not Checked",
+    arrivalAirbagLight: "Not Checked",
+    arrivalBatteryLight: "Not Checked",
+    arrivalOilPressureLight: "Not Checked",
+    arrivalTempLight: "Not Checked",
+    arrivalTransmissionLight: "Not Checked",
+    arrivalOtherWarningLight: "Not Checked",
+    arrivalOtherWarningNote: "",
     frontLeftTreadMm: "",
     frontRightTreadMm: "",
     rearLeftTreadMm: "",
@@ -841,7 +983,36 @@ function getDefaultInspectionForm(): InspectionForm {
     rearBrakeCondition: "",
     frontBrakeState: "Not Checked",
     rearBrakeState: "Not Checked",
+    frontShockState: "Not Checked",
+    frontBallJointState: "Not Checked",
+    frontTieRodEndState: "Not Checked",
+    frontRackEndState: "Not Checked",
+    frontStabilizerLinkState: "Not Checked",
+    frontControlArmBushingState: "Not Checked",
+    frontUpperControlArmState: "Not Checked",
+    frontLowerControlArmState: "Not Checked",
+    frontStrutMountState: "Not Checked",
+    steeringRackConditionState: "Not Checked",
+    frontCvBootState: "Not Checked",
+    frontWheelBearingState: "Not Checked",
+    rearSuspensionType: "Coil Spring",
+    rearShockState: "Not Checked",
+    rearStabilizerLinkState: "Not Checked",
+    rearBushingState: "Not Checked",
+    rearSpringState: "Not Checked",
+    rearControlArmState: "Not Checked",
+    rearCoilSpringState: "Not Checked",
+    rearLeafSpringState: "Not Checked",
+    rearLeafSpringBushingState: "Not Checked",
+    rearUBoltMountState: "Not Checked",
+    rearAxleMountState: "Not Checked",
+    rearWheelBearingState: "Not Checked",
+    frontSuspensionNotes: "",
+    rearSuspensionNotes: "",
+    steeringFeelNotes: "",
+    suspensionRoadTestNotes: "",
     inspectionNotes: "",
+    evidenceItems: [],
   };
 }
 
@@ -963,10 +1134,6 @@ function getPaymentStatusFromAmounts(totalAmount: string, paymentTotal: number):
 }
 
 
-function getVehicleAccountLabel(record: { companyName: string; customerName: string }) {
-  return record.companyName || record.customerName || "Unknown Customer";
-}
-
 function normalizeLegacyPartsStatus(status: PartsRequestStatus): PartsRequestStatus {
   if (status === "Bidding") return "Waiting for Bids";
   if (status === "Arrived") return "Parts Arrived";
@@ -980,6 +1147,17 @@ function parseRecommendationLines(input: string) {
     .filter(Boolean);
 }
 
+function isAttentionOrReplacement(value: InspectionCheckValue) {
+  return value === "Needs Attention" || value === "Needs Replacement";
+}
+
+
+function getWarningLightStyle(value: WarningLightState): React.CSSProperties {
+  if (value === "On") return styles.statusLocked;
+  if (value === "Off") return styles.statusOk;
+  return styles.statusNeutral;
+}
+
 function buildDetailedUnderHoodRecommendations(form: InspectionForm) {
   const recommendations: string[] = [];
 
@@ -987,60 +1165,205 @@ function buildDetailedUnderHoodRecommendations(form: InspectionForm) {
     if (condition && !recommendations.includes(rec)) recommendations.push(rec);
   };
 
-  push(form.engineOilLevel === "Needs Attention" || form.engineOilCondition === "Needs Attention", "Engine oil service / oil change");
-  push(form.engineOilLeaks === "Needs Attention" || form.visibleEngineLeakState === "Needs Attention", "Engine oil leak inspection");
-  push(form.coolantLevel === "Needs Attention" || form.coolantCondition === "Needs Attention", "Coolant service / coolant top-up and system check");
-  push(form.radiatorHoseCondition === "Needs Attention" || form.coolingLeaks === "Needs Attention", "Cooling system leak and hose inspection");
-  push(form.brakeFluidLevel === "Needs Attention" || form.brakeFluidCondition === "Needs Attention", "Brake fluid inspection / flush recommendation");
-  push(form.powerSteeringLevel === "Needs Attention" || form.powerSteeringCondition === "Needs Attention", "Power steering fluid and hose inspection");
-  push(form.batteryCondition === "Needs Attention" || form.batteryTerminalCondition === "Needs Attention", "Battery and terminal service");
-  push(form.batteryHoldDownCondition === "Needs Attention", "Battery hold-down correction");
-  push(form.driveBeltCondition === "Needs Attention", "Drive belt inspection / replacement");
-  push(form.airFilterCondition === "Needs Attention" || form.intakeHoseCondition === "Needs Attention", "Air intake / air filter service");
-  push(form.engineMountCondition === "Needs Attention", "Engine mounting inspection");
-  push(form.wiringCondition === "Needs Attention", "Visible wiring / connector inspection");
-  push(form.unusualSmellState === "Needs Attention" || form.unusualSoundState === "Needs Attention", "Engine noise / smell diagnosis");
+  push(isAttentionOrReplacement(form.engineOilLevel) || isAttentionOrReplacement(form.engineOilCondition), "Engine oil service / oil change");
+  push(isAttentionOrReplacement(form.engineOilLeaks) || isAttentionOrReplacement(form.visibleEngineLeakState), "Engine oil leak inspection");
+  push(isAttentionOrReplacement(form.coolantLevel) || isAttentionOrReplacement(form.coolantCondition), "Coolant service / coolant top-up and system check");
+  push(isAttentionOrReplacement(form.radiatorHoseCondition) || isAttentionOrReplacement(form.coolingLeaks), "Cooling system leak and hose inspection");
+  push(isAttentionOrReplacement(form.brakeFluidLevel) || isAttentionOrReplacement(form.brakeFluidCondition), "Brake fluid inspection / flush recommendation");
+  push(isAttentionOrReplacement(form.powerSteeringLevel) || isAttentionOrReplacement(form.powerSteeringCondition), "Power steering fluid and hose inspection");
+  push(isAttentionOrReplacement(form.batteryCondition) || isAttentionOrReplacement(form.batteryTerminalCondition), "Battery and terminal service");
+  push(isAttentionOrReplacement(form.batteryHoldDownCondition), "Battery hold-down correction");
+  push(isAttentionOrReplacement(form.driveBeltCondition), "Drive belt inspection / replacement");
+  push(isAttentionOrReplacement(form.airFilterCondition) || isAttentionOrReplacement(form.intakeHoseCondition), "Air intake / air filter service");
+  push(isAttentionOrReplacement(form.engineMountCondition), "Engine mounting inspection");
+  push(isAttentionOrReplacement(form.wiringCondition), "Visible wiring / connector inspection");
+  push(isAttentionOrReplacement(form.unusualSmellState) || isAttentionOrReplacement(form.unusualSoundState), "Engine noise / smell diagnosis");
 
   return recommendations;
 }
 
 
-function hasInspectionCriticalState(record: InspectionRecord) {
+function buildSuspensionRecommendations(form: InspectionForm) {
+  const recommendations: string[] = [];
+
+  const push = (condition: boolean, rec: string) => {
+    if (condition && !recommendations.includes(rec)) recommendations.push(rec);
+  };
+
+  push(isAttentionOrReplacement(form.frontShockState), "Front shock / strut inspection or replacement");
+  push(isAttentionOrReplacement(form.frontStrutMountState), "Front strut mount inspection / replacement");
+  push(isAttentionOrReplacement(form.frontBallJointState), "Front ball joint inspection / replacement");
+  push(isAttentionOrReplacement(form.frontTieRodEndState), "Front tie rod end inspection / replacement");
+  push(isAttentionOrReplacement(form.frontRackEndState), "Front rack end inspection / replacement");
+  push(isAttentionOrReplacement(form.steeringRackConditionState), "Steering rack inspection / replacement");
+  push(isAttentionOrReplacement(form.frontStabilizerLinkState), "Front stabilizer link inspection / replacement");
+  push(isAttentionOrReplacement(form.frontControlArmBushingState), "Front control arm bushing inspection / replacement");
+  push(isAttentionOrReplacement(form.frontUpperControlArmState), "Front upper control arm inspection / replacement");
+  push(isAttentionOrReplacement(form.frontLowerControlArmState), "Front lower control arm inspection / replacement");
+  push(isAttentionOrReplacement(form.frontCvBootState), "CV boot inspection / service");
+  push(isAttentionOrReplacement(form.frontWheelBearingState), "Front wheel bearing inspection");
+  push(isAttentionOrReplacement(form.rearShockState), "Rear shock absorber inspection / replacement");
+  push(isAttentionOrReplacement(form.rearStabilizerLinkState), "Rear stabilizer link inspection / replacement");
+  push(isAttentionOrReplacement(form.rearBushingState), "Rear suspension bushing inspection / replacement");
+  push(isAttentionOrReplacement(form.rearSpringState), "Rear spring inspection / replacement");
+  push(isAttentionOrReplacement(form.rearControlArmState), "Rear control arm inspection / replacement");
+  push(isAttentionOrReplacement(form.rearCoilSpringState), "Rear coil spring inspection / replacement");
+  push(isAttentionOrReplacement(form.rearLeafSpringState), "Rear leaf spring inspection / replacement");
+  push(isAttentionOrReplacement(form.rearLeafSpringBushingState), "Rear leaf spring bushing inspection / replacement");
+  push(isAttentionOrReplacement(form.rearUBoltMountState), "Rear U-bolt / mounting inspection");
+  push(isAttentionOrReplacement(form.rearAxleMountState), "Rear axle mount inspection");
+  push(isAttentionOrReplacement(form.rearWheelBearingState), "Rear wheel bearing inspection");
+
+  const suspensionCritical = [
+    form.frontShockState, form.frontStrutMountState, form.frontBallJointState, form.frontTieRodEndState,
+    form.frontRackEndState, form.steeringRackConditionState, form.frontStabilizerLinkState,
+    form.frontControlArmBushingState, form.frontUpperControlArmState, form.frontLowerControlArmState,
+    form.frontCvBootState, form.frontWheelBearingState, form.rearShockState, form.rearStabilizerLinkState,
+    form.rearBushingState, form.rearSpringState, form.rearControlArmState, form.rearCoilSpringState,
+    form.rearLeafSpringState, form.rearLeafSpringBushingState, form.rearUBoltMountState,
+    form.rearAxleMountState, form.rearWheelBearingState,
+  ].some(isAttentionOrReplacement);
+
+  push(suspensionCritical, "Suspension check / repair");
+  push(suspensionCritical || !!form.steeringFeelNotes.trim() || !!form.suspensionRoadTestNotes.trim(), "Alignment check after suspension / steering findings");
+
+  return recommendations;
+}
+
+
+
+
+function buildAcRecommendations(form: InspectionForm) {
+  const recommendations: string[] = [];
+
+  const push = (condition: boolean, rec: string) => {
+    if (condition && !recommendations.includes(rec)) recommendations.push(rec);
+  };
+
+  push(isAttentionOrReplacement(form.acCoolingPerformanceState) || !!form.acVentTemperature.trim(), "Air conditioning cooling performance inspection");
+  push(isAttentionOrReplacement(form.acCompressorState) || isAttentionOrReplacement(form.acCondenserFanState), "A/C compressor and condenser fan inspection");
+  push(isAttentionOrReplacement(form.acCabinFilterState) || isAttentionOrReplacement(form.acAirflowState), "Cabin filter / A/C airflow inspection");
+  push(isAttentionOrReplacement(form.acOdorState), "A/C odor / evaporator cleaning inspection");
+  push(
+    [
+      form.acCoolingPerformanceState,
+      form.acCompressorState,
+      form.acCondenserFanState,
+      form.acCabinFilterState,
+      form.acAirflowState,
+      form.acOdorState,
+    ].some(isAttentionOrReplacement) || !!form.acNotes.trim(),
+    "Air conditioning system diagnosis"
+  );
+
+  return recommendations;
+}
+
+
+function buildElectricalRecommendations(form: InspectionForm) {
+  const recommendations: string[] = [];
+
+  const push = (condition: boolean, rec: string) => {
+    if (condition && !recommendations.includes(rec)) recommendations.push(rec);
+  };
+
+  push(!!form.electricalBatteryVoltage.trim() || isAttentionOrReplacement(form.electricalStarterState), "Battery starting system check");
+  push(!!form.electricalChargingVoltage.trim() || isAttentionOrReplacement(form.electricalAlternatorState), "Charging system / alternator inspection");
+  push(isAttentionOrReplacement(form.electricalFuseRelayState), "Fuse and relay inspection");
+  push(isAttentionOrReplacement(form.electricalWiringState), "Electrical wiring / connector inspection");
+  push(isAttentionOrReplacement(form.electricalWarningLightState), "Warning light scan and diagnosis");
+  push(
+    [
+      form.electricalStarterState,
+      form.electricalAlternatorState,
+      form.electricalFuseRelayState,
+      form.electricalWiringState,
+      form.electricalWarningLightState,
+    ].some(isAttentionOrReplacement) || !!form.electricalNotes.trim(),
+    "Electrical system diagnosis"
+  );
+
+  return recommendations;
+}
+
+function buildTransmissionRecommendations(form: InspectionForm) {
+  const recommendations: string[] = [];
+
+  const push = (condition: boolean, rec: string) => {
+    if (condition && !recommendations.includes(rec)) recommendations.push(rec);
+  };
+
+  push(isAttentionOrReplacement(form.transmissionFluidState) || isAttentionOrReplacement(form.transmissionFluidConditionState), "Transmission fluid inspection / service");
+  push(isAttentionOrReplacement(form.transmissionLeakState), "Transmission leak inspection");
+  push(isAttentionOrReplacement(form.shiftingPerformanceState), "Transmission shifting diagnosis");
+  push(isAttentionOrReplacement(form.clutchOperationState), "Clutch operation inspection");
+  push(isAttentionOrReplacement(form.drivetrainVibrationState), "Drivetrain vibration diagnosis");
+  push(isAttentionOrReplacement(form.cvJointDriveAxleState), "CV joint / drive axle inspection");
+  push(isAttentionOrReplacement(form.transmissionMountState), "Transmission mount inspection");
+  push(
+    [
+      form.transmissionFluidState,
+      form.transmissionFluidConditionState,
+      form.transmissionLeakState,
+      form.shiftingPerformanceState,
+      form.clutchOperationState,
+      form.drivetrainVibrationState,
+      form.cvJointDriveAxleState,
+      form.transmissionMountState,
+    ].some(isAttentionOrReplacement) || !!form.transmissionNotes.trim(),
+    "Transmission / drivetrain diagnosis"
+  );
+
+  return recommendations;
+}
+
+
+function getCustomerFriendlyLineDescription(line: RepairOrderWorkLine) {
+  const category = line.category?.trim() || "General Service";
+  const title = line.title?.trim() || "Recommended Work";
+  const lower = `${category} ${title}`.toLowerCase();
+
+  if (lower.includes("brake")) return "Brake-related work recommended for safety and braking performance.";
+  if (lower.includes("suspension")) return "Suspension work recommended to improve ride quality, stability, and safety.";
+  if (lower.includes("alignment")) return "Wheel alignment is recommended to correct pull, steering angle, or uneven tire wear.";
+  if (lower.includes("tire")) return "Tire-related service recommended due to tread, wear pattern, or safety condition.";
+  if (lower.includes("battery") || lower.includes("electrical")) return "Electrical work recommended to address charging, starting, or warning-light concerns.";
+  if (lower.includes("air") || lower.includes("a/c")) return "Air conditioning service recommended to improve cabin cooling and comfort.";
+  if (lower.includes("transmission") || lower.includes("drivetrain") || lower.includes("clutch")) return "Drivetrain or transmission service recommended to address shifting, vibration, or drivability concerns.";
+  if (lower.includes("cooling") || lower.includes("radiator") || lower.includes("coolant")) return "Cooling system work recommended to prevent overheating and coolant-related issues.";
+  if (lower.includes("oil") || lower.includes("fluid")) return "Fluid-related service recommended to protect components and maintain vehicle reliability.";
+
+  return `${category} service recommended based on inspection findings.`;
+}
+
+function buildCustomerApprovalMessage(ro: RepairOrderRecord | null) {
+  if (!ro) return "";
+  const lines = ro.workLines;
+  const approved = lines.filter((line) => line.approvalDecision === "Approved");
+  const deferred = lines.filter((line) => line.approvalDecision === "Deferred");
+  const declined = lines.filter((line) => line.approvalDecision === "Declined");
+  const pending = lines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending");
+
+  const summaryLines = lines.map((line, index) => {
+    const decision = line.approvalDecision ?? "Pending";
+    const amount = formatCurrency(parseMoneyInput(line.totalEstimate));
+    return `${index + 1}. ${line.title || "Untitled Work Line"} — ${amount} — ${decision}`;
+  });
+
   return [
-    record.underHoodState,
-    record.engineOilLevel,
-    record.engineOilCondition,
-    record.engineOilLeaks,
-    record.coolantLevel,
-    record.coolantCondition,
-    record.radiatorHoseCondition,
-    record.coolingLeaks,
-    record.brakeFluidLevel,
-    record.brakeFluidCondition,
-    record.powerSteeringLevel,
-    record.powerSteeringCondition,
-    record.batteryCondition,
-    record.batteryTerminalCondition,
-    record.batteryHoldDownCondition,
-    record.driveBeltCondition,
-    record.airFilterCondition,
-    record.intakeHoseCondition,
-    record.engineMountCondition,
-    record.wiringCondition,
-    record.unusualSmellState,
-    record.unusualSoundState,
-    record.visibleEngineLeakState,
-    record.arrivalLights,
-    record.arrivalBrokenGlass,
-    record.arrivalWipers,
-    record.arrivalHorn,
-    record.frontLeftTireState,
-    record.frontRightTireState,
-    record.rearLeftTireState,
-    record.rearRightTireState,
-    record.frontBrakeState,
-    record.rearBrakeState,
-  ].includes("Needs Attention");
+    `Repair Order: ${ro.roNumber}`,
+    `Vehicle: ${[ro.make, ro.model, ro.year].filter(Boolean).join(" ") || ro.plateNumber || ro.conductionNumber || "-"}`,
+    `Plate: ${ro.plateNumber || ro.conductionNumber || "-"}`,
+    `Customer: ${ro.accountLabel}`,
+    "",
+    "Recommended work items:",
+    ...summaryLines,
+    "",
+    `Approved: ${approved.length}`,
+    `Deferred: ${deferred.length}`,
+    `Declined: ${declined.length}`,
+    `Pending: ${pending.length}`,
+  ].join("\n");
 }
 
 function getROStatusStyle(status: ROStatus): React.CSSProperties {
@@ -1065,6 +1388,7 @@ function getInspectionStatusStyle(status: InspectionStatus): React.CSSProperties
 
 function getCheckValueStyle(value: InspectionCheckValue): React.CSSProperties {
   if (value === "Good") return styles.statusOk;
+  if (value === "Needs Replacement") return styles.statusLocked;
   if (value === "Needs Attention") return styles.statusWarning;
   return styles.statusNeutral;
 }
@@ -1135,6 +1459,53 @@ function migrateInspectionRecord(record: InspectionRecord): InspectionRecord {
     arrivalPassengerSidePhotoNote: (record as any).arrivalPassengerSidePhotoNote ?? "",
     additionalFindingPhotoNotes: (record as any).additionalFindingPhotoNotes ?? [],
     enableUnderHood: (record as any).enableUnderHood ?? true,
+    enableAlignmentCheck: (record as any).enableAlignmentCheck ?? false,
+    enableAcCheck: (record as any).enableAcCheck ?? false,
+    acVentTemperature: (record as any).acVentTemperature ?? "",
+    acCoolingPerformanceState: (record as any).acCoolingPerformanceState ?? "Not Checked",
+    acCompressorState: (record as any).acCompressorState ?? "Not Checked",
+    acCondenserFanState: (record as any).acCondenserFanState ?? "Not Checked",
+    acCabinFilterState: (record as any).acCabinFilterState ?? "Not Checked",
+    acAirflowState: (record as any).acAirflowState ?? "Not Checked",
+    acOdorState: (record as any).acOdorState ?? "Not Checked",
+    acNotes: (record as any).acNotes ?? "",
+    enableElectricalCheck: (record as any).enableElectricalCheck ?? false,
+    electricalBatteryVoltage: (record as any).electricalBatteryVoltage ?? "",
+    electricalChargingVoltage: (record as any).electricalChargingVoltage ?? "",
+    electricalStarterState: (record as any).electricalStarterState ?? "Not Checked",
+    electricalAlternatorState: (record as any).electricalAlternatorState ?? "Not Checked",
+    electricalFuseRelayState: (record as any).electricalFuseRelayState ?? "Not Checked",
+    electricalWiringState: (record as any).electricalWiringState ?? "Not Checked",
+    electricalWarningLightState: (record as any).electricalWarningLightState ?? "Not Checked",
+    electricalNotes: (record as any).electricalNotes ?? "",
+    enableTransmissionCheck: (record as any).enableTransmissionCheck ?? false,
+    enableScanCheck: (record as any).enableScanCheck ?? false,
+    scanPerformed: (record as any).scanPerformed ?? false,
+    scanToolUsed: (record as any).scanToolUsed ?? "",
+    scanNotes: (record as any).scanNotes ?? "",
+    scanUploadNames: (record as any).scanUploadNames ?? [],
+    transmissionFluidState: (record as any).transmissionFluidState ?? "Not Checked",
+    transmissionFluidConditionState: (record as any).transmissionFluidConditionState ?? "Not Checked",
+    transmissionLeakState: (record as any).transmissionLeakState ?? "Not Checked",
+    shiftingPerformanceState: (record as any).shiftingPerformanceState ?? "Not Checked",
+    clutchOperationState: (record as any).clutchOperationState ?? "Not Checked",
+    drivetrainVibrationState: (record as any).drivetrainVibrationState ?? "Not Checked",
+    cvJointDriveAxleState: (record as any).cvJointDriveAxleState ?? "Not Checked",
+    transmissionMountState: (record as any).transmissionMountState ?? "Not Checked",
+    transmissionNotes: (record as any).transmissionNotes ?? "",
+    alignmentConcernNotes: (record as any).alignmentConcernNotes ?? "",
+    alignmentRecommended: (record as any).alignmentRecommended ?? false,
+    alignmentBeforePrintoutName: (record as any).alignmentBeforePrintoutName ?? "",
+    alignmentAfterPrintoutName: (record as any).alignmentAfterPrintoutName ?? "",
+    arrivalCheckEngineLight: (record as any).arrivalCheckEngineLight ?? "Not Checked",
+    arrivalAbsLight: (record as any).arrivalAbsLight ?? "Not Checked",
+    arrivalAirbagLight: (record as any).arrivalAirbagLight ?? "Not Checked",
+    arrivalBatteryLight: (record as any).arrivalBatteryLight ?? "Not Checked",
+    arrivalOilPressureLight: (record as any).arrivalOilPressureLight ?? "Not Checked",
+    arrivalTempLight: (record as any).arrivalTempLight ?? "Not Checked",
+    arrivalTransmissionLight: (record as any).arrivalTransmissionLight ?? "Not Checked",
+    arrivalOtherWarningLight: (record as any).arrivalOtherWarningLight ?? "Not Checked",
+    arrivalOtherWarningNote: (record as any).arrivalOtherWarningNote ?? "",
     frontLeftWearPattern: (record as any).frontLeftWearPattern ?? "Even Wear",
     frontRightWearPattern: (record as any).frontRightWearPattern ?? "Even Wear",
     rearLeftWearPattern: (record as any).rearLeftWearPattern ?? "Even Wear",
@@ -1149,6 +1520,7 @@ function migrateInspectionRecord(record: InspectionRecord): InspectionRecord {
     arrivalBrokenGlass: (record as any).arrivalBrokenGlass ?? "Not Checked",
     arrivalWipers: (record as any).arrivalWipers ?? "Not Checked",
     arrivalHorn: (record as any).arrivalHorn ?? "Not Checked",
+    evidenceItems: (record as any).evidenceItems ?? [],
   };
 }
 
@@ -1406,7 +1778,6 @@ function DashboardPage({
     count: activeUsers.filter((u) => u.role === role).length,
   }));
 
-  const currentPermissions = getPermissionsForRole(currentUser.role, roleDefinitions);
   const waitingInspection = intakeRecords.filter((row) => row.status === "Waiting Inspection").length;
   const fleetCount = intakeRecords.filter((row) => row.accountType === "Company / Fleet").length;
   const latestIntakes = intakeRecords.slice(0, 5);
@@ -1420,7 +1791,6 @@ function DashboardPage({
   const daysInMonth = new Date().getDate() <= 28 ? 30 : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
   const monthlyProjection = (monthlySales / daysWorked) * daysInMonth;
   const qcFailures = qcRecords.filter((row) => row.result === "Failed").length;
-  const approvalsDone = approvalRecords.length;
   const approvalItems = approvalRecords.flatMap((row) => row.items);
   const approvedItems = approvalItems.filter((row) => row.decision === "Approved").length;
   const approvalRate = approvalItems.length ? Math.round((approvedItems / approvalItems.length) * 100) : 0;
@@ -1744,18 +2114,6 @@ function IntakePage({
         .toLowerCase()
         .includes(term)
     );
-  }, [intakeRecords, search]);
-
-  const vehicleHistoryMatches = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return [];
-    return intakeRecords.filter((row) => row.plateNumber.toLowerCase() === term || row.conductionNumber.toLowerCase() === term).slice(0, 8);
-  }, [intakeRecords, search]);
-
-  const customerHistoryMatches = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return [];
-    return intakeRecords.filter((row) => [row.customerName, row.companyName].join(" ").toLowerCase().includes(term)).slice(0, 8);
   }, [intakeRecords, search]);
 
   const resetForm = () => {
@@ -2256,6 +2614,48 @@ function InspectionPage({
   const [form, setForm] = useState<InspectionForm>(() => getDefaultInspectionForm());
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const addAdditionalFindingPhotoNote = () => {
+    setForm((prev) => ({
+      ...prev,
+      additionalFindingPhotoNotes: [...prev.additionalFindingPhotoNotes, ""],
+    }));
+  };
+
+  const updateAdditionalFindingPhotoNote = (index: number, value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      additionalFindingPhotoNotes: prev.additionalFindingPhotoNotes.map((item, itemIndex) =>
+        itemIndex === index ? value : item
+      ),
+    }));
+  };
+
+  const removeAdditionalFindingPhotoNote = (index: number) => {
+    setForm((prev) => ({
+      ...prev,
+      additionalFindingPhotoNotes: prev.additionalFindingPhotoNotes.filter((_, itemIndex) => itemIndex !== index),
+    }));
+  };
+
+  const addScanUploadNames = (files: FileList | null) => {
+    if (!files?.length) return;
+    const nextNames = Array.from(files)
+      .map((file) => file.name)
+      .filter(Boolean);
+    setForm((prev) => ({
+      ...prev,
+      scanUploadNames: [...prev.scanUploadNames, ...nextNames],
+      scanPerformed: true,
+    }));
+  };
+
+  const removeScanUploadName = (index: number) => {
+    setForm((prev) => ({
+      ...prev,
+      scanUploadNames: prev.scanUploadNames.filter((_, itemIndex) => itemIndex !== index),
+    }));
+  };
+
 
   const eligibleIntakes = useMemo(
     () => intakeRecords.filter((row) => row.status === "Waiting Inspection" || row.status === "Draft"),
@@ -2299,10 +2699,58 @@ function InspectionPage({
         enableTires: selectedInspection.enableTires,
         enableUnderHood: (selectedInspection as any).enableUnderHood ?? true,
         enableBrakes: selectedInspection.enableBrakes,
+        enableSuspensionCheck: (selectedInspection as any).enableSuspensionCheck ?? false,
+        enableAlignmentCheck: (selectedInspection as any).enableAlignmentCheck ?? false,
+        enableAcCheck: (selectedInspection as any).enableAcCheck ?? false,
+        acVentTemperature: (selectedInspection as any).acVentTemperature ?? "",
+        acCoolingPerformanceState: (selectedInspection as any).acCoolingPerformanceState ?? "Not Checked",
+        acCompressorState: (selectedInspection as any).acCompressorState ?? "Not Checked",
+        acCondenserFanState: (selectedInspection as any).acCondenserFanState ?? "Not Checked",
+        acCabinFilterState: (selectedInspection as any).acCabinFilterState ?? "Not Checked",
+        acAirflowState: (selectedInspection as any).acAirflowState ?? "Not Checked",
+        acOdorState: (selectedInspection as any).acOdorState ?? "Not Checked",
+        acNotes: (selectedInspection as any).acNotes ?? "",
+        enableElectricalCheck: (selectedInspection as any).enableElectricalCheck ?? false,
+        electricalBatteryVoltage: (selectedInspection as any).electricalBatteryVoltage ?? "",
+        electricalChargingVoltage: (selectedInspection as any).electricalChargingVoltage ?? "",
+        electricalStarterState: (selectedInspection as any).electricalStarterState ?? "Not Checked",
+        electricalAlternatorState: (selectedInspection as any).electricalAlternatorState ?? "Not Checked",
+        electricalFuseRelayState: (selectedInspection as any).electricalFuseRelayState ?? "Not Checked",
+        electricalWiringState: (selectedInspection as any).electricalWiringState ?? "Not Checked",
+        electricalWarningLightState: (selectedInspection as any).electricalWarningLightState ?? "Not Checked",
+        electricalNotes: (selectedInspection as any).electricalNotes ?? "",
+        enableTransmissionCheck: (selectedInspection as any).enableTransmissionCheck ?? false,
+        enableScanCheck: (selectedInspection as any).enableScanCheck ?? false,
+        scanPerformed: (selectedInspection as any).scanPerformed ?? false,
+        scanToolUsed: (selectedInspection as any).scanToolUsed ?? "",
+        scanNotes: (selectedInspection as any).scanNotes ?? "",
+        scanUploadNames: (selectedInspection as any).scanUploadNames ?? [],
+        transmissionFluidState: (selectedInspection as any).transmissionFluidState ?? "Not Checked",
+        transmissionFluidConditionState: (selectedInspection as any).transmissionFluidConditionState ?? "Not Checked",
+        transmissionLeakState: (selectedInspection as any).transmissionLeakState ?? "Not Checked",
+        shiftingPerformanceState: (selectedInspection as any).shiftingPerformanceState ?? "Not Checked",
+        clutchOperationState: (selectedInspection as any).clutchOperationState ?? "Not Checked",
+        drivetrainVibrationState: (selectedInspection as any).drivetrainVibrationState ?? "Not Checked",
+        cvJointDriveAxleState: (selectedInspection as any).cvJointDriveAxleState ?? "Not Checked",
+        transmissionMountState: (selectedInspection as any).transmissionMountState ?? "Not Checked",
+        transmissionNotes: (selectedInspection as any).transmissionNotes ?? "",
+        alignmentConcernNotes: (selectedInspection as any).alignmentConcernNotes ?? "",
+        alignmentRecommended: (selectedInspection as any).alignmentRecommended ?? false,
+        alignmentBeforePrintoutName: (selectedInspection as any).alignmentBeforePrintoutName ?? "",
+        alignmentAfterPrintoutName: (selectedInspection as any).alignmentAfterPrintoutName ?? "",
         arrivalLights: selectedInspection.arrivalLights,
         arrivalBrokenGlass: selectedInspection.arrivalBrokenGlass,
         arrivalWipers: selectedInspection.arrivalWipers,
         arrivalHorn: selectedInspection.arrivalHorn,
+        arrivalCheckEngineLight: (selectedInspection as any).arrivalCheckEngineLight ?? "Not Checked",
+        arrivalAbsLight: (selectedInspection as any).arrivalAbsLight ?? "Not Checked",
+        arrivalAirbagLight: (selectedInspection as any).arrivalAirbagLight ?? "Not Checked",
+        arrivalBatteryLight: (selectedInspection as any).arrivalBatteryLight ?? "Not Checked",
+        arrivalOilPressureLight: (selectedInspection as any).arrivalOilPressureLight ?? "Not Checked",
+        arrivalTempLight: (selectedInspection as any).arrivalTempLight ?? "Not Checked",
+        arrivalTransmissionLight: (selectedInspection as any).arrivalTransmissionLight ?? "Not Checked",
+        arrivalOtherWarningLight: (selectedInspection as any).arrivalOtherWarningLight ?? "Not Checked",
+        arrivalOtherWarningNote: (selectedInspection as any).arrivalOtherWarningNote ?? "",
         frontLeftTreadMm: selectedInspection.frontLeftTreadMm,
         frontRightTreadMm: selectedInspection.frontRightTreadMm,
         rearLeftTreadMm: selectedInspection.rearLeftTreadMm,
@@ -2350,6 +2798,35 @@ function InspectionPage({
         beltNotes: selectedInspection.beltNotes,
         intakeNotes: selectedInspection.intakeNotes,
         leakNotes: selectedInspection.leakNotes,
+        frontShockState: (selectedInspection as any).frontShockState ?? "Not Checked",
+        frontBallJointState: (selectedInspection as any).frontBallJointState ?? "Not Checked",
+        frontTieRodEndState: (selectedInspection as any).frontTieRodEndState ?? "Not Checked",
+        frontRackEndState: (selectedInspection as any).frontRackEndState ?? "Not Checked",
+        frontStabilizerLinkState: (selectedInspection as any).frontStabilizerLinkState ?? "Not Checked",
+        frontControlArmBushingState: (selectedInspection as any).frontControlArmBushingState ?? "Not Checked",
+        frontUpperControlArmState: (selectedInspection as any).frontUpperControlArmState ?? "Not Checked",
+        frontLowerControlArmState: (selectedInspection as any).frontLowerControlArmState ?? "Not Checked",
+        frontStrutMountState: (selectedInspection as any).frontStrutMountState ?? "Not Checked",
+        steeringRackConditionState: (selectedInspection as any).steeringRackConditionState ?? "Not Checked",
+        frontCvBootState: (selectedInspection as any).frontCvBootState ?? "Not Checked",
+        frontWheelBearingState: (selectedInspection as any).frontWheelBearingState ?? "Not Checked",
+        rearSuspensionType: (selectedInspection as any).rearSuspensionType ?? "Coil Spring",
+        rearShockState: (selectedInspection as any).rearShockState ?? "Not Checked",
+        rearStabilizerLinkState: (selectedInspection as any).rearStabilizerLinkState ?? "Not Checked",
+        rearBushingState: (selectedInspection as any).rearBushingState ?? "Not Checked",
+        rearSpringState: (selectedInspection as any).rearSpringState ?? "Not Checked",
+        rearControlArmState: (selectedInspection as any).rearControlArmState ?? "Not Checked",
+        rearCoilSpringState: (selectedInspection as any).rearCoilSpringState ?? "Not Checked",
+        rearLeafSpringState: (selectedInspection as any).rearLeafSpringState ?? "Not Checked",
+        rearLeafSpringBushingState: (selectedInspection as any).rearLeafSpringBushingState ?? "Not Checked",
+        rearUBoltMountState: (selectedInspection as any).rearUBoltMountState ?? "Not Checked",
+        rearAxleMountState: (selectedInspection as any).rearAxleMountState ?? "Not Checked",
+        rearWheelBearingState: (selectedInspection as any).rearWheelBearingState ?? "Not Checked",
+        frontSuspensionNotes: (selectedInspection as any).frontSuspensionNotes ?? "",
+        rearSuspensionNotes: (selectedInspection as any).rearSuspensionNotes ?? "",
+        steeringFeelNotes: (selectedInspection as any).steeringFeelNotes ?? "",
+        suspensionRoadTestNotes: (selectedInspection as any).suspensionRoadTestNotes ?? "",
+        evidenceItems: (selectedInspection as any).evidenceItems ?? [],
       });
       setError("");
       return;
@@ -2381,7 +2858,12 @@ function InspectionPage({
   const autoRecommendations = useMemo(() => {
     const detailed = buildDetailedUnderHoodRecommendations(form);
     const typed = parseRecommendationLines(form.recommendedWork);
-    return [...new Set([...typed, ...detailed])];
+    const suspension = buildSuspensionRecommendations(form);
+    const ac = buildAcRecommendations(form);
+    const electrical = buildElectricalRecommendations(form);
+    const transmission = buildTransmissionRecommendations(form);
+    const alignment = form.alignmentRecommended || form.alignmentConcernNotes.trim() ? ["Wheel Alignment"] : [];
+    return [...new Set([...typed, ...detailed, ...suspension, ...ac, ...electrical, ...transmission, ...alignment])];
   }, [form]);
 
   const overallItems = [
@@ -2410,13 +2892,15 @@ function InspectionPage({
     form.visibleEngineLeakState,
   ];
 
-  const overallUnderhoodLabel = overallItems.includes("Needs Attention")
-    ? "Needs Attention"
-    : overallItems.includes("Monitor")
-      ? "Monitor"
-      : overallItems.includes("Good")
-        ? "Good"
-        : "Not Checked";
+  const overallUnderhoodLabel = overallItems.includes("Needs Replacement")
+    ? "Needs Replacement"
+    : overallItems.includes("Needs Attention")
+      ? "Needs Attention"
+      : overallItems.includes("Monitor")
+        ? "Monitor"
+        : overallItems.includes("Good")
+          ? "Good"
+          : "Not Checked";
 
   const fluidsFields: Array<[string, keyof InspectionForm]> = [
     ["Engine Oil Level", "engineOilLevel"],
@@ -2449,30 +2933,6 @@ function InspectionPage({
     ["Visible Engine Leak", "visibleEngineLeakState"],
   ];
 
-
-  const updateAdditionalFindingPhotoNote = (index: number, value: string) => {
-    setForm((prev) => ({
-      ...prev,
-      additionalFindingPhotoNotes: prev.additionalFindingPhotoNotes.map((item, itemIndex) =>
-        itemIndex === index ? value : item
-      ),
-    }));
-  };
-
-  const addAdditionalFindingPhotoNote = () => {
-    setForm((prev) => ({
-      ...prev,
-      additionalFindingPhotoNotes: [...prev.additionalFindingPhotoNotes, ""],
-    }));
-  };
-
-  const removeAdditionalFindingPhotoNote = (index: number) => {
-    setForm((prev) => ({
-      ...prev,
-      additionalFindingPhotoNotes: prev.additionalFindingPhotoNotes.filter((_, itemIndex) => itemIndex !== index),
-    }));
-  };
-
   const saveInspection = (nextStatus?: InspectionStatus) => {
     if (!selectedIntake) {
       setError("Select an intake record first.");
@@ -2499,10 +2959,52 @@ function InspectionPage({
         form.rearRightTireState,
         form.frontBrakeState,
         form.rearBrakeState,
-      ].includes("Needs Attention");
+        form.frontShockState,
+        form.frontBallJointState,
+        form.frontTieRodEndState,
+        form.frontRackEndState,
+        form.frontStabilizerLinkState,
+        form.frontControlArmBushingState,
+        form.frontUpperControlArmState,
+        form.frontLowerControlArmState,
+        form.frontStrutMountState,
+        form.steeringRackConditionState,
+        form.frontCvBootState,
+        form.frontWheelBearingState,
+        form.rearShockState,
+        form.rearStabilizerLinkState,
+        form.rearBushingState,
+        form.rearSpringState,
+        form.rearControlArmState,
+        form.rearCoilSpringState,
+        form.rearLeafSpringState,
+        form.rearLeafSpringBushingState,
+        form.rearUBoltMountState,
+        form.rearAxleMountState,
+        form.rearWheelBearingState,
+        form.acCoolingPerformanceState,
+        form.acCompressorState,
+        form.acCondenserFanState,
+        form.acCabinFilterState,
+        form.acAirflowState,
+        form.acOdorState,
+        form.electricalStarterState,
+        form.electricalAlternatorState,
+        form.electricalFuseRelayState,
+        form.electricalWiringState,
+        form.electricalWarningLightState,
+        form.transmissionFluidState,
+        form.transmissionFluidConditionState,
+        form.transmissionLeakState,
+        form.shiftingPerformanceState,
+        form.clutchOperationState,
+        form.drivetrainVibrationState,
+        form.cvJointDriveAxleState,
+        form.transmissionMountState,
+      ].some((value) => value === "Needs Attention" || value === "Needs Replacement");
 
-    if (requiresPhotoEvidence && !form.inspectionPhotoNotes.trim()) {
-      setError("Photo evidence / photo note is required when critical findings need attention.");
+    if (requiresPhotoEvidence && !form.inspectionPhotoNotes.trim() && form.evidenceItems.length === 0) {
+      setError("Photo or video evidence is required when critical findings need attention or replacement.");
       return;
     }
 
@@ -2535,10 +3037,58 @@ function InspectionPage({
       enableTires: form.enableTires,
       enableUnderHood: form.enableUnderHood,
       enableBrakes: form.enableBrakes,
+      enableSuspensionCheck: form.enableSuspensionCheck,
+      enableAlignmentCheck: form.enableAlignmentCheck,
+      enableAcCheck: form.enableAcCheck,
+      acVentTemperature: form.acVentTemperature.trim(),
+      acCoolingPerformanceState: form.acCoolingPerformanceState,
+      acCompressorState: form.acCompressorState,
+      acCondenserFanState: form.acCondenserFanState,
+      acCabinFilterState: form.acCabinFilterState,
+      acAirflowState: form.acAirflowState,
+      acOdorState: form.acOdorState,
+      acNotes: form.acNotes.trim(),
+      enableElectricalCheck: form.enableElectricalCheck,
+      electricalBatteryVoltage: form.electricalBatteryVoltage.trim(),
+      electricalChargingVoltage: form.electricalChargingVoltage.trim(),
+      electricalStarterState: form.electricalStarterState,
+      electricalAlternatorState: form.electricalAlternatorState,
+      electricalFuseRelayState: form.electricalFuseRelayState,
+      electricalWiringState: form.electricalWiringState,
+      electricalWarningLightState: form.electricalWarningLightState,
+      electricalNotes: form.electricalNotes.trim(),
+      enableTransmissionCheck: form.enableTransmissionCheck,
+      enableScanCheck: form.enableScanCheck,
+      scanPerformed: form.scanPerformed,
+      scanToolUsed: form.scanToolUsed.trim(),
+      scanNotes: form.scanNotes.trim(),
+      scanUploadNames: form.scanUploadNames,
+      transmissionFluidState: form.transmissionFluidState,
+      transmissionFluidConditionState: form.transmissionFluidConditionState,
+      transmissionLeakState: form.transmissionLeakState,
+      shiftingPerformanceState: form.shiftingPerformanceState,
+      clutchOperationState: form.clutchOperationState,
+      drivetrainVibrationState: form.drivetrainVibrationState,
+      cvJointDriveAxleState: form.cvJointDriveAxleState,
+      transmissionMountState: form.transmissionMountState,
+      transmissionNotes: form.transmissionNotes.trim(),
+      alignmentConcernNotes: form.alignmentConcernNotes.trim(),
+      alignmentRecommended: form.alignmentRecommended,
+      alignmentBeforePrintoutName: form.alignmentBeforePrintoutName.trim(),
+      alignmentAfterPrintoutName: form.alignmentAfterPrintoutName.trim(),
       arrivalLights: form.arrivalLights,
       arrivalBrokenGlass: form.arrivalBrokenGlass,
       arrivalWipers: form.arrivalWipers,
       arrivalHorn: form.arrivalHorn,
+      arrivalCheckEngineLight: form.arrivalCheckEngineLight,
+      arrivalAbsLight: form.arrivalAbsLight,
+      arrivalAirbagLight: form.arrivalAirbagLight,
+      arrivalBatteryLight: form.arrivalBatteryLight,
+      arrivalOilPressureLight: form.arrivalOilPressureLight,
+      arrivalTempLight: form.arrivalTempLight,
+      arrivalTransmissionLight: form.arrivalTransmissionLight,
+      arrivalOtherWarningLight: form.arrivalOtherWarningLight,
+      arrivalOtherWarningNote: form.arrivalOtherWarningNote.trim(),
       frontLeftTreadMm: form.frontLeftTreadMm.trim(),
       frontRightTreadMm: form.frontRightTreadMm.trim(),
       rearLeftTreadMm: form.rearLeftTreadMm.trim(),
@@ -2555,6 +3105,34 @@ function InspectionPage({
       rearBrakeCondition: form.rearBrakeCondition.trim(),
       frontBrakeState: form.frontBrakeState,
       rearBrakeState: form.rearBrakeState,
+      frontShockState: form.frontShockState,
+      frontBallJointState: form.frontBallJointState,
+      frontTieRodEndState: form.frontTieRodEndState,
+      frontRackEndState: form.frontRackEndState,
+      frontStabilizerLinkState: form.frontStabilizerLinkState,
+      frontControlArmBushingState: form.frontControlArmBushingState,
+      frontUpperControlArmState: form.frontUpperControlArmState,
+      frontLowerControlArmState: form.frontLowerControlArmState,
+      frontStrutMountState: form.frontStrutMountState,
+      steeringRackConditionState: form.steeringRackConditionState,
+      frontCvBootState: form.frontCvBootState,
+      frontWheelBearingState: form.frontWheelBearingState,
+      rearSuspensionType: form.rearSuspensionType,
+      rearShockState: form.rearShockState,
+      rearStabilizerLinkState: form.rearStabilizerLinkState,
+      rearBushingState: form.rearBushingState,
+      rearSpringState: form.rearSpringState,
+      rearControlArmState: form.rearControlArmState,
+      rearCoilSpringState: form.rearCoilSpringState,
+      rearLeafSpringState: form.rearLeafSpringState,
+      rearLeafSpringBushingState: form.rearLeafSpringBushingState,
+      rearUBoltMountState: form.rearUBoltMountState,
+      rearAxleMountState: form.rearAxleMountState,
+      rearWheelBearingState: form.rearWheelBearingState,
+      frontSuspensionNotes: form.frontSuspensionNotes.trim(),
+      rearSuspensionNotes: form.rearSuspensionNotes.trim(),
+      steeringFeelNotes: form.steeringFeelNotes.trim(),
+      suspensionRoadTestNotes: form.suspensionRoadTestNotes.trim(),
       inspectionNotes: form.inspectionNotes.trim(),
       engineOilLevel: form.engineOilLevel,
       engineOilCondition: form.engineOilCondition,
@@ -2586,6 +3164,7 @@ function InspectionPage({
       beltNotes: form.beltNotes.trim(),
       intakeNotes: form.intakeNotes.trim(),
       leakNotes: form.leakNotes.trim(),
+      evidenceItems: form.evidenceItems,
     };
 
     setInspectionRecords((prev) => {
@@ -2646,6 +3225,7 @@ function InspectionPage({
               <option value="Good">Good</option>
               <option value="Monitor">Monitor</option>
               <option value="Needs Attention">Needs Attention</option>
+                          <option value="Needs Replacement">Needs Replacement</option>
             </select>
           </div>
         ))}
@@ -2758,6 +3338,7 @@ function InspectionPage({
                           <option value="Good">Good</option>
                           <option value="Monitor">Monitor</option>
                           <option value="Needs Attention">Needs Attention</option>
+                          <option value="Needs Replacement">Needs Replacement</option>
                         </select>
                       </div>
 
@@ -2849,10 +3430,50 @@ function InspectionPage({
                           />
                           <span>Enable Brake Inspection</span>
                         </label>
+                        <label style={styles.checkboxTile}>
+                          <input
+                            type="checkbox"
+                            checked={form.enableSuspensionCheck}
+                            onChange={(e) => setForm((prev) => ({ ...prev, enableSuspensionCheck: e.target.checked }))}
+                          />
+                          <span>Enable Suspension Check</span>
+                        </label>
+                        <label style={styles.checkboxTile}>
+                          <input
+                            type="checkbox"
+                            checked={form.enableAlignmentCheck}
+                            onChange={(e) => setForm((prev) => ({ ...prev, enableAlignmentCheck: e.target.checked }))}
+                          />
+                          <span>Enable Alignment Check</span>
+                        </label>
+                        <label style={styles.checkboxTile}>
+                          <input
+                            type="checkbox"
+                            checked={form.enableAcCheck}
+                            onChange={(e) => setForm((prev) => ({ ...prev, enableAcCheck: e.target.checked }))}
+                          />
+                          <span>Enable A/C Check</span>
+                        </label>
+                        <label style={styles.checkboxTile}>
+                          <input
+                            type="checkbox"
+                            checked={form.enableElectricalCheck}
+                            onChange={(e) => setForm((prev) => ({ ...prev, enableElectricalCheck: e.target.checked }))}
+                          />
+                          <span>Enable Electrical Check</span>
+                        </label>
+                        <label style={styles.checkboxTile}>
+                          <input
+                            type="checkbox"
+                            checked={form.enableScanCheck}
+                            onChange={(e) => setForm((prev) => ({ ...prev, enableScanCheck: e.target.checked }))}
+                          />
+                          <span>Enable Scan / OBD2 Check</span>
+                        </label>
                       </div>
 
                       {form.enableSafetyChecks ? (
-                        <div style={{ ...styles.sectionCard, marginTop: 16 }}>
+                        <div style={{ ...styles.sectionCard, marginTop: 16, background: "#eff6ff", border: "1px solid #bfdbfe" }}>
                           <div style={styles.sectionTitle}>Arrival / Safety Checks</div>
                           <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
                             {[
@@ -2876,12 +3497,61 @@ function InspectionPage({
                                   <option value="Not Checked">Not Checked</option>
                                   <option value="Good">Good</option>
                                   <option value="Needs Attention">Needs Attention</option>
+                                  <option value="Needs Replacement">Needs Replacement</option>
                                 </select>
                                 <span style={getCheckValueStyle(form[key as keyof InspectionForm] as InspectionCheckValue)}>
                                   {form[key as keyof InspectionForm] as string}
                                 </span>
                               </div>
                             ))}
+                          </div>
+
+                          <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+                            <div style={styles.sectionTitle}>Warning Lights at Arrival</div>
+                            <div style={styles.formHint}>Document warning lights before scanning so the shop has an arrival record.</div>
+                            <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                              {[
+                                ["Check Engine", "arrivalCheckEngineLight"],
+                                ["ABS", "arrivalAbsLight"],
+                                ["Airbag", "arrivalAirbagLight"],
+                                ["Battery", "arrivalBatteryLight"],
+                                ["Oil Pressure", "arrivalOilPressureLight"],
+                                ["Temperature / Overheat", "arrivalTempLight"],
+                                ["Transmission", "arrivalTransmissionLight"],
+                                ["Other Warning", "arrivalOtherWarningLight"],
+                              ].map(([label, key]) => (
+                                <div key={key} style={styles.formGroup}>
+                                  <label style={styles.label}>{label}</label>
+                                  <select
+                                    style={styles.select}
+                                    value={form[key as keyof InspectionForm] as string}
+                                    onChange={(e) =>
+                                      setForm((prev) => ({
+                                        ...prev,
+                                        [key]: e.target.value as WarningLightState,
+                                      }))
+                                    }
+                                  >
+                                    <option value="Not Checked">Not Checked</option>
+                                    <option value="Off">Off</option>
+                                    <option value="On">On</option>
+                                  </select>
+                                  <span style={getWarningLightStyle(form[key as keyof InspectionForm] as WarningLightState)}>
+                                    {form[key as keyof InspectionForm] as string}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div style={styles.formGroup}>
+                              <label style={styles.label}>Other Warning Light Note</label>
+                              <input
+                                style={styles.input}
+                                value={form.arrivalOtherWarningNote}
+                                onChange={(e) => setForm((prev) => ({ ...prev, arrivalOtherWarningNote: e.target.value }))}
+                                placeholder="Cluster message, icon name, or customer warning-light note"
+                              />
+                            </div>
                           </div>
 
                           <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
@@ -2972,7 +3642,7 @@ function InspectionPage({
                       ) : null}
 
                       {form.enableTires ? (
-                        <div style={{ ...styles.sectionCard, marginTop: 16 }}>
+                        <div style={{ ...styles.sectionCard, marginTop: 16, background: "#ecfdf5", border: "1px solid #a7f3d0" }}>
                           <div style={styles.sectionTitle}>Tire Inspection</div>
 
                           <div style={styles.formStack}>
@@ -2985,6 +3655,7 @@ function InspectionPage({
                                   <option value="Good">Good</option>
                                   <option value="Monitor">Monitor</option>
                                   <option value="Needs Attention">Needs Attention</option>
+                          <option value="Needs Replacement">Needs Replacement</option>
                                 </select>
                                 <select style={styles.select} value={form.frontLeftWearPattern} onChange={(e) => setForm((prev) => ({ ...prev, frontLeftWearPattern: e.target.value }))}>
                                   <option value="Even Wear">Even Wear</option>
@@ -3003,6 +3674,7 @@ function InspectionPage({
                                   <option value="Good">Good</option>
                                   <option value="Monitor">Monitor</option>
                                   <option value="Needs Attention">Needs Attention</option>
+                          <option value="Needs Replacement">Needs Replacement</option>
                                 </select>
                                 <select style={styles.select} value={form.frontRightWearPattern} onChange={(e) => setForm((prev) => ({ ...prev, frontRightWearPattern: e.target.value }))}>
                                   <option value="Even Wear">Even Wear</option>
@@ -3023,6 +3695,7 @@ function InspectionPage({
                                   <option value="Good">Good</option>
                                   <option value="Monitor">Monitor</option>
                                   <option value="Needs Attention">Needs Attention</option>
+                          <option value="Needs Replacement">Needs Replacement</option>
                                 </select>
                                 <select style={styles.select} value={form.rearLeftWearPattern} onChange={(e) => setForm((prev) => ({ ...prev, rearLeftWearPattern: e.target.value }))}>
                                   <option value="Even Wear">Even Wear</option>
@@ -3041,6 +3714,7 @@ function InspectionPage({
                                   <option value="Good">Good</option>
                                   <option value="Monitor">Monitor</option>
                                   <option value="Needs Attention">Needs Attention</option>
+                          <option value="Needs Replacement">Needs Replacement</option>
                                 </select>
                                 <select style={styles.select} value={form.rearRightWearPattern} onChange={(e) => setForm((prev) => ({ ...prev, rearRightWearPattern: e.target.value }))}>
                                   <option value="Even Wear">Even Wear</option>
@@ -3083,8 +3757,362 @@ function InspectionPage({
 
 
 
+                      {form.enableSuspensionCheck ? (
+                        <div style={{ ...styles.sectionCard, marginTop: 16, background: "#f5f3ff", border: "1px solid #ddd6fe" }}>
+                          <div style={styles.sectionTitle}>Suspension Check</div>
+                          <div style={styles.formHint}>Expanded suspension coverage for cars, SUVs, and pickups. Alignment is recommended when steering or suspension issues are found.</div>
+
+                          <div style={styles.formStack}>
+                            {renderCheckCard(
+                              "Front Steering / Linkage",
+                              "Steering rack, tie rods, ball joints, and linkage",
+                              [
+                                ["Front Ball Joint", "frontBallJointState"],
+                                ["Front Tie Rod End", "frontTieRodEndState"],
+                                ["Front Rack End", "frontRackEndState"],
+                                ["Steering Rack Condition", "steeringRackConditionState"],
+                                ["Front Stabilizer Link", "frontStabilizerLinkState"],
+                              ],
+                              [
+                                ["Steering Feel Notes", "steeringFeelNotes", "Pulling, loose feel, off-center steering, clunking"],
+                              ]
+                            )}
+
+                            {renderCheckCard(
+                              "Front Suspension",
+                              "Shock, strut mount, control arms, bushings, CV, and wheel bearing",
+                              [
+                                ["Front Shock / Strut", "frontShockState"],
+                                ["Front Strut Mount", "frontStrutMountState"],
+                                ["Front Upper Control Arm", "frontUpperControlArmState"],
+                                ["Front Lower Control Arm", "frontLowerControlArmState"],
+                                ["Front Control Arm Bushing", "frontControlArmBushingState"],
+                                ["Front CV Boot", "frontCvBootState"],
+                                ["Front Wheel Bearing", "frontWheelBearingState"],
+                              ],
+                              [
+                                ["Front Suspension Notes", "frontSuspensionNotes", "Leak, play, torn boot, bearing noise, vibration"],
+                              ]
+                            )}
+
+                            <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+                              <div style={styles.formGroup}>
+                                <label style={styles.label}>Rear Suspension Type</label>
+                                <select
+                                  style={styles.select}
+                                  value={form.rearSuspensionType}
+                                  onChange={(e) => setForm((prev) => ({ ...prev, rearSuspensionType: e.target.value as RearSuspensionType }))}
+                                >
+                                  <option value="Coil Spring">Coil Spring</option>
+                                  <option value="Leaf Spring">Leaf Spring</option>
+                                  <option value="Other">Other</option>
+                                </select>
+                                <div style={styles.formHint}>Show only the rear components that match the vehicle setup.</div>
+                              </div>
+                            </div>
+
+                            {renderCheckCard(
+                              "Rear Suspension",
+                              "Rear shocks, links, bushings, springs, control arms, and bearing",
+                              [
+                                ["Rear Shock", "rearShockState"],
+                                ["Rear Stabilizer Link", "rearStabilizerLinkState"],
+                                ["Rear Bushing", "rearBushingState"],
+                                ["Rear Spring", "rearSpringState"],
+                                ["Rear Control Arm", "rearControlArmState"],
+                                ["Rear Wheel Bearing", "rearWheelBearingState"],
+                              ],
+                              [
+                                ["Rear Suspension Notes", "rearSuspensionNotes", "Noise, sagging, play, worn bushing, axle movement"],
+                                ["Road Test / Noise Notes", "suspensionRoadTestNotes", "Rattle, clunk, pull, vibration, rough ride"],
+                              ]
+                            )}
+
+                            {(form.rearSuspensionType === "Coil Spring" || form.rearSuspensionType === "Other") ? renderCheckCard(
+                              "Rear Coil Spring Group",
+                              "Use for sedans, crossovers, and SUVs with coil-spring rear suspension",
+                              [
+                                ["Rear Coil Spring", "rearCoilSpringState"],
+                              ]
+                            ) : null}
+
+                            {(form.rearSuspensionType === "Leaf Spring" || form.rearSuspensionType === "Other") ? renderCheckCard(
+                              "Rear Leaf Spring Group",
+                              "Use for pickups, utility vehicles, and leaf-spring rear setups",
+                              [
+                                ["Rear Leaf Spring", "rearLeafSpringState"],
+                                ["Rear Leaf Spring Bushing", "rearLeafSpringBushingState"],
+                                ["Rear U-Bolt / Mount", "rearUBoltMountState"],
+                                ["Rear Axle Mount", "rearAxleMountState"],
+                              ]
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {form.enableAlignmentCheck ? (
+                        <div style={{ ...styles.sectionCard, marginTop: 16, background: "#ecfeff", border: "1px solid #a5f3fc" }}>
+                          <div style={styles.sectionTitle}>Alignment Check</div>
+                          <div style={styles.formHint}>Upload or capture the before alignment printout. After printout is optional for later.</div>
+
+                          <div style={styles.formGroup}>
+                            <label style={styles.label}>Alignment Concern / Notes</label>
+                            <textarea
+                              style={styles.textarea}
+                              value={form.alignmentConcernNotes}
+                              onChange={(e) => setForm((prev) => ({ ...prev, alignmentConcernNotes: e.target.value }))}
+                              placeholder="Pulling left/right, steering wheel off-center, uneven tire wear, customer request, or technician observation"
+                            />
+                          </div>
+
+                          <label style={styles.checkboxCard}>
+                            <input
+                              type="checkbox"
+                              checked={form.alignmentRecommended}
+                              onChange={(e) => setForm((prev) => ({ ...prev, alignmentRecommended: e.target.checked }))}
+                            />
+                            <span>Recommend Wheel Alignment</span>
+                          </label>
+
+                          <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                            <div style={styles.formGroup}>
+                              <label style={styles.label}>Before Alignment Printout</label>
+                              <input
+                                type="file"
+                                style={styles.input}
+                                onChange={(e) =>
+                                  setForm((prev) => ({
+                                    ...prev,
+                                    alignmentBeforePrintoutName: e.target.files?.[0]?.name || prev.alignmentBeforePrintoutName || "",
+                                  }))
+                                }
+                              />
+                              <div style={styles.formHint}>Saved file: {form.alignmentBeforePrintoutName || "No file selected"}</div>
+                            </div>
+
+                            <div style={styles.formGroup}>
+                              <label style={styles.label}>After Alignment Printout</label>
+                              <input
+                                type="file"
+                                style={styles.input}
+                                onChange={(e) =>
+                                  setForm((prev) => ({
+                                    ...prev,
+                                    alignmentAfterPrintoutName: e.target.files?.[0]?.name || prev.alignmentAfterPrintoutName || "",
+                                  }))
+                                }
+                              />
+                              <div style={styles.formHint}>Optional for later: {form.alignmentAfterPrintoutName || "No file selected"}</div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
+
+                      {form.enableAcCheck ? (
+                        <div style={{ ...styles.sectionCard, marginTop: 16, background: "#ecfdf5", border: "1px solid #a7f3d0" }}>
+                          <div style={styles.sectionTitle}>A/C Inspection</div>
+                          <div style={styles.formHint}>Use this triggered section for weak cooling, bad smell, noisy compressor, poor airflow, or customer-requested A/C checks.</div>
+
+                          <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                            <div style={styles.formGroup}>
+                              <label style={styles.label}>Vent Temperature</label>
+                              <input
+                                style={styles.input}
+                                value={form.acVentTemperature}
+                                onChange={(e) => setForm((prev) => ({ ...prev, acVentTemperature: e.target.value }))}
+                                placeholder="Example: 8°C or 46°F"
+                              />
+                            </div>
+                            <div style={styles.formGroup}>
+                              <label style={styles.label}>A/C Notes</label>
+                              <input
+                                style={styles.input}
+                                value={form.acNotes}
+                                onChange={(e) => setForm((prev) => ({ ...prev, acNotes: e.target.value }))}
+                                placeholder="Weak cooling, noisy clutch, odor, intermittent cooling"
+                              />
+                            </div>
+                          </div>
+
+                          <div style={styles.formStack}>
+                            {renderCheckCard(
+                              "Cooling / Compressor",
+                              "Core A/C checks",
+                              [
+                                ["Cooling Performance", "acCoolingPerformanceState"],
+                                ["Compressor Engagement", "acCompressorState"],
+                                ["Condenser Fan", "acCondenserFanState"],
+                              ]
+                            )}
+
+                            {renderCheckCard(
+                              "Airflow / Cabin",
+                              "Cabin comfort checks",
+                              [
+                                ["Cabin Filter", "acCabinFilterState"],
+                                ["Airflow / Vent Output", "acAirflowState"],
+                                ["Odor / Smell", "acOdorState"],
+                              ]
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+
+
+                      {form.enableElectricalCheck ? (
+                        <div style={{ ...styles.sectionCard, marginTop: 16, background: "#eff6ff", border: "1px solid #facc15", boxShadow: "0 0 0 1px rgba(239,68,68,0.05) inset" }}>
+                          <div style={styles.sectionTitle}>Electrical Inspection</div>
+                          <div style={styles.formHint}>Use this triggered section for no-start, weak battery, warning lights, intermittent electrical faults, or charging complaints.</div>
+
+                          <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                            <div style={styles.formGroup}>
+                              <label style={styles.label}>Battery Voltage</label>
+                              <input
+                                style={styles.input}
+                                value={form.electricalBatteryVoltage}
+                                onChange={(e) => setForm((prev) => ({ ...prev, electricalBatteryVoltage: e.target.value }))}
+                                placeholder="Example: 12.6V"
+                              />
+                            </div>
+                            <div style={styles.formGroup}>
+                              <label style={styles.label}>Charging Voltage</label>
+                              <input
+                                style={styles.input}
+                                value={form.electricalChargingVoltage}
+                                onChange={(e) => setForm((prev) => ({ ...prev, electricalChargingVoltage: e.target.value }))}
+                                placeholder="Example: 13.8V to 14.5V"
+                              />
+                            </div>
+                          </div>
+
+                          <div style={styles.formStack}>
+                            {renderCheckCard(
+                              "Starting / Charging",
+                              "Battery, starter, and alternator checks",
+                              [
+                                ["Starter Condition", "electricalStarterState"],
+                                ["Alternator / Charging", "electricalAlternatorState"],
+                              ]
+                            )}
+
+                            {renderCheckCard(
+                              "Wiring / Controls",
+                              "Basic electrical condition checks",
+                              [
+                                ["Fuse / Relay Condition", "electricalFuseRelayState"],
+                                ["Visible Wiring Condition", "electricalWiringState"],
+                                ["Warning Light / Scan Need", "electricalWarningLightState"],
+                              ],
+                              [["Electrical Notes", "electricalNotes", "No-start, dim lights, intermittent issue, warning code note"]]
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {form.enableTransmissionCheck ? (
+                        <div style={{ ...styles.sectionCard, marginTop: 16, background: "#fff7ed", border: "1px solid #fdba74" }}>
+                          <div style={styles.sectionTitle}>Transmission / Drivetrain Inspection</div>
+                          <div style={styles.formHint}>Use this triggered section for shifting issues, slipping, drivetrain vibration, fluid leaks, clutch complaints, or customer-requested transmission checks.</div>
+
+                          <div style={styles.formStack}>
+                            {renderCheckCard(
+                              "Fluid / Leaks",
+                              "Transmission fluid and leak condition",
+                              [
+                                ["Transmission Fluid Level", "transmissionFluidState"],
+                                ["Transmission Fluid Condition", "transmissionFluidConditionState"],
+                                ["Transmission Leak", "transmissionLeakState"],
+                              ]
+                            )}
+
+                            {renderCheckCard(
+                              "Operation / Drivetrain",
+                              "Driveability and drivetrain checks",
+                              [
+                                ["Shifting Performance", "shiftingPerformanceState"],
+                                ["Clutch Operation", "clutchOperationState"],
+                                ["Drivetrain Vibration", "drivetrainVibrationState"],
+                                ["CV Joint / Drive Axle", "cvJointDriveAxleState"],
+                                ["Transmission Mount", "transmissionMountState"],
+                              ],
+                              [["Transmission Notes", "transmissionNotes", "Slipping, delayed shift, hard shift, vibration, noise, clutch feel"]]
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+
+
+                      {form.enableScanCheck ? (
+                        <div style={{ ...styles.sectionCard, marginTop: 16, background: "#ecfeff", border: "1px solid #a5f3fc" }}>
+                          <div style={styles.sectionTitle}>Scan / OBD2 Check</div>
+                          <div style={styles.formHint}>Upload OBD2 scan results as PDF or photo. Use this for warning lights, diagnostic documentation, and before/after scan proof.</div>
+
+                          <label style={styles.checkboxCard}>
+                            <input
+                              type="checkbox"
+                              checked={form.scanPerformed}
+                              onChange={(e) => setForm((prev) => ({ ...prev, scanPerformed: e.target.checked }))}
+                            />
+                            <span>Scan Performed</span>
+                          </label>
+
+                          <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                            <div style={styles.formGroup}>
+                              <label style={styles.label}>Scanner Used</label>
+                              <input
+                                style={styles.input}
+                                value={form.scanToolUsed}
+                                onChange={(e) => setForm((prev) => ({ ...prev, scanToolUsed: e.target.value }))}
+                                placeholder="Autel, Launch, Bosch, OEM tool, mobile scanner, etc."
+                              />
+                            </div>
+                            <div style={styles.formGroup}>
+                              <label style={styles.label}>Upload Scan Result</label>
+                              <input
+                                type="file"
+                                style={styles.input}
+                                accept=".pdf,image/*"
+                                multiple
+                                onChange={(e) => addScanUploadNames(e.target.files)}
+                              />
+                              <div style={styles.formHint}>Accepted: PDF, photos, screenshots of scan results.</div>
+                            </div>
+                          </div>
+
+                          <div style={styles.formGroup}>
+                            <label style={styles.label}>Scan Notes</label>
+                            <textarea
+                              style={styles.textarea}
+                              value={form.scanNotes}
+                              onChange={(e) => setForm((prev) => ({ ...prev, scanNotes: e.target.value }))}
+                              placeholder="Scanner notes, pending codes, freeze-frame note, cleared / not cleared, or customer explanation"
+                            />
+                          </div>
+
+                          {form.scanUploadNames.length ? (
+                            <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+                              <div style={styles.sectionTitle}>Uploaded Scan Results</div>
+                              <div style={styles.mobileCardList}>
+                                {form.scanUploadNames.map((fileName, index) => (
+                                  <div key={`${fileName}_${index}`} style={styles.mobileDataCard}>
+                                    <div style={styles.mobileDataCardHeader}>
+                                      <strong>{fileName}</strong>
+                                      <button type="button" style={styles.smallButtonMuted} onClick={() => removeScanUploadName(index)}>
+                                        Remove
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+
                       {form.enableBrakes ? (
-                        <div style={{ ...styles.sectionCard, marginTop: 16 }}>
+                        <div style={{ ...styles.sectionCard, marginTop: 16, background: "#fff1f2", border: "1px solid #fecdd3" }}>
                           <div style={styles.sectionTitle}>Brake Inspection</div>
                           <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
                             <div style={styles.formGroup}>
@@ -3100,6 +4128,7 @@ function InspectionPage({
                                 <option value="Good">Good</option>
                                 <option value="Monitor">Monitor</option>
                                 <option value="Needs Attention">Needs Attention</option>
+                          <option value="Needs Replacement">Needs Replacement</option>
                               </select>
                             </div>
                             <div style={styles.formGroup}>
@@ -3115,6 +4144,7 @@ function InspectionPage({
                                 <option value="Good">Good</option>
                                 <option value="Monitor">Monitor</option>
                                 <option value="Needs Attention">Needs Attention</option>
+                          <option value="Needs Replacement">Needs Replacement</option>
                               </select>
                             </div>
                           </div>
@@ -3173,6 +4203,7 @@ function InspectionPage({
                     <div style={styles.mobileDataSecondary}>
                       {[row.make, row.model, row.year, row.color].filter(Boolean).join(" • ") || "-"}
                     </div>
+                    <div style={styles.formHint}>Evidence: {(row as any).evidenceItems?.length || 0}</div>
                     <div style={styles.concernCard}>{row.underHoodSummary || "No under the hood summary."}</div>
                   </div>
                 ))}
@@ -3187,6 +4218,7 @@ function InspectionPage({
                       <th style={styles.th}>Plate / Customer</th>
                       <th style={styles.th}>Vehicle</th>
                       <th style={styles.th}>Default Category</th>
+                      <th style={styles.th}>Evidence</th>
                       <th style={styles.th}>Status</th>
                     </tr>
                   </thead>
@@ -3212,6 +4244,7 @@ function InspectionPage({
                         <td style={styles.td}>
                           <div style={styles.concernCell}>{row.underHoodSummary}</div>
                         </td>
+                        <td style={styles.td}>{(row as any).evidenceItems?.length || 0}</td>
                         <td style={styles.td}>
                           <InspectionStatusBadge status={row.status} />
                         </td>
@@ -3264,6 +4297,7 @@ function RepairOrdersPage({
   const [error, setError] = useState("");
   const [approvalSummary, setApprovalSummary] = useState("");
   const [approvalCommHook, setApprovalCommHook] = useState("SMS / Email placeholder");
+  const [approvalPreviewMode, setApprovalPreviewMode] = useState<"Advisor" | "Customer">("Advisor");
   const [backjobComplaint, setBackjobComplaint] = useState("");
   const [backjobRootCause, setBackjobRootCause] = useState("");
   const [backjobOutcome, setBackjobOutcome] = useState<BackjobOutcome>("Customer Pay");
@@ -3309,6 +4343,11 @@ function RepairOrdersPage({
             .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         : [],
     [backjobRecords, selectedRO]
+  );
+
+  const customerApprovalMessage = useMemo(
+    () => buildCustomerApprovalMessage(selectedRO),
+    [selectedRO]
   );
 
   const primaryTechnicians = useMemo(
@@ -3634,22 +4673,10 @@ function RepairOrdersPage({
 
   const getUserLabel = (userId: string) => users.find((row) => row.id === userId)?.fullName || "-";
 
-  const setLineDecision = (decision: ApprovalDecision, workLineId: string) => {
+  const commitApprovalItems = (items: ApprovalWorkItem[]) => {
     if (!selectedRO) return;
 
     const now = new Date().toISOString();
-
-    const items = selectedRO.workLines.map((line) => {
-      const existing = selectedApproval?.items.find((item) => item.workLineId === line.id);
-      return {
-        workLineId: line.id,
-        title: line.title || "Untitled Work Line",
-        decision: line.id === workLineId ? decision : existing?.decision ?? line.approvalDecision ?? "Pending",
-        approvedAt: line.id === workLineId ? now : existing?.approvedAt ?? line.approvalAt ?? "",
-        note: existing?.note ?? "",
-      };
-    });
-
     const summary = approvalSummary.trim() || `${selectedRO.roNumber} approval updated`;
     const record: ApprovalRecord = {
       id: uid("apr"),
@@ -3666,6 +4693,7 @@ function RepairOrdersPage({
     };
     const approvedCount = items.filter((item) => item.decision === "Approved").length;
     const deferredTitles = items.filter((item) => item.decision === "Deferred").map((item) => item.title);
+
     setApprovalRecords((prev) => [record, ...prev]);
     setRepairOrders((prev) =>
       prev.map((row) =>
@@ -3695,6 +4723,45 @@ function RepairOrdersPage({
           : row
       )
     );
+  };
+
+  const setLineDecision = (decision: ApprovalDecision, workLineId: string) => {
+    if (!selectedRO) return;
+
+    const now = new Date().toISOString();
+    const items = selectedRO.workLines.map((line) => {
+      const existing = selectedApproval?.items.find((item) => item.workLineId === line.id);
+      return {
+        workLineId: line.id,
+        title: line.title || "Untitled Work Line",
+        decision: line.id === workLineId ? decision : existing?.decision ?? line.approvalDecision ?? "Pending",
+        approvedAt: line.id === workLineId ? now : existing?.approvedAt ?? line.approvalAt ?? "",
+        note: existing?.note ?? "",
+      };
+    });
+
+    commitApprovalItems(items);
+  };
+
+  const setBulkLineDecision = (decision: ApprovalDecision) => {
+    if (!selectedRO) return;
+
+    const now = new Date().toISOString();
+    const items = selectedRO.workLines.map((line) => {
+      const existing = selectedApproval?.items.find((item) => item.workLineId === line.id);
+      const currentDecision = existing?.decision ?? line.approvalDecision ?? "Pending";
+      const nextDecision = currentDecision === "Pending" ? decision : currentDecision;
+
+      return {
+        workLineId: line.id,
+        title: line.title || "Untitled Work Line",
+        decision: nextDecision,
+        approvedAt: currentDecision === "Pending" ? now : existing?.approvedAt ?? line.approvalAt ?? "",
+        note: existing?.note ?? "",
+      };
+    });
+
+    commitApprovalItems(items);
   };
 
   const createBackjob = () => {
@@ -4153,25 +5220,51 @@ function RepairOrdersPage({
                 </div>
 
                 <div style={styles.sectionCard}>
-                  <div style={styles.sectionTitle}>Customer Approval Layer</div>
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>Approval Summary</label>
-                    <textarea
-                      style={styles.textarea}
-                      value={approvalSummary}
-                      onChange={(e) => setApprovalSummary(e.target.value)}
-                      placeholder="Customer-friendly approval summary / estimate notes"
-                    />
+                  <div style={styles.mobileDataCardHeader}>
+                    <div>
+                      <div style={styles.sectionTitle}>Customer Approval Layer</div>
+                      <div style={styles.formHint}>Advisor view for internal control, plus a customer-friendly approval preview inspired by digital estimate workflows.</div>
+                    </div>
+                    <div style={styles.inlineActions}>
+                      <button
+                        type="button"
+                        style={approvalPreviewMode === "Advisor" ? styles.smallButton : styles.smallButtonMuted}
+                        onClick={() => setApprovalPreviewMode("Advisor")}
+                      >
+                        Advisor View
+                      </button>
+                      <button
+                        type="button"
+                        style={approvalPreviewMode === "Customer" ? styles.smallButtonSuccess : styles.smallButtonMuted}
+                        onClick={() => setApprovalPreviewMode("Customer")}
+                      >
+                        Customer View
+                      </button>
+                    </div>
                   </div>
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>Communication Hook</label>
-                    <input
-                      style={styles.input}
-                      value={approvalCommHook}
-                      onChange={(e) => setApprovalCommHook(e.target.value)}
-                      placeholder="SMS / email placeholder"
-                    />
+
+                  <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Approval Summary</label>
+                      <textarea
+                        style={styles.textarea}
+                        value={approvalSummary}
+                        onChange={(e) => setApprovalSummary(e.target.value)}
+                        placeholder="Customer-friendly approval summary / estimate notes"
+                      />
+                    </div>
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Communication Hook</label>
+                      <input
+                        style={styles.input}
+                        value={approvalCommHook}
+                        onChange={(e) => setApprovalCommHook(e.target.value)}
+                        placeholder="SMS / email placeholder"
+                      />
+                      <div style={styles.formHint}>Use this as the delivery method label for SMS, email, Viber, or WhatsApp.</div>
+                    </div>
                   </div>
+
                   <div style={styles.summaryGrid}>
                     <div>
                       <strong>Approved</strong>
@@ -4190,37 +5283,99 @@ function RepairOrdersPage({
                       <div>{selectedRO.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length}</div>
                     </div>
                   </div>
-                  <div style={styles.mobileCardList}>
-                    {selectedRO.workLines.map((line) => {
-                      const decision =
-                        line.approvalDecision ??
-                        selectedApproval?.items.find((item) => item.workLineId === line.id)?.decision ??
-                        "Pending";
-                      const approvedAt =
-                        line.approvalAt ||
-                        selectedApproval?.items.find((item) => item.workLineId === line.id)?.approvedAt ||
-                        "";
 
-                      return (
-                        <div key={`approval_${line.id}`} style={styles.mobileDataCard}>
-                          <div style={styles.mobileDataCardHeader}>
-                            <strong>{line.title || "Untitled Work Line"}</strong>
-                            <span style={getApprovalDecisionStyle(decision)}>{decision}</span>
-                          </div>
-                          <div style={styles.mobileDataSecondary}>{line.category} • {formatCurrency(parseMoneyInput(line.totalEstimate))}</div>
-                          {approvedAt ? <div style={styles.formHint}>Decision Time: {formatDateTime(approvedAt)}</div> : null}
-                          <div style={styles.inlineActions}>
-                            <button type="button" style={styles.smallButtonSuccess} onClick={() => setLineDecision("Approved", line.id)}>Approve</button>
-                            <button type="button" style={styles.smallButtonMuted} onClick={() => setLineDecision("Deferred", line.id)}>Defer</button>
-                            <button type="button" style={styles.smallButtonDanger} onClick={() => setLineDecision("Declined", line.id)}>Decline</button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                  <div style={{ ...styles.inlineActions, marginTop: 12, flexWrap: "wrap" }}>
+                    <button type="button" style={styles.smallButtonSuccess} onClick={() => setBulkLineDecision("Approved")}>
+                      Approve All Pending
+                    </button>
+                    <button type="button" style={styles.smallButton} onClick={() => setBulkLineDecision("Deferred")}>
+                      Defer All Pending
+                    </button>
+                    <button type="button" style={styles.smallButtonDanger} onClick={() => setBulkLineDecision("Declined")}>
+                      Decline All Pending
+                    </button>
                   </div>
+
+                  {approvalPreviewMode === "Customer" ? (
+                    <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+                      <div style={styles.sectionTitle}>Customer-Friendly Approval Preview</div>
+                      <div style={styles.mobileCardList}>
+                        {selectedRO.workLines.map((line) => {
+                          const decision =
+                            line.approvalDecision ??
+                            selectedApproval?.items.find((item) => item.workLineId === line.id)?.decision ??
+                            "Pending";
+
+                          return (
+                            <div key={`customer_approval_${line.id}`} style={{ ...styles.mobileDataCard, border: "1px solid rgba(37, 99, 235, 0.12)", background: "#ffffff" }}>
+                              <div style={styles.mobileDataCardHeader}>
+                                <strong>{line.title || "Untitled Work Line"}</strong>
+                                <span style={getApprovalDecisionStyle(decision)}>{decision}</span>
+                              </div>
+                              <div style={styles.mobileDataSecondary}>
+                                {line.category || "General"} • {formatCurrency(parseMoneyInput(line.totalEstimate))}
+                              </div>
+                              <div style={styles.concernCard}>{getCustomerFriendlyLineDescription(line)}</div>
+                              {line.notes ? <div style={styles.formHint}>Tech notes: {line.notes}</div> : null}
+                              <div style={styles.inlineActions}>
+                                <button type="button" style={styles.smallButtonSuccess} onClick={() => setLineDecision("Approved", line.id)}>Approve</button>
+                                <button type="button" style={styles.smallButtonMuted} onClick={() => setLineDecision("Deferred", line.id)}>Defer</button>
+                                <button type="button" style={styles.smallButtonDanger} onClick={() => setLineDecision("Declined", line.id)}>Decline</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Message Preview</label>
+                        <textarea
+                          style={styles.textareaLarge}
+                          value={customerApprovalMessage}
+                          readOnly
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ ...styles.mobileCardList, marginTop: 12 }}>
+                      {selectedRO.workLines.map((line) => {
+                        const decision =
+                          line.approvalDecision ??
+                          selectedApproval?.items.find((item) => item.workLineId === line.id)?.decision ??
+                          "Pending";
+                        const approvedAt =
+                          line.approvalAt ||
+                          selectedApproval?.items.find((item) => item.workLineId === line.id)?.approvedAt ||
+                          "";
+
+                        return (
+                          <div key={`approval_${line.id}`} style={styles.mobileDataCard}>
+                            <div style={styles.mobileDataCardHeader}>
+                              <strong>{line.title || "Untitled Work Line"}</strong>
+                              <span style={getApprovalDecisionStyle(decision)}>{decision}</span>
+                            </div>
+                            <div style={styles.mobileDataSecondary}>
+                              {line.category || "General"} • {formatCurrency(parseMoneyInput(line.totalEstimate))}
+                            </div>
+                            {line.recommendationSource ? (
+                              <div style={styles.formHint}>Source: {line.recommendationSource}</div>
+                            ) : null}
+                            {approvedAt ? <div style={styles.formHint}>Decision Time: {formatDateTime(approvedAt)}</div> : null}
+                            {line.notes ? <div style={styles.concernCard}>{line.notes}</div> : null}
+                            <div style={styles.inlineActions}>
+                              <button type="button" style={styles.smallButtonSuccess} onClick={() => setLineDecision("Approved", line.id)}>Approve</button>
+                              <button type="button" style={styles.smallButtonMuted} onClick={() => setLineDecision("Deferred", line.id)}>Defer</button>
+                              <button type="button" style={styles.smallButtonDanger} onClick={() => setLineDecision("Declined", line.id)}>Decline</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   {selectedApproval ? (
                     <div style={styles.formHint}>
-                      Last approval record: {selectedApproval.approvalNumber} • {formatDateTime(selectedApproval.createdAt)} • Deferred: {selectedRO.deferredLineTitles.length ? selectedRO.deferredLineTitles.join(", ") : "None"}
+                      Last approval record: {selectedApproval.approvalNumber} • {formatDateTime(selectedApproval.createdAt)} • Deferred: {selectedRO.deferredLineTitles.length ? selectedRO.deferredLineTitles.join(", ") : "None"} • Hook: {selectedApproval.communicationHook}
                     </div>
                   ) : null}
                 </div>
@@ -7412,7 +8567,7 @@ const globalCss = `
 const styles: Record<string, React.CSSProperties> = {
   appShell: {
     minHeight: "100vh",
-    background: "#f8fafc",
+    background: "linear-gradient(180deg, #050b1d 0%, #08152f 34%, #101a2d 100%)",
   },
 
   overlay: {
@@ -7428,7 +8583,7 @@ const styles: Record<string, React.CSSProperties> = {
     left: 0,
     bottom: 0,
     width: 280,
-    background: "#0f172a",
+    background: "linear-gradient(180deg, #071126 0%, #0d2d74 42%, #7f1018 100%)",
     color: "#fff",
     padding: 16,
     display: "flex",
@@ -7463,7 +8618,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: 46,
     height: 46,
     borderRadius: 14,
-    background: "#2563eb",
+    background: "linear-gradient(135deg, #facc15 0%, #f59e0b 42%, #dc2626 100%)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -7479,7 +8634,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   sidebarSubtitle: {
     fontSize: 12,
-    color: "#cbd5e1",
+    color: "#f8e7a5",
     marginTop: 2,
   },
 
@@ -7543,7 +8698,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   navButtonActive: {
-    background: "#1e293b",
+    background: "linear-gradient(90deg, rgba(220,38,38,0.92) 0%, rgba(29,78,216,0.96) 100%)",
     color: "#ffffff",
   },
 
@@ -7561,7 +8716,7 @@ const styles: Record<string, React.CSSProperties> = {
   logoutButton: {
     width: "100%",
     border: "none",
-    background: "#dc2626",
+    background: "linear-gradient(90deg, #dc2626 0%, #b91c1c 100%)",
     color: "#fff",
     borderRadius: 12,
     padding: "12px 14px",
@@ -7580,9 +8735,9 @@ const styles: Record<string, React.CSSProperties> = {
     position: "sticky",
     top: 0,
     zIndex: 20,
-    background: "rgba(255,255,255,0.95)",
+    background: "rgba(7, 17, 38, 0.92)",
     backdropFilter: "blur(10px)",
-    borderBottom: "1px solid #e5e7eb",
+    borderBottom: "1px solid rgba(250, 204, 21, 0.35)",
     padding: "14px 18px",
     display: "flex",
     alignItems: "center",
@@ -7619,19 +8774,19 @@ const styles: Record<string, React.CSSProperties> = {
   pageTitle: {
     fontSize: 22,
     fontWeight: 800,
-    color: "#0f172a",
+    color: "#f8fafc",
   },
 
   pageSubtitle: {
     fontSize: 12,
-    color: "#64748b",
+    color: "#cbd5e1",
     marginTop: 2,
   },
 
   topBarName: {
     fontSize: 14,
     fontWeight: 700,
-    color: "#334155",
+    color: "#e2e8f0",
   },
 
   mainContent: {
@@ -7654,11 +8809,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   card: {
-    background: "#fff",
-    border: "1px solid #e5e7eb",
+    background: "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(241,245,249,0.98) 100%)",
+    border: "1px solid rgba(29,78,216,0.16)",
     borderRadius: 18,
     padding: 18,
-    boxShadow: "0 2px 12px rgba(15, 23, 42, 0.05)",
+    boxShadow: "0 8px 28px rgba(5, 11, 29, 0.12)",
     height: "100%",
   },
 
@@ -7899,7 +9054,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: 54,
     height: 54,
     borderRadius: 16,
-    background: "#2563eb",
+    background: "linear-gradient(90deg, #dc2626 0%, #1d4ed8 100%)",
     color: "#fff",
     display: "flex",
     alignItems: "center",
@@ -7977,33 +9132,33 @@ const styles: Record<string, React.CSSProperties> = {
 
   input: {
     width: "100%",
-    border: "1px solid #cbd5e1",
+    border: "1px solid rgba(37, 99, 235, 0.22)",
     borderRadius: 12,
     padding: "12px 14px",
-    background: "#fff",
+    background: "#ffffff",
     outline: "none",
-    color: "#111827",
+    color: "#0f172a",
   },
 
   select: {
     width: "100%",
-    border: "1px solid #cbd5e1",
+    border: "1px solid rgba(37, 99, 235, 0.22)",
     borderRadius: 12,
     padding: "12px 14px",
-    background: "#fff",
+    background: "#ffffff",
     outline: "none",
-    color: "#111827",
+    color: "#0f172a",
   },
 
   textarea: {
     width: "100%",
     minHeight: 92,
-    border: "1px solid #cbd5e1",
+    border: "1px solid rgba(37, 99, 235, 0.22)",
     borderRadius: 12,
     padding: "12px 14px",
-    background: "#fff",
+    background: "#ffffff",
     outline: "none",
-    color: "#111827",
+    color: "#0f172a",
   },
 
   checkboxRow: {
@@ -8034,11 +9189,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   secondaryButton: {
-    border: "1px solid #cbd5e1",
+    border: "1px solid rgba(29,78,216,0.25)",
     borderRadius: 12,
     padding: "13px 16px",
-    background: "#fff",
-    color: "#334155",
+    background: "#ffffff",
+    color: "#0f172a",
     fontWeight: 700,
     cursor: "pointer",
   },

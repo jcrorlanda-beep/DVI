@@ -10,7 +10,9 @@ interface DashboardProps {
 const STATUS_COLORS: Record<WorkOrderStatus, { bg: string; text: string }> = {
   pending: { bg: '#fef3c7', text: '#92400e' },
   'in-progress': { bg: '#dbeafe', text: '#1e40af' },
+  'needs-parts': { bg: '#fce7f3', text: '#9d174d' },
   complete: { bg: '#dcfce7', text: '#166534' },
+  invoiced: { bg: '#ede9fe', text: '#5b21b6' },
   cancelled: { bg: '#fee2e2', text: '#991b1b' },
 }
 
@@ -60,7 +62,7 @@ const Dashboard: FC<DashboardProps> = ({ workOrders, laborRate, onNavigateToOrde
   ).length
   const totalValue = workOrders
     .filter((wo) => wo.status !== 'cancelled')
-    .reduce((sum, wo) => sum + wo.estimatedHours * laborRate + wo.partsTotal, 0)
+    .reduce((sum, wo) => sum + (wo.estimatedHours ?? 0) * laborRate + (wo.partsTotal ?? 0), 0)
 
   const recent = [...workOrders]
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
@@ -163,7 +165,7 @@ const Dashboard: FC<DashboardProps> = ({ workOrders, laborRate, onNavigateToOrde
           <tbody>
             {recent.map((wo, i) => {
               const sc = STATUS_COLORS[wo.status]
-              const value = wo.estimatedHours * laborRate + wo.partsTotal
+              const value = (wo.estimatedHours ?? 0) * laborRate + (wo.partsTotal ?? 0)
               return (
                 <tr
                   key={wo.id}
