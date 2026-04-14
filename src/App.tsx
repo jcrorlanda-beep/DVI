@@ -144,6 +144,22 @@ type InspectionEvidenceRecord = {
   mobileOptimized: boolean;
 };
 
+type FindingStatus = "OK" | "Monitor" | "Replace";
+
+type CategoryAdditionalFinding = {
+  id: string;
+  title: string;
+  note: string;
+  status: FindingStatus;
+  photoNotes: string[];
+};
+
+type FindingCategoryKey =
+  | "coolingAdditionalFindings"
+  | "steeringAdditionalFindings"
+  | "enginePerformanceAdditionalFindings"
+  | "roadTestAdditionalFindings";
+
 
 type InspectionRecord = {
   id: string;
@@ -209,6 +225,42 @@ type InspectionRecord = {
   enableBrakes: boolean;
   enableAlignmentCheck: boolean;
   enableAcCheck: boolean;
+  enableCoolingCheck: boolean;
+  coolingFanOperationState: InspectionCheckValue;
+  radiatorConditionState: InspectionCheckValue;
+  waterPumpConditionState: InspectionCheckValue;
+  thermostatConditionState: InspectionCheckValue;
+  overflowReservoirConditionState: InspectionCheckValue;
+  coolingSystemPressureState: InspectionCheckValue;
+  coolingSystemNotes: string;
+  coolingAdditionalFindings: CategoryAdditionalFinding[];
+  enableSteeringCheck: boolean;
+  steeringWheelPlayState: InspectionCheckValue;
+  steeringPumpMotorState: InspectionCheckValue;
+  steeringFluidConditionState: InspectionCheckValue;
+  steeringHoseConditionState: InspectionCheckValue;
+  steeringColumnConditionState: InspectionCheckValue;
+  steeringRoadFeelState: InspectionCheckValue;
+  steeringSystemNotes: string;
+  steeringAdditionalFindings: CategoryAdditionalFinding[];
+  enableEnginePerformanceCheck: boolean;
+  engineStartingState: InspectionCheckValue;
+  idleQualityState: InspectionCheckValue;
+  accelerationResponseState: InspectionCheckValue;
+  engineMisfireState: InspectionCheckValue;
+  engineSmokeState: InspectionCheckValue;
+  fuelEfficiencyConcernState: InspectionCheckValue;
+  enginePerformanceNotes: string;
+  enginePerformanceAdditionalFindings: CategoryAdditionalFinding[];
+  enableRoadTestCheck: boolean;
+  roadTestNoiseState: InspectionCheckValue;
+  roadTestBrakeFeelState: InspectionCheckValue;
+  roadTestSteeringTrackingState: InspectionCheckValue;
+  roadTestRideQualityState: InspectionCheckValue;
+  roadTestAccelerationState: InspectionCheckValue;
+  roadTestTransmissionShiftState: InspectionCheckValue;
+  roadTestNotes: string;
+  roadTestAdditionalFindings: CategoryAdditionalFinding[];
   acVentTemperature: string;
   acCoolingPerformanceState: InspectionCheckValue;
   acCompressorState: InspectionCheckValue;
@@ -392,6 +444,7 @@ type RepairOrderRecord = {
   latestApprovalRecordId: string;
   deferredLineTitles: string[];
   backjobReferenceRoId: string;
+  findingRecommendationDecisions: FindingRecommendationDecision[];
   encodedBy: string;
 };
 
@@ -515,6 +568,29 @@ type ApprovalWorkItem = {
   note: string;
 };
 
+
+
+type FindingToRORecommendation = {
+  id: string;
+  category: string;
+  title: string;
+  note: string;
+  status: FindingStatus;
+  photoNotes: string[];
+  workLineTitle: string;
+  decision?: "Pending" | "Approved" | "Declined" | "Deferred";
+  decidedAt?: string;
+};
+
+type FindingRecommendationDecision = {
+  recommendationId: string;
+  title: string;
+  category: string;
+  decision: "Approved" | "Declined" | "Deferred";
+  decidedAt: string;
+  note: string;
+};
+
 type ApprovalRecord = {
   id: string;
   approvalNumber: string;
@@ -581,7 +657,7 @@ type PaymentRecord = {
 };
 
 
-const BUILD_VERSION = "Phase 13M — Customer Approval UI";
+const BUILD_VERSION = "Phase 14B — Customer Approval UI";
 
 const STORAGE_KEYS = {
   users: "dvi_phase1_users_v2",
@@ -674,6 +750,42 @@ function todayStamp(date = new Date()) {
   return `${yyyy}${mm}${dd}`;
 }
 
+
+const MOBILE_EVIDENCE_MAX_WIDTH = 1280;
+const MOBILE_EVIDENCE_VIDEO_MAX_MB = 15;
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(new Error("Unable to read file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(source: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Unable to load image."));
+    img.src = source;
+  });
+}
+
+async function optimizeImageForMobile(file: File) {
+  const dataUrl = await fileToDataUrl(file);
+  const image = await loadImage(dataUrl);
+  const scale = Math.min(1, MOBILE_EVIDENCE_MAX_WIDTH / Math.max(image.width, 1));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return dataUrl;
+  ctx.drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", 0.78);
+}
 
 function readLocalStorage<T>(key: string, fallback: T): T {
   try {
@@ -918,7 +1030,43 @@ function getDefaultInspectionForm(): InspectionForm {
     enableSuspensionCheck: false,
     enableAlignmentCheck: false,
     enableAcCheck: false,
-    acVentTemperature: "",
+    enableCoolingCheck: false,
+    coolingFanOperationState: "Not Checked",
+    radiatorConditionState: "Not Checked",
+    waterPumpConditionState: "Not Checked",
+    thermostatConditionState: "Not Checked",
+    overflowReservoirConditionState: "Not Checked",
+    coolingSystemPressureState: "Not Checked",
+    coolingSystemNotes: "",
+    coolingAdditionalFindings: [],
+    enableSteeringCheck: false,
+    steeringWheelPlayState: "Not Checked",
+    steeringPumpMotorState: "Not Checked",
+    steeringFluidConditionState: "Not Checked",
+    steeringHoseConditionState: "Not Checked",
+    steeringColumnConditionState: "Not Checked",
+    steeringRoadFeelState: "Not Checked",
+    steeringSystemNotes: "",
+    steeringAdditionalFindings: [],
+    enableEnginePerformanceCheck: false,
+    engineStartingState: "Not Checked",
+    idleQualityState: "Not Checked",
+    accelerationResponseState: "Not Checked",
+    engineMisfireState: "Not Checked",
+    engineSmokeState: "Not Checked",
+    fuelEfficiencyConcernState: "Not Checked",
+    enginePerformanceNotes: "",
+    enginePerformanceAdditionalFindings: [],
+    enableRoadTestCheck: false,
+    roadTestNoiseState: "Not Checked",
+    roadTestBrakeFeelState: "Not Checked",
+    roadTestSteeringTrackingState: "Not Checked",
+    roadTestRideQualityState: "Not Checked",
+    roadTestAccelerationState: "Not Checked",
+    roadTestTransmissionShiftState: "Not Checked",
+    roadTestNotes: "",
+    roadTestAdditionalFindings: [],
+    acVentTemperature: "", 
     acCoolingPerformanceState: "Not Checked",
     acCompressorState: "Not Checked",
     acCondenserFanState: "Not Checked",
@@ -1046,6 +1194,42 @@ function formatElapsedTime(startValue?: string) {
   return `${minutes}m`;
 }
 
+function getEmptyAdditionalFinding(): CategoryAdditionalFinding {
+  return {
+    id: uid("af"),
+    title: "",
+    note: "",
+    status: "Monitor",
+    photoNotes: [],
+  };
+}
+
+function normalizeAdditionalFindings(value: unknown): CategoryAdditionalFinding[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item, index) => {
+    const row = item as Partial<CategoryAdditionalFinding> | null;
+    return {
+      id: row?.id || uid(`af_${index}`),
+      title: row?.title ?? "",
+      note: row?.note ?? "",
+      status: row?.status === "OK" || row?.status === "Monitor" || row?.status === "Replace" ? row.status : "Monitor",
+      photoNotes: Array.isArray(row?.photoNotes) ? row!.photoNotes.map((note) => String(note ?? "")) : [],
+    };
+  });
+}
+
+function buildFindingRecommendations(findings: CategoryAdditionalFinding[], categoryLabel: string) {
+  const recommendations: string[] = [];
+  findings.forEach((finding) => {
+    const title = finding.title.trim();
+    if (!title) return;
+    if (finding.status === "OK") return;
+    const prefix = finding.status === "Replace" ? "Replace" : "Inspect / Monitor";
+    recommendations.push(`${prefix}: ${categoryLabel} - ${title}`);
+  });
+  return recommendations;
+}
+
 
 function getEmptyWorkLine(): RepairOrderWorkLine {
   return {
@@ -1134,6 +1318,10 @@ function getPaymentStatusFromAmounts(totalAmount: string, paymentTotal: number):
 }
 
 
+function getVehicleAccountLabel(record: { companyName: string; customerName: string }) {
+  return record.companyName || record.customerName || "Unknown Customer";
+}
+
 function normalizeLegacyPartsStatus(status: PartsRequestStatus): PartsRequestStatus {
   if (status === "Bidding") return "Waiting for Bids";
   if (status === "Arrived") return "Parts Arrived";
@@ -1147,16 +1335,75 @@ function parseRecommendationLines(input: string) {
     .filter(Boolean);
 }
 
+
+
+function buildFindingToRORecommendations(record: InspectionRecord): FindingToRORecommendation[] {
+  const categories: Array<{
+    key: FindingCategoryKey;
+    label: string;
+    items: CategoryAdditionalFinding[];
+  }> = [
+    { key: "coolingAdditionalFindings", label: "Cooling System", items: record.coolingAdditionalFindings ?? [] },
+    { key: "steeringAdditionalFindings", label: "Steering", items: record.steeringAdditionalFindings ?? [] },
+    { key: "enginePerformanceAdditionalFindings", label: "Engine Performance", items: record.enginePerformanceAdditionalFindings ?? [] },
+    { key: "roadTestAdditionalFindings", label: "Road Test", items: record.roadTestAdditionalFindings ?? [] },
+  ];
+
+  return categories.flatMap(({ label, items }) =>
+    items
+      .filter((finding) => finding.status !== "OK" && (!!finding.title.trim() || !!finding.note.trim()))
+      .map((finding) => ({
+        id: finding.id,
+        category: label,
+        title: finding.title.trim() || `${label} Finding`,
+        note: finding.note.trim(),
+        status: finding.status,
+        photoNotes: finding.photoNotes.map((note) => note.trim()).filter(Boolean),
+        workLineTitle: finding.title.trim() || `${label} Finding`,
+      }))
+  );
+}
+
 function isAttentionOrReplacement(value: InspectionCheckValue) {
   return value === "Needs Attention" || value === "Needs Replacement";
 }
 
+
+function isWarningLightOn(value: WarningLightState) {
+  return value === "On";
+}
 
 function getWarningLightStyle(value: WarningLightState): React.CSSProperties {
   if (value === "On") return styles.statusLocked;
   if (value === "Off") return styles.statusOk;
   return styles.statusNeutral;
 }
+
+function buildScanRecommendations(form: InspectionForm) {
+  const recommendations: string[] = [];
+  const push = (condition: boolean, rec: string) => {
+    if (condition && !recommendations.includes(rec)) recommendations.push(rec);
+  };
+
+  const anyArrivalWarningOn = [
+    form.arrivalCheckEngineLight,
+    form.arrivalAbsLight,
+    form.arrivalAirbagLight,
+    form.arrivalBatteryLight,
+    form.arrivalOilPressureLight,
+    form.arrivalTempLight,
+    form.arrivalTransmissionLight,
+    form.arrivalOtherWarningLight,
+  ].some(isWarningLightOn);
+
+  push(anyArrivalWarningOn, "OBD2 scan / warning light diagnostic");
+  push(form.scanPerformed || form.scanUploadNames.length > 0, "Diagnostic review of scan results");
+  push(anyArrivalWarningOn && (form.scanPerformed || form.scanUploadNames.length > 0), "Full system diagnostic review");
+  push(!!form.scanNotes.trim(), "Diagnostic note review");
+
+  return recommendations;
+}
+
 
 function buildDetailedUnderHoodRecommendations(form: InspectionForm) {
   const recommendations: string[] = [];
@@ -1232,6 +1479,119 @@ function buildSuspensionRecommendations(form: InspectionForm) {
 
 
 
+
+
+function buildCoolingRecommendations(form: InspectionForm) {
+  const recommendations: string[] = [];
+
+  const push = (condition: boolean, rec: string) => {
+    if (condition && !recommendations.includes(rec)) recommendations.push(rec);
+  };
+
+  push(isAttentionOrReplacement(form.coolingFanOperationState), "Cooling fan inspection / service");
+  push(isAttentionOrReplacement(form.radiatorConditionState), "Radiator inspection / service");
+  push(isAttentionOrReplacement(form.waterPumpConditionState), "Water pump inspection / replacement");
+  push(isAttentionOrReplacement(form.thermostatConditionState), "Thermostat inspection / replacement");
+  push(isAttentionOrReplacement(form.overflowReservoirConditionState), "Overflow reservoir inspection");
+  push(isAttentionOrReplacement(form.coolingSystemPressureState), "Cooling system pressure test");
+  push(
+    [
+      form.coolingFanOperationState,
+      form.radiatorConditionState,
+      form.waterPumpConditionState,
+      form.thermostatConditionState,
+      form.overflowReservoirConditionState,
+      form.coolingSystemPressureState,
+    ].some(isAttentionOrReplacement) || !!form.coolingSystemNotes.trim(),
+    "Cooling system diagnosis"
+  );
+
+  return recommendations;
+}
+
+function buildSteeringRecommendations(form: InspectionForm) {
+  const recommendations: string[] = [];
+
+  const push = (condition: boolean, rec: string) => {
+    if (condition && !recommendations.includes(rec)) recommendations.push(rec);
+  };
+
+  push(isAttentionOrReplacement(form.steeringWheelPlayState), "Steering play inspection");
+  push(isAttentionOrReplacement(form.steeringPumpMotorState), "Steering pump / EPS motor inspection");
+  push(isAttentionOrReplacement(form.steeringFluidConditionState), "Steering fluid inspection / service");
+  push(isAttentionOrReplacement(form.steeringHoseConditionState), "Steering hose / line inspection");
+  push(isAttentionOrReplacement(form.steeringColumnConditionState), "Steering column inspection");
+  push(isAttentionOrReplacement(form.steeringRoadFeelState), "Steering road feel diagnosis");
+  push(
+    [
+      form.steeringWheelPlayState,
+      form.steeringPumpMotorState,
+      form.steeringFluidConditionState,
+      form.steeringHoseConditionState,
+      form.steeringColumnConditionState,
+      form.steeringRoadFeelState,
+    ].some(isAttentionOrReplacement) || !!form.steeringSystemNotes.trim(),
+    "Steering system diagnosis"
+  );
+
+  return recommendations;
+}
+
+function buildEnginePerformanceRecommendations(form: InspectionForm) {
+  const recommendations: string[] = [];
+
+  const push = (condition: boolean, rec: string) => {
+    if (condition && !recommendations.includes(rec)) recommendations.push(rec);
+  };
+
+  push(isAttentionOrReplacement(form.engineStartingState), "Starting performance diagnosis");
+  push(isAttentionOrReplacement(form.idleQualityState), "Idle quality diagnosis");
+  push(isAttentionOrReplacement(form.accelerationResponseState), "Acceleration response diagnosis");
+  push(isAttentionOrReplacement(form.engineMisfireState), "Misfire diagnosis");
+  push(isAttentionOrReplacement(form.engineSmokeState), "Engine smoke / combustion diagnosis");
+  push(isAttentionOrReplacement(form.fuelEfficiencyConcernState), "Fuel efficiency performance check");
+  push(
+    [
+      form.engineStartingState,
+      form.idleQualityState,
+      form.accelerationResponseState,
+      form.engineMisfireState,
+      form.engineSmokeState,
+      form.fuelEfficiencyConcernState,
+    ].some(isAttentionOrReplacement) || !!form.enginePerformanceNotes.trim(),
+    "Engine performance diagnosis"
+  );
+
+  return recommendations;
+}
+
+function buildRoadTestRecommendations(form: InspectionForm) {
+  const recommendations: string[] = [];
+
+  const push = (condition: boolean, rec: string) => {
+    if (condition && !recommendations.includes(rec)) recommendations.push(rec);
+  };
+
+  push(isAttentionOrReplacement(form.roadTestNoiseState), "Road-test noise diagnosis");
+  push(isAttentionOrReplacement(form.roadTestBrakeFeelState), "Brake feel road-test diagnosis");
+  push(isAttentionOrReplacement(form.roadTestSteeringTrackingState), "Steering tracking road-test diagnosis");
+  push(isAttentionOrReplacement(form.roadTestRideQualityState), "Ride quality road-test diagnosis");
+  push(isAttentionOrReplacement(form.roadTestAccelerationState), "Acceleration road-test diagnosis");
+  push(isAttentionOrReplacement(form.roadTestTransmissionShiftState), "Shift quality road-test diagnosis");
+  push(
+    [
+      form.roadTestNoiseState,
+      form.roadTestBrakeFeelState,
+      form.roadTestSteeringTrackingState,
+      form.roadTestRideQualityState,
+      form.roadTestAccelerationState,
+      form.roadTestTransmissionShiftState,
+    ].some(isAttentionOrReplacement) || !!form.roadTestNotes.trim(),
+    "Extended road test and drivability review"
+  );
+
+  return recommendations;
+}
 
 function buildAcRecommendations(form: InspectionForm) {
   const recommendations: string[] = [];
@@ -1366,6 +1726,100 @@ function buildCustomerApprovalMessage(ro: RepairOrderRecord | null) {
   ].join("\n");
 }
 
+function hasInspectionCriticalState(record: InspectionRecord) {
+  return [
+    record.underHoodState,
+    record.engineOilLevel,
+    record.engineOilCondition,
+    record.engineOilLeaks,
+    record.coolantLevel,
+    record.coolantCondition,
+    record.radiatorHoseCondition,
+    record.coolingLeaks,
+    record.brakeFluidLevel,
+    record.brakeFluidCondition,
+    record.powerSteeringLevel,
+    record.powerSteeringCondition,
+    record.batteryCondition,
+    record.batteryTerminalCondition,
+    record.batteryHoldDownCondition,
+    record.driveBeltCondition,
+    record.airFilterCondition,
+    record.intakeHoseCondition,
+    record.engineMountCondition,
+    record.wiringCondition,
+    record.unusualSmellState,
+    record.unusualSoundState,
+    record.visibleEngineLeakState,
+    record.frontShockState,
+    record.frontBallJointState,
+    record.frontTieRodEndState,
+    record.frontRackEndState,
+    record.frontStabilizerLinkState,
+    record.frontControlArmBushingState,
+    record.frontCvBootState,
+    record.frontWheelBearingState,
+    record.rearShockState,
+    record.rearStabilizerLinkState,
+    record.rearBushingState,
+    record.rearSpringState,
+    record.rearWheelBearingState,
+    (record as any).coolingFanOperationState ?? "Not Checked",
+    (record as any).radiatorConditionState ?? "Not Checked",
+    (record as any).waterPumpConditionState ?? "Not Checked",
+    (record as any).thermostatConditionState ?? "Not Checked",
+    (record as any).overflowReservoirConditionState ?? "Not Checked",
+    (record as any).coolingSystemPressureState ?? "Not Checked",
+    (record as any).steeringWheelPlayState ?? "Not Checked",
+    (record as any).steeringPumpMotorState ?? "Not Checked",
+    (record as any).steeringFluidConditionState ?? "Not Checked",
+    (record as any).steeringHoseConditionState ?? "Not Checked",
+    (record as any).steeringColumnConditionState ?? "Not Checked",
+    (record as any).steeringRoadFeelState ?? "Not Checked",
+    (record as any).engineStartingState ?? "Not Checked",
+    (record as any).idleQualityState ?? "Not Checked",
+    (record as any).accelerationResponseState ?? "Not Checked",
+    (record as any).engineMisfireState ?? "Not Checked",
+    (record as any).engineSmokeState ?? "Not Checked",
+    (record as any).fuelEfficiencyConcernState ?? "Not Checked",
+    (record as any).roadTestNoiseState ?? "Not Checked",
+    (record as any).roadTestBrakeFeelState ?? "Not Checked",
+    (record as any).roadTestSteeringTrackingState ?? "Not Checked",
+    (record as any).roadTestRideQualityState ?? "Not Checked",
+    (record as any).roadTestAccelerationState ?? "Not Checked",
+    (record as any).roadTestTransmissionShiftState ?? "Not Checked",
+    record.acCoolingPerformanceState,
+    record.acCompressorState,
+    record.acCondenserFanState,
+    record.acCabinFilterState,
+    record.acAirflowState,
+    record.acOdorState,
+    record.arrivalLights,
+    record.arrivalBrokenGlass,
+    record.arrivalWipers,
+    record.arrivalHorn,
+    record.frontLeftTireState,
+    record.frontRightTireState,
+    record.rearLeftTireState,
+    record.rearRightTireState,
+    record.frontBrakeState,
+    record.rearBrakeState,
+    record.electricalStarterState,
+    record.electricalAlternatorState,
+    record.electricalFuseRelayState,
+    record.electricalWiringState,
+    record.electricalWarningLightState,
+    (record as any).transmissionFluidState ?? "Not Checked",
+    (record as any).transmissionFluidConditionState ?? "Not Checked",
+    (record as any).transmissionLeakState ?? "Not Checked",
+    (record as any).shiftingPerformanceState ?? "Not Checked",
+    (record as any).clutchOperationState ?? "Not Checked",
+    (record as any).drivetrainVibrationState ?? "Not Checked",
+    (record as any).cvJointDriveAxleState ?? "Not Checked",
+    (record as any).transmissionMountState ?? "Not Checked",
+  ].some((value) => value === "Needs Attention" || value === "Needs Replacement");
+}
+
 function getROStatusStyle(status: ROStatus): React.CSSProperties {
   if (status === "Draft") return styles.statusNeutral;
   if (status === "Waiting Inspection" || status === "Waiting Approval") return styles.statusInfo;
@@ -1461,6 +1915,42 @@ function migrateInspectionRecord(record: InspectionRecord): InspectionRecord {
     enableUnderHood: (record as any).enableUnderHood ?? true,
     enableAlignmentCheck: (record as any).enableAlignmentCheck ?? false,
     enableAcCheck: (record as any).enableAcCheck ?? false,
+    enableCoolingCheck: (record as any).enableCoolingCheck ?? false,
+    coolingFanOperationState: (record as any).coolingFanOperationState ?? "Not Checked",
+    radiatorConditionState: (record as any).radiatorConditionState ?? "Not Checked",
+    waterPumpConditionState: (record as any).waterPumpConditionState ?? "Not Checked",
+    thermostatConditionState: (record as any).thermostatConditionState ?? "Not Checked",
+    overflowReservoirConditionState: (record as any).overflowReservoirConditionState ?? "Not Checked",
+    coolingSystemPressureState: (record as any).coolingSystemPressureState ?? "Not Checked",
+    coolingSystemNotes: (record as any).coolingSystemNotes ?? "",
+    coolingAdditionalFindings: normalizeAdditionalFindings((record as any).coolingAdditionalFindings),
+    enableSteeringCheck: (record as any).enableSteeringCheck ?? false,
+    steeringWheelPlayState: (record as any).steeringWheelPlayState ?? "Not Checked",
+    steeringPumpMotorState: (record as any).steeringPumpMotorState ?? "Not Checked",
+    steeringFluidConditionState: (record as any).steeringFluidConditionState ?? "Not Checked",
+    steeringHoseConditionState: (record as any).steeringHoseConditionState ?? "Not Checked",
+    steeringColumnConditionState: (record as any).steeringColumnConditionState ?? "Not Checked",
+    steeringRoadFeelState: (record as any).steeringRoadFeelState ?? "Not Checked",
+    steeringSystemNotes: (record as any).steeringSystemNotes ?? "",
+    steeringAdditionalFindings: normalizeAdditionalFindings((record as any).steeringAdditionalFindings),
+    enableEnginePerformanceCheck: (record as any).enableEnginePerformanceCheck ?? false,
+    engineStartingState: (record as any).engineStartingState ?? "Not Checked",
+    idleQualityState: (record as any).idleQualityState ?? "Not Checked",
+    accelerationResponseState: (record as any).accelerationResponseState ?? "Not Checked",
+    engineMisfireState: (record as any).engineMisfireState ?? "Not Checked",
+    engineSmokeState: (record as any).engineSmokeState ?? "Not Checked",
+    fuelEfficiencyConcernState: (record as any).fuelEfficiencyConcernState ?? "Not Checked",
+    enginePerformanceNotes: (record as any).enginePerformanceNotes ?? "",
+    enginePerformanceAdditionalFindings: normalizeAdditionalFindings((record as any).enginePerformanceAdditionalFindings),
+    enableRoadTestCheck: (record as any).enableRoadTestCheck ?? false,
+    roadTestNoiseState: (record as any).roadTestNoiseState ?? "Not Checked",
+    roadTestBrakeFeelState: (record as any).roadTestBrakeFeelState ?? "Not Checked",
+    roadTestSteeringTrackingState: (record as any).roadTestSteeringTrackingState ?? "Not Checked",
+    roadTestRideQualityState: (record as any).roadTestRideQualityState ?? "Not Checked",
+    roadTestAccelerationState: (record as any).roadTestAccelerationState ?? "Not Checked",
+    roadTestTransmissionShiftState: (record as any).roadTestTransmissionShiftState ?? "Not Checked",
+    roadTestNotes: (record as any).roadTestNotes ?? "",
+    roadTestAdditionalFindings: normalizeAdditionalFindings((record as any).roadTestAdditionalFindings),
     acVentTemperature: (record as any).acVentTemperature ?? "",
     acCoolingPerformanceState: (record as any).acCoolingPerformanceState ?? "Not Checked",
     acCompressorState: (record as any).acCompressorState ?? "Not Checked",
@@ -1544,6 +2034,16 @@ function migrateRepairOrderRecord(record: RepairOrderRecord): RepairOrderRecord 
     latestApprovalRecordId: (record as any).latestApprovalRecordId ?? "",
     deferredLineTitles: (record as any).deferredLineTitles ?? [],
     backjobReferenceRoId: (record as any).backjobReferenceRoId ?? "",
+    findingRecommendationDecisions: Array.isArray((record as any).findingRecommendationDecisions)
+      ? (record as any).findingRecommendationDecisions.map((item: any, index: number) => ({
+          recommendationId: String(item?.recommendationId ?? `finding_rec_${index}`),
+          title: String(item?.title ?? ""),
+          category: String(item?.category ?? "General"),
+          decision: item?.decision === "Approved" ? "Approved" : "Declined",
+          decidedAt: String(item?.decidedAt ?? ""),
+          note: String(item?.note ?? ""),
+        }))
+      : [],
   };
 }
 
@@ -1778,6 +2278,7 @@ function DashboardPage({
     count: activeUsers.filter((u) => u.role === role).length,
   }));
 
+  const currentPermissions = getPermissionsForRole(currentUser.role, roleDefinitions);
   const waitingInspection = intakeRecords.filter((row) => row.status === "Waiting Inspection").length;
   const fleetCount = intakeRecords.filter((row) => row.accountType === "Company / Fleet").length;
   const latestIntakes = intakeRecords.slice(0, 5);
@@ -1791,6 +2292,7 @@ function DashboardPage({
   const daysInMonth = new Date().getDate() <= 28 ? 30 : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
   const monthlyProjection = (monthlySales / daysWorked) * daysInMonth;
   const qcFailures = qcRecords.filter((row) => row.result === "Failed").length;
+  const approvalsDone = approvalRecords.length;
   const approvalItems = approvalRecords.flatMap((row) => row.items);
   const approvedItems = approvalItems.filter((row) => row.decision === "Approved").length;
   const approvalRate = approvalItems.length ? Math.round((approvedItems / approvalItems.length) * 100) : 0;
@@ -2114,6 +2616,18 @@ function IntakePage({
         .toLowerCase()
         .includes(term)
     );
+  }, [intakeRecords, search]);
+
+  const vehicleHistoryMatches = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return [];
+    return intakeRecords.filter((row) => row.plateNumber.toLowerCase() === term || row.conductionNumber.toLowerCase() === term).slice(0, 8);
+  }, [intakeRecords, search]);
+
+  const customerHistoryMatches = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return [];
+    return intakeRecords.filter((row) => [row.customerName, row.companyName].join(" ").toLowerCase().includes(term)).slice(0, 8);
   }, [intakeRecords, search]);
 
   const resetForm = () => {
@@ -2614,6 +3128,54 @@ function InspectionPage({
   const [form, setForm] = useState<InspectionForm>(() => getDefaultInspectionForm());
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [evidenceSection, setEvidenceSection] = useState("Under the Hood");
+  const [evidenceItemLabel, setEvidenceItemLabel] = useState("");
+
+
+  const addEvidenceFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    const nextItems: InspectionEvidenceRecord[] = [];
+    for (const file of Array.from(files)) {
+      const isVideo = file.type.startsWith("video/");
+      if (isVideo && file.size > MOBILE_EVIDENCE_VIDEO_MAX_MB * 1024 * 1024) {
+        setError(`Video evidence must be ${MOBILE_EVIDENCE_VIDEO_MAX_MB}MB or less for mobile-friendly viewing.`);
+        return;
+      }
+
+      let previewDataUrl = "";
+      let mobileOptimized = false;
+      if (!isVideo && file.type.startsWith("image/")) {
+        previewDataUrl = await optimizeImageForMobile(file);
+        mobileOptimized = true;
+      }
+
+      nextItems.push({
+        id: uid("evd"),
+        type: isVideo ? "Video" : "Photo",
+        section: evidenceSection || "General",
+        itemLabel: evidenceItemLabel.trim() || evidenceSection || "General",
+        fileName: file.name,
+        previewDataUrl,
+        addedAt: new Date().toISOString(),
+        mobileOptimized,
+      });
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      evidenceItems: [...prev.evidenceItems, ...nextItems],
+    }));
+    setError("");
+  };
+
+  const removeEvidenceItem = (evidenceId: string) => {
+    setForm((prev) => ({
+      ...prev,
+      evidenceItems: prev.evidenceItems.filter((item) => item.id !== evidenceId),
+    }));
+  };
+
   const addAdditionalFindingPhotoNote = () => {
     setForm((prev) => ({
       ...prev,
@@ -2653,6 +3215,80 @@ function InspectionPage({
     setForm((prev) => ({
       ...prev,
       scanUploadNames: prev.scanUploadNames.filter((_, itemIndex) => itemIndex !== index),
+    }));
+  };
+
+  const addCategoryFinding = (category: FindingCategoryKey) => {
+    setForm((prev) => ({
+      ...prev,
+      [category]: [...prev[category], getEmptyAdditionalFinding()],
+    }));
+  };
+
+  const updateCategoryFinding = (
+    category: FindingCategoryKey,
+    findingId: string,
+    field: "title" | "note" | "status",
+    value: string
+  ) => {
+    setForm((prev) => ({
+      ...prev,
+      [category]: prev[category].map((finding) =>
+        finding.id === findingId ? { ...finding, [field]: field === "status" ? (value as FindingStatus) : value } : finding
+      ),
+    }));
+  };
+
+  const removeCategoryFinding = (category: FindingCategoryKey, findingId: string) => {
+    setForm((prev) => ({
+      ...prev,
+      [category]: prev[category].filter((finding) => finding.id !== findingId),
+    }));
+  };
+
+  const addCategoryFindingPhotoNote = (category: FindingCategoryKey, findingId: string) => {
+    setForm((prev) => ({
+      ...prev,
+      [category]: prev[category].map((finding) =>
+        finding.id === findingId ? { ...finding, photoNotes: [...finding.photoNotes, ""] } : finding
+      ),
+    }));
+  };
+
+  const updateCategoryFindingPhotoNote = (
+    category: FindingCategoryKey,
+    findingId: string,
+    photoIndex: number,
+    value: string
+  ) => {
+    setForm((prev) => ({
+      ...prev,
+      [category]: prev[category].map((finding) =>
+        finding.id === findingId
+          ? {
+              ...finding,
+              photoNotes: finding.photoNotes.map((note, index) => (index === photoIndex ? value : note)),
+            }
+          : finding
+      ),
+    }));
+  };
+
+  const removeCategoryFindingPhotoNote = (
+    category: FindingCategoryKey,
+    findingId: string,
+    photoIndex: number
+  ) => {
+    setForm((prev) => ({
+      ...prev,
+      [category]: prev[category].map((finding) =>
+        finding.id === findingId
+          ? {
+              ...finding,
+              photoNotes: finding.photoNotes.filter((_, index) => index !== photoIndex),
+            }
+          : finding
+      ),
     }));
   };
 
@@ -2702,6 +3338,42 @@ function InspectionPage({
         enableSuspensionCheck: (selectedInspection as any).enableSuspensionCheck ?? false,
         enableAlignmentCheck: (selectedInspection as any).enableAlignmentCheck ?? false,
         enableAcCheck: (selectedInspection as any).enableAcCheck ?? false,
+        enableCoolingCheck: (selectedInspection as any).enableCoolingCheck ?? false,
+        coolingFanOperationState: (selectedInspection as any).coolingFanOperationState ?? "Not Checked",
+        radiatorConditionState: (selectedInspection as any).radiatorConditionState ?? "Not Checked",
+        waterPumpConditionState: (selectedInspection as any).waterPumpConditionState ?? "Not Checked",
+        thermostatConditionState: (selectedInspection as any).thermostatConditionState ?? "Not Checked",
+        overflowReservoirConditionState: (selectedInspection as any).overflowReservoirConditionState ?? "Not Checked",
+        coolingSystemPressureState: (selectedInspection as any).coolingSystemPressureState ?? "Not Checked",
+        coolingSystemNotes: (selectedInspection as any).coolingSystemNotes ?? "",
+        coolingAdditionalFindings: normalizeAdditionalFindings((selectedInspection as any).coolingAdditionalFindings),
+        enableSteeringCheck: (selectedInspection as any).enableSteeringCheck ?? false,
+        steeringWheelPlayState: (selectedInspection as any).steeringWheelPlayState ?? "Not Checked",
+        steeringPumpMotorState: (selectedInspection as any).steeringPumpMotorState ?? "Not Checked",
+        steeringFluidConditionState: (selectedInspection as any).steeringFluidConditionState ?? "Not Checked",
+        steeringHoseConditionState: (selectedInspection as any).steeringHoseConditionState ?? "Not Checked",
+        steeringColumnConditionState: (selectedInspection as any).steeringColumnConditionState ?? "Not Checked",
+        steeringRoadFeelState: (selectedInspection as any).steeringRoadFeelState ?? "Not Checked",
+        steeringSystemNotes: (selectedInspection as any).steeringSystemNotes ?? "",
+        steeringAdditionalFindings: normalizeAdditionalFindings((selectedInspection as any).steeringAdditionalFindings),
+        enableEnginePerformanceCheck: (selectedInspection as any).enableEnginePerformanceCheck ?? false,
+        engineStartingState: (selectedInspection as any).engineStartingState ?? "Not Checked",
+        idleQualityState: (selectedInspection as any).idleQualityState ?? "Not Checked",
+        accelerationResponseState: (selectedInspection as any).accelerationResponseState ?? "Not Checked",
+        engineMisfireState: (selectedInspection as any).engineMisfireState ?? "Not Checked",
+        engineSmokeState: (selectedInspection as any).engineSmokeState ?? "Not Checked",
+        fuelEfficiencyConcernState: (selectedInspection as any).fuelEfficiencyConcernState ?? "Not Checked",
+        enginePerformanceNotes: (selectedInspection as any).enginePerformanceNotes ?? "",
+        enginePerformanceAdditionalFindings: normalizeAdditionalFindings((selectedInspection as any).enginePerformanceAdditionalFindings),
+        enableRoadTestCheck: (selectedInspection as any).enableRoadTestCheck ?? false,
+        roadTestNoiseState: (selectedInspection as any).roadTestNoiseState ?? "Not Checked",
+        roadTestBrakeFeelState: (selectedInspection as any).roadTestBrakeFeelState ?? "Not Checked",
+        roadTestSteeringTrackingState: (selectedInspection as any).roadTestSteeringTrackingState ?? "Not Checked",
+        roadTestRideQualityState: (selectedInspection as any).roadTestRideQualityState ?? "Not Checked",
+        roadTestAccelerationState: (selectedInspection as any).roadTestAccelerationState ?? "Not Checked",
+        roadTestTransmissionShiftState: (selectedInspection as any).roadTestTransmissionShiftState ?? "Not Checked",
+        roadTestNotes: (selectedInspection as any).roadTestNotes ?? "",
+        roadTestAdditionalFindings: normalizeAdditionalFindings((selectedInspection as any).roadTestAdditionalFindings),
         acVentTemperature: (selectedInspection as any).acVentTemperature ?? "",
         acCoolingPerformanceState: (selectedInspection as any).acCoolingPerformanceState ?? "Not Checked",
         acCompressorState: (selectedInspection as any).acCompressorState ?? "Not Checked",
@@ -2859,11 +3531,15 @@ function InspectionPage({
     const detailed = buildDetailedUnderHoodRecommendations(form);
     const typed = parseRecommendationLines(form.recommendedWork);
     const suspension = buildSuspensionRecommendations(form);
+    const cooling = buildCoolingRecommendations(form);
+    const steering = buildSteeringRecommendations(form);
+    const enginePerformance = buildEnginePerformanceRecommendations(form);
+    const roadTest = buildRoadTestRecommendations(form);
     const ac = buildAcRecommendations(form);
     const electrical = buildElectricalRecommendations(form);
     const transmission = buildTransmissionRecommendations(form);
     const alignment = form.alignmentRecommended || form.alignmentConcernNotes.trim() ? ["Wheel Alignment"] : [];
-    return [...new Set([...typed, ...detailed, ...suspension, ...ac, ...electrical, ...transmission, ...alignment])];
+    return [...new Set([...typed, ...detailed, ...suspension, ...cooling, ...steering, ...enginePerformance, ...roadTest, ...ac, ...electrical, ...transmission, ...alignment])];
   }, [form]);
 
   const overallItems = [
@@ -2933,6 +3609,7 @@ function InspectionPage({
     ["Visible Engine Leak", "visibleEngineLeakState"],
   ];
 
+
   const saveInspection = (nextStatus?: InspectionStatus) => {
     if (!selectedIntake) {
       setError("Select an intake record first.");
@@ -2982,6 +3659,30 @@ function InspectionPage({
         form.rearUBoltMountState,
         form.rearAxleMountState,
         form.rearWheelBearingState,
+        form.coolingFanOperationState,
+        form.radiatorConditionState,
+        form.waterPumpConditionState,
+        form.thermostatConditionState,
+        form.overflowReservoirConditionState,
+        form.coolingSystemPressureState,
+        form.steeringWheelPlayState,
+        form.steeringPumpMotorState,
+        form.steeringFluidConditionState,
+        form.steeringHoseConditionState,
+        form.steeringColumnConditionState,
+        form.steeringRoadFeelState,
+        form.engineStartingState,
+        form.idleQualityState,
+        form.accelerationResponseState,
+        form.engineMisfireState,
+        form.engineSmokeState,
+        form.fuelEfficiencyConcernState,
+        form.roadTestNoiseState,
+        form.roadTestBrakeFeelState,
+        form.roadTestSteeringTrackingState,
+        form.roadTestRideQualityState,
+        form.roadTestAccelerationState,
+        form.roadTestTransmissionShiftState,
         form.acCoolingPerformanceState,
         form.acCompressorState,
         form.acCondenserFanState,
@@ -3040,6 +3741,42 @@ function InspectionPage({
       enableSuspensionCheck: form.enableSuspensionCheck,
       enableAlignmentCheck: form.enableAlignmentCheck,
       enableAcCheck: form.enableAcCheck,
+      enableCoolingCheck: form.enableCoolingCheck,
+      coolingFanOperationState: form.coolingFanOperationState,
+      radiatorConditionState: form.radiatorConditionState,
+      waterPumpConditionState: form.waterPumpConditionState,
+      thermostatConditionState: form.thermostatConditionState,
+      overflowReservoirConditionState: form.overflowReservoirConditionState,
+      coolingSystemPressureState: form.coolingSystemPressureState,
+      coolingSystemNotes: form.coolingSystemNotes.trim(),
+      coolingAdditionalFindings: form.coolingAdditionalFindings.map((finding) => ({ ...finding, title: finding.title.trim(), note: finding.note.trim(), photoNotes: finding.photoNotes.map((note) => note.trim()).filter(Boolean) })),
+      enableSteeringCheck: form.enableSteeringCheck,
+      steeringWheelPlayState: form.steeringWheelPlayState,
+      steeringPumpMotorState: form.steeringPumpMotorState,
+      steeringFluidConditionState: form.steeringFluidConditionState,
+      steeringHoseConditionState: form.steeringHoseConditionState,
+      steeringColumnConditionState: form.steeringColumnConditionState,
+      steeringRoadFeelState: form.steeringRoadFeelState,
+      steeringSystemNotes: form.steeringSystemNotes.trim(),
+      steeringAdditionalFindings: form.steeringAdditionalFindings.map((finding) => ({ ...finding, title: finding.title.trim(), note: finding.note.trim(), photoNotes: finding.photoNotes.map((note) => note.trim()).filter(Boolean) })),
+      enableEnginePerformanceCheck: form.enableEnginePerformanceCheck,
+      engineStartingState: form.engineStartingState,
+      idleQualityState: form.idleQualityState,
+      accelerationResponseState: form.accelerationResponseState,
+      engineMisfireState: form.engineMisfireState,
+      engineSmokeState: form.engineSmokeState,
+      fuelEfficiencyConcernState: form.fuelEfficiencyConcernState,
+      enginePerformanceNotes: form.enginePerformanceNotes.trim(),
+      enginePerformanceAdditionalFindings: form.enginePerformanceAdditionalFindings.map((finding) => ({ ...finding, title: finding.title.trim(), note: finding.note.trim(), photoNotes: finding.photoNotes.map((note) => note.trim()).filter(Boolean) })),
+      enableRoadTestCheck: form.enableRoadTestCheck,
+      roadTestNoiseState: form.roadTestNoiseState,
+      roadTestBrakeFeelState: form.roadTestBrakeFeelState,
+      roadTestSteeringTrackingState: form.roadTestSteeringTrackingState,
+      roadTestRideQualityState: form.roadTestRideQualityState,
+      roadTestAccelerationState: form.roadTestAccelerationState,
+      roadTestTransmissionShiftState: form.roadTestTransmissionShiftState,
+      roadTestNotes: form.roadTestNotes.trim(),
+      roadTestAdditionalFindings: form.roadTestAdditionalFindings.map((finding) => ({ ...finding, title: finding.title.trim(), note: finding.note.trim(), photoNotes: finding.photoNotes.map((note) => note.trim()).filter(Boolean) })),
       acVentTemperature: form.acVentTemperature.trim(),
       acCoolingPerformanceState: form.acCoolingPerformanceState,
       acCompressorState: form.acCompressorState,
@@ -3248,6 +3985,117 @@ function InspectionPage({
     </div>
   );
 
+  const renderAdditionalFindingsSection = (
+    category: FindingCategoryKey,
+    title: string,
+    subtitle: string
+  ) => {
+    const findings = form[category];
+
+    return (
+      <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+        <div style={styles.mobileDataCardHeader}>
+          <div>
+            <div style={styles.sectionTitle}>{title}</div>
+            <div style={styles.formHint}>{subtitle}</div>
+          </div>
+          <button type="button" style={styles.secondaryButton} onClick={() => addCategoryFinding(category)}>
+            Add Finding
+          </button>
+        </div>
+
+        {findings.length === 0 ? (
+          <div style={styles.formHint}>No additional findings added for this category.</div>
+        ) : (
+          <div style={styles.formStack}>
+            {findings.map((finding, findingIndex) => (
+              <div key={finding.id} style={styles.mobileDataCard}>
+                <div style={styles.mobileDataCardHeader}>
+                  <strong>{title} Finding {findingIndex + 1}</strong>
+                  <button type="button" style={styles.smallButtonMuted} onClick={() => removeCategoryFinding(category, finding.id)}>
+                    Remove
+                  </button>
+                </div>
+
+                <div style={styles.formStack}>
+                  <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Finding Title</label>
+                      <input
+                        style={styles.input}
+                        value={finding.title}
+                        onChange={(e) => updateCategoryFinding(category, finding.id, "title", e.target.value)}
+                        placeholder="Example: Cooling fan noisy"
+                      />
+                    </div>
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Status</label>
+                      <select
+                        style={styles.select}
+                        value={finding.status}
+                        onChange={(e) => updateCategoryFinding(category, finding.id, "status", e.target.value)}
+                      >
+                        <option value="OK">OK</option>
+                        <option value="Monitor">Monitor</option>
+                        <option value="Replace">Replace</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Finding Note</label>
+                    <textarea
+                      style={styles.textarea}
+                      value={finding.note}
+                      onChange={(e) => updateCategoryFinding(category, finding.id, "note", e.target.value)}
+                      placeholder="Technician note, observation, or explanation"
+                    />
+                  </div>
+
+                  <div style={{ ...styles.sectionCardMuted, marginTop: 4 }}>
+                    <div style={styles.mobileDataCardHeader}>
+                      <strong>Photo / Media Notes</strong>
+                      <button type="button" style={styles.secondaryButton} onClick={() => addCategoryFindingPhotoNote(category, finding.id)}>
+                        Add Photo Note
+                      </button>
+                    </div>
+
+                    {finding.photoNotes.length === 0 ? (
+                      <div style={styles.formHint}>No photo or media notes yet.</div>
+                    ) : (
+                      <div style={styles.formStack}>
+                        {finding.photoNotes.map((photoNote, photoIndex) => (
+                          <div key={`${finding.id}_${photoIndex}`} style={styles.mobileDataCard}>
+                            <div style={styles.mobileDataCardHeader}>
+                              <strong>Photo Note {photoIndex + 1}</strong>
+                              <button
+                                type="button"
+                                style={styles.smallButtonMuted}
+                                onClick={() => removeCategoryFindingPhotoNote(category, finding.id, photoIndex)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                            <input
+                              style={styles.input}
+                              value={photoNote}
+                              onChange={(e) => updateCategoryFindingPhotoNote(category, finding.id, photoIndex, e.target.value)}
+                              placeholder="Filename, angle, or evidence note"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div style={styles.pageContent}>
       <div style={styles.grid}>
@@ -3445,6 +4293,38 @@ function InspectionPage({
                             onChange={(e) => setForm((prev) => ({ ...prev, enableAlignmentCheck: e.target.checked }))}
                           />
                           <span>Enable Alignment Check</span>
+                        </label>
+                        <label style={styles.checkboxTile}>
+                          <input
+                            type="checkbox"
+                            checked={form.enableCoolingCheck}
+                            onChange={(e) => setForm((prev) => ({ ...prev, enableCoolingCheck: e.target.checked }))}
+                          />
+                          <span>Enable Cooling System Check</span>
+                        </label>
+                        <label style={styles.checkboxTile}>
+                          <input
+                            type="checkbox"
+                            checked={form.enableSteeringCheck}
+                            onChange={(e) => setForm((prev) => ({ ...prev, enableSteeringCheck: e.target.checked }))}
+                          />
+                          <span>Enable Steering Check</span>
+                        </label>
+                        <label style={styles.checkboxTile}>
+                          <input
+                            type="checkbox"
+                            checked={form.enableEnginePerformanceCheck}
+                            onChange={(e) => setForm((prev) => ({ ...prev, enableEnginePerformanceCheck: e.target.checked }))}
+                          />
+                          <span>Enable Engine Performance Check</span>
+                        </label>
+                        <label style={styles.checkboxTile}>
+                          <input
+                            type="checkbox"
+                            checked={form.enableRoadTestCheck}
+                            onChange={(e) => setForm((prev) => ({ ...prev, enableRoadTestCheck: e.target.checked }))}
+                          />
+                          <span>Enable Road Test Check</span>
                         </label>
                         <label style={styles.checkboxTile}>
                           <input
@@ -3909,6 +4789,99 @@ function InspectionPage({
                       ) : null}
 
 
+
+                      {form.enableCoolingCheck ? (
+                        <div style={{ ...styles.sectionCard, marginTop: 16, background: "#eff6ff", border: "1px solid #bfdbfe" }}>
+                          <div style={styles.sectionTitle}>Cooling System Inspection</div>
+                          <div style={styles.formHint}>Use this trigger for overheating, coolant loss, fan concern, radiator issue, or cooling-system complaint.</div>
+
+                          <div style={styles.formStack}>
+                            {renderCheckCard(
+                              "Cooling Components",
+                              "Fan, radiator, pump, thermostat, and pressure-related checks",
+                              [
+                                ["Cooling Fan Operation", "coolingFanOperationState"],
+                                ["Radiator Condition", "radiatorConditionState"],
+                                ["Water Pump Condition", "waterPumpConditionState"],
+                                ["Thermostat Condition", "thermostatConditionState"],
+                                ["Overflow Reservoir", "overflowReservoirConditionState"],
+                                ["Cooling System Pressure", "coolingSystemPressureState"],
+                              ],
+                              [["Cooling Notes", "coolingSystemNotes", "Overheating, coolant loss, fan not engaging, leaks, pressure issue"]]
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {form.enableSteeringCheck ? (
+                        <div style={{ ...styles.sectionCard, marginTop: 16, background: "#f5f3ff", border: "1px solid #ddd6fe" }}>
+                          <div style={styles.sectionTitle}>Steering Inspection</div>
+                          <div style={styles.formHint}>Use this trigger for hard steering, pull, free play, steering noise, fluid leak, or EPS / pump concerns.</div>
+
+                          <div style={styles.formStack}>
+                            {renderCheckCard(
+                              "Steering System",
+                              "Play, assist, fluid, hose, column, and road feel",
+                              [
+                                ["Steering Wheel Play", "steeringWheelPlayState"],
+                                ["Pump / EPS Motor", "steeringPumpMotorState"],
+                                ["Steering Fluid Condition", "steeringFluidConditionState"],
+                                ["Steering Hose / Line", "steeringHoseConditionState"],
+                                ["Steering Column", "steeringColumnConditionState"],
+                                ["Steering Road Feel", "steeringRoadFeelState"],
+                              ],
+                              [["Steering Notes", "steeringSystemNotes", "Hard steering, wandering, free play, leak, assist issue, noise"]]
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {form.enableEnginePerformanceCheck ? (
+                        <div style={{ ...styles.sectionCard, marginTop: 16, background: "#fff7ed", border: "1px solid #fdba74" }}>
+                          <div style={styles.sectionTitle}>Engine Performance Inspection</div>
+                          <div style={styles.formHint}>Use this trigger for rough idle, weak power, misfire, smoke, hesitation, poor fuel economy, or drivability concerns.</div>
+
+                          <div style={styles.formStack}>
+                            {renderCheckCard(
+                              "Engine Performance",
+                              "Starting, idle, response, misfire, smoke, and economy-related checks",
+                              [
+                                ["Starting Performance", "engineStartingState"],
+                                ["Idle Quality", "idleQualityState"],
+                                ["Acceleration Response", "accelerationResponseState"],
+                                ["Misfire / Combustion", "engineMisfireState"],
+                                ["Smoke Condition", "engineSmokeState"],
+                                ["Fuel Efficiency Concern", "fuelEfficiencyConcernState"],
+                              ],
+                              [["Engine Performance Notes", "enginePerformanceNotes", "Hard start, rough idle, hesitation, smoke color, power loss"]]
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {form.enableRoadTestCheck ? (
+                        <div style={{ ...styles.sectionCard, marginTop: 16, background: "#ecfeff", border: "1px solid #a5f3fc" }}>
+                          <div style={styles.sectionTitle}>Road Test Inspection</div>
+                          <div style={styles.formHint}>Use this trigger for issues that only appear while driving, including noises, pull, brake feel, ride quality, and shift behavior.</div>
+
+                          <div style={styles.formStack}>
+                            {renderCheckCard(
+                              "Road Test Findings",
+                              "Noise, braking, steering tracking, ride quality, acceleration, and shift feel",
+                              [
+                                ["Noise While Driving", "roadTestNoiseState"],
+                                ["Brake Feel", "roadTestBrakeFeelState"],
+                                ["Steering Tracking", "roadTestSteeringTrackingState"],
+                                ["Ride Quality", "roadTestRideQualityState"],
+                                ["Acceleration Feel", "roadTestAccelerationState"],
+                                ["Transmission Shift Feel", "roadTestTransmissionShiftState"],
+                              ],
+                              [["Road Test Notes", "roadTestNotes", "Pulling, vibration, clunk, delayed shift, harsh brake feel, rough ride"]]
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+
                       {form.enableAcCheck ? (
                         <div style={{ ...styles.sectionCard, marginTop: 16, background: "#ecfdf5", border: "1px solid #a7f3d0" }}>
                           <div style={styles.sectionTitle}>A/C Inspection</div>
@@ -4345,6 +5318,57 @@ function RepairOrdersPage({
     [backjobRecords, selectedRO]
   );
 
+  const selectedROInspection = useMemo(
+    () =>
+      selectedRO
+        ? inspectionRecords.find((row) => row.id === selectedRO.inspectionId) ??
+          inspectionRecords.find((row) => row.intakeId === selectedRO.intakeId) ??
+          null
+        : null,
+    [inspectionRecords, selectedRO]
+  );
+
+  const findingRecommendations = useMemo(() => {
+    if (!selectedROInspection || !selectedRO) return [];
+    const mappedSourceIds = new Set(
+      selectedRO.workLines
+        .map((line) => line.recommendationSource || "")
+        .filter((value) => value.startsWith("Finding:"))
+        .map((value) => value.replace("Finding:", ""))
+    );
+    return buildFindingToRORecommendations(selectedROInspection).map((item) => {
+      const existingDecision = selectedRO.findingRecommendationDecisions.find((entry) => entry.recommendationId === item.id);
+      const decision = existingDecision?.decision ?? (mappedSourceIds.has(item.id) ? "Approved" : "Pending");
+      const decidedAt = existingDecision?.decidedAt ?? "";
+      return {
+        ...item,
+        decision,
+        decidedAt,
+      };
+    });
+  }, [selectedRO, selectedROInspection]);
+
+  const pendingFindingRecommendations = findingRecommendations.filter((item) => item.decision === "Pending");
+  const approvedFindingRecommendations = findingRecommendations.filter((item) => item.decision === "Approved");
+  const declinedFindingRecommendations = findingRecommendations.filter((item) => item.decision === "Declined");
+  const deferredFindingRecommendations = findingRecommendations.filter((item) => item.decision === "Deferred");
+
+  const approvedWorkLines = selectedRO ? selectedRO.workLines.filter((line) => line.approvalDecision === "Approved") : [];
+  const declinedWorkLines = selectedRO ? selectedRO.workLines.filter((line) => line.approvalDecision === "Declined") : [];
+  const deferredWorkLines = selectedRO ? selectedRO.workLines.filter((line) => line.approvalDecision === "Deferred") : [];
+  const pendingWorkLines = selectedRO ? selectedRO.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending") : [];
+
+  const approvedEstimateTotal = approvedWorkLines.reduce((sum, line) => sum + parseMoneyInput(line.totalEstimate), 0);
+  const pendingEstimateTotal = pendingWorkLines.reduce((sum, line) => sum + parseMoneyInput(line.totalEstimate), 0);
+  const declinedEstimateTotal = declinedWorkLines.reduce((sum, line) => sum + parseMoneyInput(line.totalEstimate), 0);
+  const deferredEstimateTotal = deferredWorkLines.reduce((sum, line) => sum + parseMoneyInput(line.totalEstimate), 0);
+
+  const approvalPendingCount = pendingWorkLines.length + pendingFindingRecommendations.length;
+  const totalApprovedCount = approvedWorkLines.length + approvedFindingRecommendations.length;
+  const totalDeclinedCount = declinedWorkLines.length + declinedFindingRecommendations.length;
+  const totalDeferredCount = deferredWorkLines.length + deferredFindingRecommendations.length;
+  const canAdvanceToWork = approvalPendingCount === 0 && approvedWorkLines.length > 0;
+
   const customerApprovalMessage = useMemo(
     () => buildCustomerApprovalMessage(selectedRO),
     [selectedRO]
@@ -4576,6 +5600,7 @@ function RepairOrdersPage({
       latestApprovalRecordId: "",
       deferredLineTitles: [],
       backjobReferenceRoId: "",
+      findingRecommendationDecisions: [],
       encodedBy: currentUser.fullName,
     };
 
@@ -4617,7 +5642,8 @@ function RepairOrdersPage({
           workLines: row.workLines.map((line) => {
             if (line.id !== lineId) return line;
 
-            const isLockedByApproval = line.approvalDecision === "Approved";
+            const approvalState = line.approvalDecision ?? "Pending";
+            const isLockedByApproval = approvalState === "Approved";
             const lockedFields: Array<keyof RepairOrderWorkLine> = [
               "title",
               "category",
@@ -4628,6 +5654,13 @@ function RepairOrdersPage({
 
             if (isLockedByApproval && lockedFields.includes(field)) {
               return line;
+            }
+
+            if (field === "status" && approvalState !== "Approved" && value !== "Pending") {
+              return {
+                ...line,
+                status: "Pending",
+              };
             }
 
             return recalculateWorkLine({
@@ -4762,6 +5795,116 @@ function RepairOrdersPage({
     });
 
     commitApprovalItems(items);
+  };
+
+  const setFindingRecommendationDecision = (recommendation: FindingToRORecommendation, decision: "Approved" | "Declined" | "Deferred") => {
+    if (!selectedRO) return;
+    const now = new Date().toISOString();
+    const existingLine = selectedRO.workLines.find((line) => line.recommendationSource === `Finding:${recommendation.id}`);
+
+    setRepairOrders((prev) =>
+      prev.map((row) => {
+        if (row.id !== selectedRO.id) return row;
+
+        const nextDecisions = [
+          ...row.findingRecommendationDecisions.filter((item) => item.recommendationId !== recommendation.id),
+          {
+            recommendationId: recommendation.id,
+            title: recommendation.title,
+            category: recommendation.category,
+            decision,
+            decidedAt: now,
+            note: recommendation.note,
+          },
+        ];
+
+        let nextWorkLines = row.workLines;
+        if (decision === "Approved" && !existingLine) {
+          nextWorkLines = [
+            ...row.workLines,
+            recalculateWorkLine({
+              ...getEmptyWorkLine(),
+              id: uid("wl"),
+              title: recommendation.workLineTitle,
+              category: recommendation.category,
+              priority: recommendation.status === "Replace" ? "High" : "Medium",
+              status: "Pending",
+              notes: [recommendation.note, ...recommendation.photoNotes].filter(Boolean).join(" | "),
+              recommendationSource: `Finding:${recommendation.id}`,
+              approvalDecision: "Approved",
+              approvalAt: now,
+            }),
+          ];
+        }
+
+        return {
+          ...row,
+          status:
+            decision === "Approved" && ["Draft", "Waiting Inspection", "Waiting Approval"].includes(row.status)
+              ? "Approved / Ready to Work"
+              : row.status,
+          findingRecommendationDecisions: nextDecisions,
+          workLines: nextWorkLines,
+          updatedAt: now,
+        };
+      })
+    );
+
+    const approvalRecord: ApprovalRecord = {
+      id: uid("apr"),
+      approvalNumber: nextDailyNumber("APR"),
+      roId: selectedRO.id,
+      roNumber: selectedRO.roNumber,
+      createdAt: now,
+      decidedBy: currentUser.fullName,
+      customerName: selectedRO.accountLabel,
+      customerContact: selectedRO.phone || selectedRO.email || "-",
+      summary: `${decision} finding recommendation: ${recommendation.title}`,
+      communicationHook: approvalCommHook.trim() || "SMS / Email placeholder",
+      items: [
+        {
+          workLineId: existingLine?.id || `finding:${recommendation.id}`,
+          title: recommendation.workLineTitle,
+          decision,
+          approvedAt: now,
+          note: recommendation.note,
+        },
+      ],
+    };
+    setApprovalRecords((prev) => [approvalRecord, ...prev]);
+  };
+
+  const setBulkFindingRecommendationDecision = (decision: "Approved" | "Declined" | "Deferred") => {
+    pendingFindingRecommendations.forEach((item) => {
+      setFindingRecommendationDecision(item, decision);
+    });
+  };
+
+  const handleROStatusChange = (nextStatus: ROStatus) => {
+    if (!selectedRO) return;
+    const lockedStatuses: ROStatus[] = [
+      "Approved / Ready to Work",
+      "In Progress",
+      "Waiting Parts",
+      "Quality Check",
+      "Ready Release",
+      "Released",
+      "Closed",
+    ];
+
+    if (lockedStatuses.includes(nextStatus) && !canAdvanceToWork) {
+      setError("RO cannot advance to work until all approvals are decided and at least one work line is approved.");
+      return;
+    }
+
+    updateRO(selectedRO.id, {
+      status: nextStatus,
+      workStartedAt:
+        nextStatus === "In Progress" && !selectedRO.workStartedAt
+          ? new Date().toISOString()
+          : selectedRO.workStartedAt,
+    });
+    setError("");
   };
 
   const createBackjob = () => {
@@ -5180,18 +6323,18 @@ function RepairOrdersPage({
                     <select
                       style={styles.select}
                       value={selectedRO.status}
-                      onChange={(e) => updateRO(selectedRO.id, { status: e.target.value as ROStatus })}
+                      onChange={(e) => handleROStatusChange(e.target.value as ROStatus)}
                     >
                       <option value="Draft">Draft</option>
                       <option value="Waiting Inspection">Waiting Inspection</option>
                       <option value="Waiting Approval">Waiting Approval</option>
-                      <option value="Approved / Ready to Work">Approved / Ready to Work</option>
-                      <option value="In Progress">In Progress</option>
-                      <option value="Waiting Parts">Waiting Parts</option>
-                      <option value="Quality Check">Quality Check</option>
-                      <option value="Ready Release">Ready Release</option>
-                      <option value="Released">Released</option>
-                      <option value="Closed">Closed</option>
+                      <option value="Approved / Ready to Work" disabled={!canAdvanceToWork && selectedRO.status !== "Approved / Ready to Work"}>Approved / Ready to Work</option>
+                      <option value="In Progress" disabled={!canAdvanceToWork && selectedRO.status !== "In Progress"}>In Progress</option>
+                      <option value="Waiting Parts" disabled={!canAdvanceToWork && selectedRO.status !== "Waiting Parts"}>Waiting Parts</option>
+                      <option value="Quality Check" disabled={!canAdvanceToWork && selectedRO.status !== "Quality Check"}>Quality Check</option>
+                      <option value="Ready Release" disabled={!canAdvanceToWork && selectedRO.status !== "Ready Release"}>Ready Release</option>
+                      <option value="Released" disabled={!canAdvanceToWork && selectedRO.status !== "Released"}>Released</option>
+                      <option value="Closed" disabled={!canAdvanceToWork && selectedRO.status !== "Closed"}>Closed</option>
                     </select>
                   </div>
 
@@ -5217,6 +6360,8 @@ function RepairOrdersPage({
                   <div><strong>Support:</strong> {selectedRO.supportTechnicianIds.length ? selectedRO.supportTechnicianIds.map(getUserLabel).join(", ") : "None"}</div>
                   <div><strong>Total Estimate:</strong> {formatCurrency(selectedROTotal)}</div>
                   <div><strong>Updated:</strong> {formatDateTime(selectedRO.updatedAt)}</div>
+                  <div><strong>Approval Lock:</strong> {canAdvanceToWork ? "Ready to advance" : "Blocked until all decisions are complete"}</div>
+                  <div><strong>Approved Line Total:</strong> {formatCurrency(approvedEstimateTotal)}</div>
                 </div>
 
                 <div style={styles.sectionCard}>
@@ -5268,33 +6413,115 @@ function RepairOrdersPage({
                   <div style={styles.summaryGrid}>
                     <div>
                       <strong>Approved</strong>
-                      <div>{selectedRO.workLines.filter((line) => line.approvalDecision === "Approved").length}</div>
+                      <div>{totalApprovedCount}</div>
                     </div>
                     <div>
                       <strong>Declined</strong>
-                      <div>{selectedRO.workLines.filter((line) => line.approvalDecision === "Declined").length}</div>
+                      <div>{totalDeclinedCount}</div>
                     </div>
                     <div>
                       <strong>Deferred</strong>
-                      <div>{selectedRO.workLines.filter((line) => line.approvalDecision === "Deferred").length}</div>
+                      <div>{totalDeferredCount}</div>
                     </div>
                     <div>
                       <strong>Pending</strong>
-                      <div>{selectedRO.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length}</div>
+                      <div>{approvalPendingCount}</div>
+                    </div>
+                    <div>
+                      <strong>Approved Total</strong>
+                      <div>{formatCurrency(approvedEstimateTotal)}</div>
+                    </div>
+                    <div>
+                      <strong>Pending Total</strong>
+                      <div>{formatCurrency(pendingEstimateTotal)}</div>
+                    </div>
+                    <div>
+                      <strong>Deferred Total</strong>
+                      <div>{formatCurrency(deferredEstimateTotal)}</div>
+                    </div>
+                    <div>
+                      <strong>Declined Total</strong>
+                      <div>{formatCurrency(declinedEstimateTotal)}</div>
                     </div>
                   </div>
 
                   <div style={{ ...styles.inlineActions, marginTop: 12, flexWrap: "wrap" }}>
-                    <button type="button" style={styles.smallButtonSuccess} onClick={() => setBulkLineDecision("Approved")}>
-                      Approve All Pending
+                    <button type="button" style={styles.smallButtonSuccess} onClick={() => setBulkLineDecision("Approved")} disabled={pendingWorkLines.length === 0}>
+                      Approve All Pending Lines
                     </button>
-                    <button type="button" style={styles.smallButton} onClick={() => setBulkLineDecision("Deferred")}>
-                      Defer All Pending
+                    <button type="button" style={styles.smallButton} onClick={() => setBulkLineDecision("Deferred")} disabled={pendingWorkLines.length === 0}>
+                      Defer All Pending Lines
                     </button>
-                    <button type="button" style={styles.smallButtonDanger} onClick={() => setBulkLineDecision("Declined")}>
-                      Decline All Pending
+                    <button type="button" style={styles.smallButtonDanger} onClick={() => setBulkLineDecision("Declined")} disabled={pendingWorkLines.length === 0}>
+                      Decline All Pending Lines
                     </button>
                   </div>
+
+                  {!canAdvanceToWork ? (
+                    <div style={{ ...styles.errorBox, marginTop: 12 }}>
+                      RO progression is locked. Decide all pending work lines and findings before moving this job into work. At least one work line must be approved.
+                    </div>
+                  ) : (
+                    <div style={{ ...styles.statusOk, marginTop: 12 }}>
+                      Approval complete. This RO can now move into work.
+                    </div>
+                  )}
+
+                  {findingRecommendations.length ? (
+                    <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+                      <div style={styles.mobileDataCardHeader}>
+                        <div>
+                          <div style={styles.sectionTitle}>Inspection Findings Waiting for RO Mapping</div>
+                          <div style={styles.formHint}>Approving a finding inserts a new RO work line immediately. Declined findings stay out of the RO. Deferred findings stay visible for follow-up.</div>
+                        </div>
+                        <span style={styles.statusInfo}>{findingRecommendations.length} finding recommendations</span>
+                      </div>
+                      <div style={{ ...styles.inlineActions, marginTop: 12, flexWrap: "wrap" }}>
+                        <button type="button" style={styles.smallButtonSuccess} onClick={() => setBulkFindingRecommendationDecision("Approved")} disabled={pendingFindingRecommendations.length === 0}>
+                          Approve All Pending Findings
+                        </button>
+                        <button type="button" style={styles.smallButton} onClick={() => setBulkFindingRecommendationDecision("Deferred")} disabled={pendingFindingRecommendations.length === 0}>
+                          Defer All Pending Findings
+                        </button>
+                        <button type="button" style={styles.smallButtonDanger} onClick={() => setBulkFindingRecommendationDecision("Declined")} disabled={pendingFindingRecommendations.length === 0}>
+                          Decline All Pending Findings
+                        </button>
+                      </div>
+                      <div style={styles.mobileCardList}>
+                        {findingRecommendations.map((item) => (
+                          <div key={`finding_map_${item.id}`} style={{ ...styles.mobileDataCard, border: "1px solid rgba(59, 130, 246, 0.16)" }}>
+                            <div style={styles.mobileDataCardHeader}>
+                              <strong>{item.workLineTitle}</strong>
+                              <span style={getApprovalDecisionStyle(item.decision ?? "Pending")}>
+                                {item.decision}
+                              </span>
+                            </div>
+                            <div style={styles.mobileDataSecondary}>
+                              {item.category} • Source finding: {item.title}
+                            </div>
+                            {item.note ? <div style={styles.concernCard}>{item.note}</div> : null}
+                            {item.photoNotes.length ? <div style={styles.formHint}>Photo notes: {item.photoNotes.join(" • ")}</div> : null}
+                            {item.decidedAt ? <div style={styles.formHint}>Decision Time: {formatDateTime(item.decidedAt)}</div> : null}
+                            {item.decision !== "Approved" ? (
+                              <div style={styles.inlineActions}>
+                                <button type="button" style={styles.smallButtonSuccess} onClick={() => setFindingRecommendationDecision(item, "Approved")}>
+                                  Approve to RO
+                                </button>
+                                <button type="button" style={styles.smallButtonMuted} onClick={() => setFindingRecommendationDecision(item, "Deferred")}>
+                                  Defer
+                                </button>
+                                <button type="button" style={styles.smallButtonDanger} onClick={() => setFindingRecommendationDecision(item, "Declined")}>
+                                  Decline
+                                </button>
+                              </div>
+                            ) : (
+                              <div style={styles.formHint}>This finding is already mapped into the RO work lines.</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
 
                   {approvalPreviewMode === "Customer" ? (
                     <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
@@ -5438,21 +6665,24 @@ function RepairOrdersPage({
                         <div style={styles.mobileDataCardHeader}>
                           <strong>Line {index + 1}</strong>
                           <div style={styles.inlineActions}>
+                            <span style={getApprovalDecisionStyle(line.approvalDecision ?? "Pending")}>{line.approvalDecision ?? "Pending"}</span>
                             <WorkLineStatusBadge status={line.status} />
-                            <button type="button" style={styles.smallButtonMuted} onClick={() => removeROWorkLine(selectedRO.id, line.id)}>Remove</button>
+                            <button type="button" style={styles.smallButtonMuted} onClick={() => removeROWorkLine(selectedRO.id, line.id)} disabled={line.approvalDecision === "Approved"}>
+                              Remove
+                            </button>
                           </div>
                         </div>
 
                         <div style={styles.formStack}>
                           <div style={styles.formGroup}>
                             <label style={styles.label}>Title</label>
-                            <input style={styles.input} value={line.title} onChange={(e) => updateROWorkLine(selectedRO.id, line.id, "title", e.target.value)} />
+                            <input style={styles.input} value={line.title} onChange={(e) => updateROWorkLine(selectedRO.id, line.id, "title", e.target.value)} disabled={line.approvalDecision === "Approved"} />
                           </div>
 
                           <div style={isCompactLayout ? styles.formStack : styles.formGrid3}>
                             <div style={styles.formGroup}>
                               <label style={styles.label}>Category</label>
-                              <input style={styles.input} value={line.category} onChange={(e) => updateROWorkLine(selectedRO.id, line.id, "category", e.target.value)} />
+                              <input style={styles.input} value={line.category} onChange={(e) => updateROWorkLine(selectedRO.id, line.id, "category", e.target.value)} disabled={line.approvalDecision === "Approved"} />
                             </div>
                             <div style={styles.formGroup}>
                               <label style={styles.label}>Priority</label>
@@ -5464,7 +6694,7 @@ function RepairOrdersPage({
                             </div>
                             <div style={styles.formGroup}>
                               <label style={styles.label}>Status</label>
-                              <select style={styles.select} value={line.status} onChange={(e) => updateROWorkLine(selectedRO.id, line.id, "status", e.target.value)}>
+                              <select style={styles.select} value={line.status} onChange={(e) => updateROWorkLine(selectedRO.id, line.id, "status", e.target.value)} disabled={(line.approvalDecision ?? "Pending") !== "Approved"}>
                                 <option value="Pending">Pending</option>
                                 <option value="In Progress">In Progress</option>
                                 <option value="Waiting Parts">Waiting Parts</option>
@@ -5476,11 +6706,11 @@ function RepairOrdersPage({
                           <div style={isCompactLayout ? styles.formStack : styles.formGrid3}>
                             <div style={styles.formGroup}>
                               <label style={styles.label}>Service Estimate</label>
-                              <input style={styles.input} value={line.serviceEstimate} onChange={(e) => updateROWorkLine(selectedRO.id, line.id, "serviceEstimate", e.target.value)} />
+                              <input style={styles.input} value={line.serviceEstimate} onChange={(e) => updateROWorkLine(selectedRO.id, line.id, "serviceEstimate", e.target.value)} disabled={line.approvalDecision === "Approved"} />
                             </div>
                             <div style={styles.formGroup}>
                               <label style={styles.label}>Parts Estimate</label>
-                              <input style={styles.input} value={line.partsEstimate} onChange={(e) => updateROWorkLine(selectedRO.id, line.id, "partsEstimate", e.target.value)} />
+                              <input style={styles.input} value={line.partsEstimate} onChange={(e) => updateROWorkLine(selectedRO.id, line.id, "partsEstimate", e.target.value)} disabled={line.approvalDecision === "Approved"} />
                             </div>
                             <div style={styles.formGroup}>
                               <label style={styles.label}>Total</label>
@@ -5491,6 +6721,12 @@ function RepairOrdersPage({
                           <div style={styles.formGroup}>
                             <label style={styles.label}>Notes</label>
                             <textarea style={styles.textarea} value={line.notes} onChange={(e) => updateROWorkLine(selectedRO.id, line.id, "notes", e.target.value)} />
+                            {line.recommendationSource ? <div style={styles.formHint}>Source: {line.recommendationSource}</div> : null}
+                            {(line.approvalDecision ?? "Pending") !== "Approved" ? (
+                              <div style={styles.formHint}>Execution status is locked until this line is approved.</div>
+                            ) : (
+                              <div style={styles.formHint}>Approved lines are locked for pricing/title edits and ready for execution tracking.</div>
+                            )}
                           </div>
                         </div>
                       </div>
