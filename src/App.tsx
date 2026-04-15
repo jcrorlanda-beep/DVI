@@ -705,7 +705,18 @@ type PaymentRecord = {
 };
 
 
-const BUILD_VERSION = "Phase 15B — SMS Approval Link System";
+type WorkLog = {
+  id: string;
+  roId: string;
+  workLineId: string;
+  technicianId: string;
+  startedAt: string;
+  endedAt?: string;
+  totalMinutes: number;
+  note: string;
+};
+
+const BUILD_VERSION = "Phase 16A — Technician Work Logs + Approval Decision Fix";
 
 const STORAGE_KEYS = {
   users: "dvi_phase1_users_v2",
@@ -722,6 +733,7 @@ const STORAGE_KEYS = {
   backjobRecords: "dvi_phase9_backjob_records_v1",
   invoiceRecords: "dvi_phase10_invoice_records_v1",
   paymentRecords: "dvi_phase10_payment_records_v1",
+  workLogs: "dvi_phase16_work_logs_v1",
   customerAccounts: "dvi_phase15a_customer_accounts_v1",
   customerSession: "dvi_phase15a_customer_session_v1",
   approvalLinkTokens: "dvi_phase15b_approval_link_tokens_v1",
@@ -1351,6 +1363,23 @@ function formatElapsedTime(startValue?: string) {
   if (days > 0) return `${days}d ${hours}h ${minutes}m`;
   if (hours > 0) return `${hours}h ${minutes}m`;
   return `${minutes}m`;
+}
+
+function formatMinutesAsHours(minutes: number) {
+  if (!minutes || minutes <= 0) return "0.0h";
+  return `${(minutes / 60).toFixed(1)}h`;
+}
+
+function getWorkLogMinutes(log: WorkLog) {
+  if (log.endedAt) return Math.max(0, log.totalMinutes || 0);
+  const started = new Date(log.startedAt).getTime();
+  if (Number.isNaN(started)) return Math.max(0, log.totalMinutes || 0);
+  return Math.max(0, Math.floor((Date.now() - started) / 60000));
+}
+
+function toApprovalDecision(value: string | undefined | null): ApprovalDecision {
+  if (value === "Approved" || value === "Declined" || value === "Deferred") return value;
+  return "Pending";
 }
 
 function getEmptyAdditionalFinding(): CategoryAdditionalFinding {
@@ -2804,6 +2833,7 @@ function DashboardPage({
   backjobRecords,
   invoiceRecords,
   paymentRecords,
+  workLogs,
   isCompactLayout,
 }: {
   currentUser: SessionUser;
@@ -2818,6 +2848,7 @@ function DashboardPage({
   backjobRecords: BackjobRecord[];
   invoiceRecords: InvoiceRecord[];
   paymentRecords: PaymentRecord[];
+  workLogs: WorkLog[];
   isCompactLayout: boolean;
 }) {
   const activeUsers = users.filter((u) => u.active);
@@ -2873,8 +2904,17 @@ function DashboardPage({
       .reduce((sum, ro) => sum + ro.workLines.reduce((lineSum, line) => lineSum + parseMoneyInput(line.serviceEstimate), 0), 0);
     const completed = repairOrders.filter((ro) => ro.primaryTechnicianId === user.id && ["Ready Release", "Released", "Closed"].includes(ro.status)).length;
     const qcFailed = qcRecords.filter((qc) => qc.result === "Failed" && repairOrders.find((ro) => ro.id === qc.roId)?.primaryTechnicianId === user.id).length;
-    return { user, assigned, active, total, completed, qcFailed };
-  }).sort((a,b)=>b.total-a.total).slice(0,8);
+    const userLogs = workLogs.filter((log) => log.technicianId === user.id);
+    const bookedMinutes = userLogs.reduce((sum, log) => sum + getWorkLogMinutes(log), 0);
+    const activeTimers = userLogs.filter((log) => !log.endedAt).length;
+    const laborProduced = userLogs.reduce((sum, log) => {
+      const ro = repairOrders.find((row) => row.id === log.roId);
+      const line = ro?.workLines.find((row) => row.id === log.workLineId);
+      return sum + parseMoneyInput(line?.serviceEstimate ?? "0");
+    }, 0);
+    const efficiency = bookedMinutes > 0 ? Math.round((laborProduced / bookedMinutes) * 60) : 0;
+    return { user, assigned, active, total, completed, qcFailed, bookedMinutes, activeTimers, laborProduced, efficiency };
+  }).sort((a,b)=>b.laborProduced-a.laborProduced).slice(0,8);
 
   return (
     <div style={styles.pageContent}>
@@ -3035,10 +3075,10 @@ function DashboardPage({
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(6, isCompactLayout) }}>
           <Card title="Technician Productivity" subtitle="Primary technician labor value, completed jobs, active workload, and QC fails">
             <div style={styles.quickAccessList}>
-              {techRevenueMap.map(({ user, total, completed, active, qcFailed }) => (
+              {techRevenueMap.map(({ user, total, completed, active, qcFailed, bookedMinutes, activeTimers, laborProduced, efficiency }) => (
                 <div key={user.id} style={styles.quickAccessRow}>
                   <span>{user.fullName}</span>
-                  <strong>{formatCurrency(total)} • {completed} done • {active} active • {qcFailed} QC fail</strong>
+                  <strong>{formatCurrency(laborProduced || total)} • {formatMinutesAsHours(bookedMinutes)} • {completed} done • {active} active • {activeTimers} live • {qcFailed} QC fail • {efficiency}% eff.</strong>
                 </div>
               ))}
             </div>
@@ -5898,7 +5938,7 @@ function RepairOrdersPage({
       const decidedAt = existingDecision?.decidedAt ?? "";
       return {
         ...item,
-        decision: decision as ApprovalDecision,
+        decision: toApprovalDecision(decision),
         decidedAt,
       };
     });
@@ -6369,7 +6409,7 @@ function RepairOrdersPage({
             recommendationId: recommendation.id,
             title: recommendation.title,
             category: recommendation.category,
-            decision: decision as "Approved" | "Declined" | "Deferred",
+            decision,
             decidedAt: now,
             note: recommendation.note,
           },
@@ -7108,7 +7148,7 @@ function RepairOrdersPage({
                           <div key={`finding_map_${item.id}`} style={{ ...styles.mobileDataCard, border: "1px solid rgba(59, 130, 246, 0.16)" }}>
                             <div style={styles.mobileDataCardHeader}>
                               <strong>{item.workLineTitle}</strong>
-                              <span style={getApprovalDecisionStyle(item.decision ?? "Pending")}>
+                              <span style={getApprovalDecisionStyle(toApprovalDecision(item.decision))}>
                                 {item.decision}
                               </span>
                             </div>
@@ -8595,12 +8635,16 @@ function ShopFloorPage({
   users,
   repairOrders,
   setRepairOrders,
+  workLogs,
+  setWorkLogs,
   isCompactLayout,
 }: {
   currentUser: SessionUser;
   users: UserAccount[];
   repairOrders: RepairOrderRecord[];
   setRepairOrders: React.Dispatch<React.SetStateAction<RepairOrderRecord[]>>;
+  workLogs: WorkLog[];
+  setWorkLogs: React.Dispatch<React.SetStateAction<WorkLog[]>>;
   isCompactLayout: boolean;
 }) {
   const [search, setSearch] = useState("");
@@ -8736,6 +8780,71 @@ function ShopFloorPage({
         : [...target.supportTechnicianIds.filter((id) => id !== target.primaryTechnicianId), technicianId],
     });
   };
+
+  const roWorkLogs = useMemo(
+    () => workLogs.filter((row) => row.roId === selectedRO?.id),
+    [selectedRO?.id, workLogs]
+  );
+
+  const activeRoWorkLogs = useMemo(
+    () => roWorkLogs.filter((row) => !row.endedAt),
+    [roWorkLogs]
+  );
+
+  const startWorkLog = (workLineId: string, technicianId: string) => {
+    if (!selectedRO || !technicianId) return;
+    const hasActive = workLogs.some(
+      (row) => row.roId === selectedRO.id && row.workLineId === workLineId && row.technicianId === technicianId && !row.endedAt
+    );
+    if (hasActive) return;
+    const now = new Date().toISOString();
+    setWorkLogs((prev) => [
+      {
+        id: uid("wlog"),
+        roId: selectedRO.id,
+        workLineId,
+        technicianId,
+        startedAt: now,
+        endedAt: undefined,
+        totalMinutes: 0,
+        note: "",
+      },
+      ...prev,
+    ]);
+    if (!selectedRO.workStartedAt) {
+      updateRO(selectedRO.id, {
+        workStartedAt: now,
+        status: selectedRO.status === "Approved / Ready to Work" ? "In Progress" : selectedRO.status,
+      });
+    }
+  };
+
+  const stopWorkLog = (logId: string) => {
+    setWorkLogs((prev) =>
+      prev.map((row) => {
+        if (row.id !== logId || row.endedAt) return row;
+        const endedAt = new Date().toISOString();
+        const totalMinutes = Math.max(0, Math.floor((new Date(endedAt).getTime() - new Date(row.startedAt).getTime()) / 60000));
+        return { ...row, endedAt, totalMinutes };
+      })
+    );
+  };
+
+  const lineMinutesMap = useMemo(() => {
+    const map = new Map<string, number>();
+    roWorkLogs.forEach((log) => {
+      map.set(log.workLineId, (map.get(log.workLineId) ?? 0) + getWorkLogMinutes(log));
+    });
+    return map;
+  }, [roWorkLogs]);
+
+  const techMinutesMap = useMemo(() => {
+    const map = new Map<string, number>();
+    roWorkLogs.forEach((log) => {
+      map.set(log.technicianId, (map.get(log.technicianId) ?? 0) + getWorkLogMinutes(log));
+    });
+    return map;
+  }, [roWorkLogs]);
 
   const statusCounts = useMemo(
     () => ({
@@ -9067,6 +9176,88 @@ function ShopFloorPage({
                       </div>
                     </div>
                   </div>
+                </div>
+
+                <div style={{ ...styles.sectionCard, marginBottom: 12 }}>
+                  <div style={styles.mobileDataCardHeader}>
+                    <div>
+                      <div style={styles.sectionTitle}>Technician Work Logs</div>
+                      <div style={styles.formHint}>Start and stop technician timers per work line. These logs feed the dashboard productivity view.</div>
+                    </div>
+                    <span style={styles.statusInfo}>{roWorkLogs.length} logs • {activeRoWorkLogs.length} live</span>
+                  </div>
+                  <div style={{ ...styles.mobileCardList, marginTop: 12 }}>
+                    {selectedRO.workLines.length === 0 ? (
+                      <div style={styles.emptyState}>No work lines available yet for technician logging.</div>
+                    ) : (
+                      selectedRO.workLines.map((line) => {
+                        const activeLineLogs = roWorkLogs.filter((log) => log.workLineId === line.id && !log.endedAt);
+                        const suggestedTechId = selectedRO.primaryTechnicianId || currentUser.id;
+                        return (
+                          <div key={`techlog_${line.id}`} style={styles.mobileDataCard}>
+                            <div style={styles.mobileDataCardHeader}>
+                              <strong>{line.title || "Untitled Work Line"}</strong>
+                              <span style={getWorkLineStatusStyle(line.status)}>{line.status}</span>
+                            </div>
+                            <div style={styles.mobileDataSecondary}>{line.category} • Logged Time: {formatMinutesAsHours(lineMinutesMap.get(line.id) ?? 0)}</div>
+                            {activeLineLogs.length ? (
+                              <div style={styles.formHint}>Live: {activeLineLogs.map((log) => `${getUserName(log.technicianId)} (${formatElapsedTime(log.startedAt)})`).join(" • ")}</div>
+                            ) : (
+                              <div style={styles.formHint}>No active timer on this work line.</div>
+                            )}
+                            <div style={styles.inlineActions}>
+                              <button type="button" style={styles.smallButtonSuccess} onClick={() => startWorkLog(line.id, suggestedTechId)}>
+                                Start Primary Timer
+                              </button>
+                              {activeLineLogs
+                                .filter((log) => canManageShopFloor || log.technicianId === currentUser.id)
+                                .map((log) => (
+                                  <button key={log.id} type="button" style={styles.smallButtonDanger} onClick={() => stopWorkLog(log.id)}>
+                                    Stop {getUserName(log.technicianId)}
+                                  </button>
+                                ))}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  {roWorkLogs.length ? (
+                    <div style={{ ...styles.tableWrap, marginTop: 12 }}>
+                      <table style={styles.table}>
+                        <thead>
+                          <tr>
+                            <th style={styles.th}>Technician</th>
+                            <th style={styles.th}>Work Line</th>
+                            <th style={styles.th}>Started</th>
+                            <th style={styles.th}>Ended</th>
+                            <th style={styles.th}>Hours</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {roWorkLogs.slice(0, 12).map((log) => {
+                            const line = selectedRO.workLines.find((row) => row.id === log.workLineId);
+                            return (
+                              <tr key={log.id}>
+                                <td style={styles.td}>{getUserName(log.technicianId)}</td>
+                                <td style={styles.td}>{line?.title || "Work Line"}</td>
+                                <td style={styles.td}>{formatDateTime(log.startedAt)}</td>
+                                <td style={styles.td}>{log.endedAt ? formatDateTime(log.endedAt) : "Live"}</td>
+                                <td style={styles.td}>{formatMinutesAsHours(getWorkLogMinutes(log))}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                  {Array.from(techMinutesMap.entries()).length ? (
+                    <div style={{ ...styles.inlineActions, marginTop: 12, flexWrap: "wrap" }}>
+                      {Array.from(techMinutesMap.entries()).map(([techId, minutes]) => (
+                        <span key={techId} style={styles.statusNeutral}>{getUserName(techId)} • {formatMinutesAsHours(minutes)}</span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div style={styles.sectionCard}>
@@ -9950,6 +10141,10 @@ export default function App() {
     readLocalStorage<PaymentRecord[]>(STORAGE_KEYS.paymentRecords, []).map(migratePaymentRecord)
   );
 
+  const [workLogs, setWorkLogs] = useState<WorkLog[]>(() =>
+    readLocalStorage<WorkLog[]>(STORAGE_KEYS.workLogs, [])
+  );
+
   const [customerAccounts, setCustomerAccounts] = useState<CustomerAccount[]>(() =>
     readLocalStorage<CustomerAccount[]>(STORAGE_KEYS.customerAccounts, [])
   );
@@ -10044,6 +10239,10 @@ export default function App() {
   useEffect(() => {
     writeLocalStorage(STORAGE_KEYS.paymentRecords, paymentRecords);
   }, [paymentRecords]);
+
+  useEffect(() => {
+    writeLocalStorage(STORAGE_KEYS.workLogs, workLogs);
+  }, [workLogs]);
 
   useEffect(() => {
     setCustomerAccounts((prev) => buildCustomerAccountsFromRecords(prev, intakeRecords, repairOrders));
@@ -10362,6 +10561,7 @@ export default function App() {
             backjobRecords={backjobRecords}
             invoiceRecords={invoiceRecords}
             paymentRecords={paymentRecords}
+            workLogs={workLogs}
             isCompactLayout={isMobile}
           />
         );
@@ -10440,6 +10640,8 @@ export default function App() {
             users={users}
             repairOrders={repairOrders}
             setRepairOrders={setRepairOrders}
+            workLogs={workLogs}
+            setWorkLogs={setWorkLogs}
             isCompactLayout={isMobile}
           />
         );
@@ -10496,6 +10698,7 @@ export default function App() {
             backjobRecords={backjobRecords}
             invoiceRecords={invoiceRecords}
             paymentRecords={paymentRecords}
+            workLogs={workLogs}
             isCompactLayout={isMobile}
           />
         );
