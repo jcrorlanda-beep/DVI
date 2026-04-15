@@ -626,7 +626,7 @@ type FindingToRORecommendation = {
   status: FindingStatus;
   photoNotes: string[];
   workLineTitle: string;
-  decision?: "Pending" | "Approved" | "Declined" | "Deferred";
+  decision?: ApprovalDecision;
   decidedAt?: string;
 };
 
@@ -5884,7 +5884,7 @@ function RepairOrdersPage({
     [inspectionRecords, selectedRO]
   );
 
-  const findingRecommendations = useMemo(() => {
+  const findingRecommendations = useMemo<FindingToRORecommendation[]>(() => {
     if (!selectedROInspection || !selectedRO) return [];
     const mappedSourceIds = new Set(
       selectedRO.workLines
@@ -5898,7 +5898,7 @@ function RepairOrdersPage({
       const decidedAt = existingDecision?.decidedAt ?? "";
       return {
         ...item,
-        decision,
+        decision: decision as ApprovalDecision,
         decidedAt,
       };
     });
@@ -6363,13 +6363,13 @@ function RepairOrdersPage({
       prev.map((row) => {
         if (row.id !== selectedRO.id) return row;
 
-        const nextDecisions = [
+        const nextDecisions: FindingRecommendationDecision[] = [
           ...row.findingRecommendationDecisions.filter((item) => item.recommendationId !== recommendation.id),
           {
             recommendationId: recommendation.id,
             title: recommendation.title,
             category: recommendation.category,
-            decision,
+            decision: decision as "Approved" | "Declined" | "Deferred",
             decidedAt: now,
             note: recommendation.note,
           },
