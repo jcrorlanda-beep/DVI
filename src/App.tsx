@@ -80,7 +80,17 @@ type CustomerLoginForm = {
   password: string;
 };
 
-type LoginAudience = "staff" | "customer";
+type LoginAudience = "staff" | "customer" | "supplier";
+
+type SupplierPortalView = "openRequests" | "myBids";
+
+type SupplierSession = {
+  supplierName: string;
+};
+
+type SupplierLoginForm = {
+  supplierName: string;
+};
 
 type CustomerPortalView = "dashboard" | "jobs" | "approvals";
 
@@ -457,6 +467,11 @@ type RepairOrderWorkLine = {
   recommendationSource?: string;
   approvalDecision?: ApprovalDecision;
   approvalAt?: string;
+  assignedTechnicianId?: string;
+  timerStatus?: "Idle" | "Running" | "Paused" | "Completed";
+  timerStartedAt?: string;
+  accumulatedMinutes?: number;
+  completedAt?: string;
 };
 
 type RepairOrderRecord = {
@@ -716,7 +731,7 @@ type WorkLog = {
   note: string;
 };
 
-const BUILD_VERSION = "Phase 16A — Technician Work Logs + Approval Decision Fix";
+const BUILD_VERSION = "Phase 16L — Admin Reports Cleanup + Profit / Margin Dashboard";
 
 const STORAGE_KEYS = {
   users: "dvi_phase1_users_v2",
@@ -813,6 +828,14 @@ function createSecurePortalToken() {
 
 function getPortalTokenExpiry(hours = 72) {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+}
+
+function getEffectiveTokenExpiry(token: ApprovalLinkToken, ro: RepairOrderRecord | undefined): number {
+  if (!ro || !["Released", "Closed"].includes(ro.status)) {
+    return Infinity;
+  }
+  const releaseTime = new Date(ro.updatedAt).getTime();
+  return Number.isNaN(releaseTime) ? Infinity : releaseTime + 30 * 24 * 60 * 60 * 1000;
 }
 
 function buildCustomerPortalUrl(token: string) {
@@ -2422,6 +2445,12 @@ function LoginScreen({
   setCustomerForm,
   customerError,
   onCustomerSubmit,
+  supplierForm,
+  setSupplierForm,
+  supplierError,
+  onSupplierSubmit,
+  onQuickStaffLogin,
+  onLoadDemoData,
 }: {
   audience: LoginAudience;
   setAudience: React.Dispatch<React.SetStateAction<LoginAudience>>;
@@ -2433,8 +2462,15 @@ function LoginScreen({
   setCustomerForm: React.Dispatch<React.SetStateAction<CustomerLoginForm>>;
   customerError: string;
   onCustomerSubmit: (e: React.FormEvent) => void;
+  supplierForm: SupplierLoginForm;
+  setSupplierForm: React.Dispatch<React.SetStateAction<SupplierLoginForm>>;
+  supplierError: string;
+  onSupplierSubmit: (e: React.FormEvent) => void;
+  onQuickStaffLogin: (username: string) => void;
+  onLoadDemoData: () => void;
 }) {
   const isStaff = audience === "staff";
+  const isCustomer = audience === "customer";
 
   return (
     <div style={styles.loginShell}>
@@ -2462,22 +2498,34 @@ function LoginScreen({
             type="button"
             style={{
               ...styles.secondaryButton,
-              ...(!isStaff ? styles.portalTabActive : {}),
+              ...(isCustomer ? styles.portalTabActive : {}),
             }}
             onClick={() => setAudience("customer")}
           >
             Customer Portal
           </button>
+          <button
+            type="button"
+            style={{
+              ...styles.secondaryButton,
+              ...(!isStaff && !isCustomer ? styles.portalTabActive : {}),
+            }}
+            onClick={() => setAudience("supplier")}
+          >
+            Supplier Portal
+          </button>
         </div>
 
         <div style={styles.buildNoteBox}>
           <div style={styles.buildNoteTitle}>
-            {isStaff ? "Staff Access" : "Customer Portal Access"}
+            {isStaff ? "Staff Access" : isCustomer ? "Customer Portal Access" : "Supplier Portal Access"}
           </div>
           <div style={styles.buildNoteText}>
             {isStaff
               ? "Continue using your staff account to manage intake, inspections, repair orders, parts, QC, release, and reporting."
-              : "Customers can sign in using their phone number or email plus password to review jobs, track progress, and approve, decline, or defer service items."}
+              : isCustomer
+                ? "Customers can sign in using their phone number or email plus password to review jobs, track progress, and approve, decline, or defer service items."
+                : "Suppliers can enter their supplier name and submit bids into open parts requests without opening the staff dashboard."}
           </div>
         </div>
 
@@ -2514,21 +2562,27 @@ function LoginScreen({
               </button>
             </form>
 
-            <div style={styles.updateNoteBox}><div style={styles.updateNoteTitle}>Latest Build Update</div><div style={styles.updateNoteText}>Phase 15A adds customer accounts and a customer portal foundation without changing the existing staff workflow.</div></div><div style={styles.demoBox}>
-              <div style={styles.demoTitle}>Starter Accounts</div>
+            <div style={styles.updateNoteBox}><div style={styles.updateNoteTitle}>Latest Build Update</div><div style={styles.updateNoteText}>Phase 16B adds one-click demo login buttons and a simulated shop dataset so you can test the workflow faster.</div></div><div style={styles.demoBox}>
+              <div style={styles.demoTitle}>Quick Demo Access</div>
+              <div style={styles.inlineActions}>
+                <button type="button" style={styles.smallButton} onClick={onLoadDemoData}>Load Simulated Data</button>
+                <button type="button" style={styles.smallButtonMuted} onClick={() => onQuickStaffLogin("admin")}>Admin</button>
+                <button type="button" style={styles.smallButtonMuted} onClick={() => onQuickStaffLogin("advisor")}>Advisor</button>
+                <button type="button" style={styles.smallButtonMuted} onClick={() => onQuickStaffLogin("chieftech")}>Chief Tech</button>
+                <button type="button" style={styles.smallButtonMuted} onClick={() => onQuickStaffLogin("senior")}>Senior</button>
+                <button type="button" style={styles.smallButtonMuted} onClick={() => onQuickStaffLogin("mechanic")}>Mechanic</button>
+                <button type="button" style={styles.smallButtonMuted} onClick={() => onQuickStaffLogin("office")}>Office</button>
+                <button type="button" style={styles.smallButtonMuted} onClick={() => onQuickStaffLogin("reception")}>Reception</button>
+                <button type="button" style={styles.smallButtonMuted} onClick={() => onQuickStaffLogin("ojt")}>OJT</button>
+              </div>
               <div style={styles.demoGrid}>
-                <div>admin / admin123</div>
-                <div>advisor / advisor123</div>
-                <div>chieftech / chief123</div>
-                <div>senior / senior123</div>
-                <div>mechanic / mechanic123</div>
-                <div>office / office123</div>
-                <div>reception / reception123</div>
-                <div>ojt / ojt123</div>
+                <div>Admin instantly opens full access for testing.</div>
+                <div>Load Simulated Data seeds intake, inspection, RO, approval, parts, invoice, payment, QC, release, and work-log records.</div>
+                <div>Quick buttons still use your real in-app roles and permissions.</div>
               </div>
             </div>
           </>
-        ) : (
+        ) : isCustomer ? (
           <>
             <form onSubmit={onCustomerSubmit} style={styles.loginForm}>
               <div style={styles.formGroup}>
@@ -2567,6 +2621,35 @@ function LoginScreen({
                 <div>Customer accounts are generated from intake and repair-order records.</div>
                 <div>Default portal password uses the last 4 digits of the customer phone number.</div>
                 <div>Customers can review active jobs, see approval items, and track progress.</div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <form onSubmit={onSupplierSubmit} style={styles.loginForm}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Supplier Name</label>
+                <input
+                  style={styles.input}
+                  value={supplierForm.supplierName}
+                  onChange={(e) => setSupplierForm({ supplierName: e.target.value })}
+                  placeholder="Enter supplier name"
+                />
+              </div>
+
+              {supplierError ? <div style={styles.errorBox}>{supplierError}</div> : null}
+
+              <button type="submit" style={styles.primaryButton}>
+                Open Supplier Portal
+              </button>
+            </form>
+
+            <div style={styles.demoBox}>
+              <div style={styles.demoTitle}>Supplier Portal Note</div>
+              <div style={styles.demoGrid}>
+                <div>Open requests come from the same internal Parts module.</div>
+                <div>Bids submitted here are added directly to the matching request record.</div>
+                <div>Staff can still privately compare bids and choose the winning supplier internally.</div>
               </div>
             </div>
           </>
@@ -2618,7 +2701,11 @@ function CustomerPortalPage({
 
   const activeJobCount = linkedRepairOrders.filter((row) => !["Released", "Closed"].includes(row.status)).length;
   const releasedJobCount = linkedRepairOrders.filter((row) => ["Released", "Closed"].includes(row.status)).length;
-  const activePortalLinks = approvalLinkTokens.filter((row) => row.customerId === customer.id && !row.revokedAt && new Date(row.expiresAt).getTime() > Date.now()).length;
+  const activePortalLinks = approvalLinkTokens.filter((row) => {
+    if (row.customerId !== customer.id || row.revokedAt) return false;
+    const ro = repairOrders.find((r) => r.id === row.roId);
+    return getEffectiveTokenExpiry(row, ro) > Date.now();
+  }).length;
 
   const setCustomerDecision = (roId: string, lineId: string, decision: ApprovalDecision) => {
     const now = new Date().toISOString();
@@ -2697,37 +2784,46 @@ function CustomerPortalPage({
               </button>
             </div>
 
+            <div style={styles.portalHeroCard}>
+              <div style={styles.portalHeroTitle}>Welcome back, {customer.fullName}</div>
+              <div style={styles.portalHeroText}>
+                Review current repair orders, track job status, and approve or defer recommended work from one cleaner customer portal.
+              </div>
+            </div>
+
             {portalView === "dashboard" ? (
               <div style={styles.grid}>
                 <div style={{ ...styles.gridItem, gridColumn: isCompactLayout ? "span 12" : "span 4" }}>
                   <div style={styles.statCard}>
                     <div style={styles.statLabel}>Active Jobs</div>
                     <div style={styles.statValue}>{activeJobCount}</div>
-                    <div style={styles.statNote}>Open or in-progress repair orders</div>
+                    <div style={styles.statNote}>Jobs still being worked on or awaiting next action</div>
                   </div>
                 </div>
                 <div style={{ ...styles.gridItem, gridColumn: isCompactLayout ? "span 12" : "span 4" }}>
                   <div style={styles.statCard}>
                     <div style={styles.statLabel}>Pending Approvals</div>
                     <div style={styles.statValue}>{pendingApprovalCount}</div>
-                    <div style={styles.statNote}>Items waiting for customer decision</div>
+                    <div style={styles.statNote}>Recommended items that still need your decision</div>
                   </div>
                 </div>
                 <div style={{ ...styles.gridItem, gridColumn: isCompactLayout ? "span 12" : "span 4" }}>
                   <div style={styles.statCard}>
                     <div style={styles.statLabel}>Completed Jobs</div>
                     <div style={styles.statValue}>{releasedJobCount}</div>
-                    <div style={styles.statNote}>Released or closed repair orders</div>
+                    <div style={styles.statNote}>Finished jobs already handed over or closed</div>
                   </div>
                 </div>
 
                 <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-                  <Card title="Your Account" subtitle="Portal foundation with linked vehicles and jobs">
+                  <Card title="Your Account" subtitle="Cleaner customer-facing view of linked vehicles, open jobs, approvals, and portal access">
                     <div style={styles.quickAccessList}>
                       <div style={styles.quickAccessRow}><span>Name</span><strong>{customer.fullName}</strong></div>
                       <div style={styles.quickAccessRow}><span>Phone</span><strong>{customer.phone || "-"}</strong></div>
                       <div style={styles.quickAccessRow}><span>Email</span><strong>{customer.email || "-"}</strong></div>
                       <div style={styles.quickAccessRow}><span>Vehicles</span><strong>{customer.linkedPlateNumbers.join(", ") || "-"}</strong></div>
+                      <div style={styles.quickAccessRow}><span>Open Jobs</span><strong>{activeJobCount}</strong></div>
+                      <div style={styles.quickAccessRow}><span>Pending Decisions</span><strong>{pendingApprovalCount}</strong></div>
                       <div style={styles.quickAccessRow}><span>SMS Approval Links</span><strong>{activePortalLinks}</strong></div>
                     </div>
                   </Card>
@@ -2750,6 +2846,10 @@ function CustomerPortalPage({
                       <div style={styles.mobileDataSecondary}>{[row.make, row.model, row.year].filter(Boolean).join(" ") || "-"}</div>
                       <div style={styles.mobileDataSecondary}>Advisor: {row.advisorName || "-"}</div>
                       <div style={styles.mobileMetaRow}>
+                        <span>Approval Snapshot</span>
+                        <strong>{row.workLines.filter((line) => line.approvalDecision === "Approved").length} approved • {row.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length} pending</strong>
+                      </div>
+                      <div style={styles.mobileMetaRow}>
                         <span>Concern</span>
                         <strong>{row.customerConcern || "-"}</strong>
                       </div>
@@ -2769,6 +2869,12 @@ function CustomerPortalPage({
 
             {portalView === "approvals" ? (
               <div style={styles.mobileCardList}>
+                <div style={styles.sectionCardMuted}>
+                  <div style={styles.sectionTitle}>Approval Guide</div>
+                  <div style={styles.formHint}>
+                    Approve work you want done now, choose decide later for items you want to postpone, or decline work you do not want included in the current repair order.
+                  </div>
+                </div>
                 {linkedRepairOrders.every((row) => row.workLines.every((line) => (line.approvalDecision ?? "Pending") !== "Pending")) ? (
                   <div style={styles.emptyState}>No pending approvals right now.</div>
                 ) : (
@@ -2819,6 +2925,321 @@ function CustomerPortalPage({
   );
 }
 
+
+
+
+function SupplierPortalPage({
+  supplier,
+  partsRequests,
+  setPartsRequests,
+  onLogout,
+  isCompactLayout,
+}: {
+  supplier: SupplierSession;
+  partsRequests: PartsRequestRecord[];
+  setPartsRequests: React.Dispatch<React.SetStateAction<PartsRequestRecord[]>>;
+  onLogout: () => void;
+  isCompactLayout: boolean;
+}) {
+  const [portalView, setPortalView] = useState<SupplierPortalView>("openRequests");
+  const [search, setSearch] = useState("");
+  const [selectedRequestId, setSelectedRequestId] = useState("");
+  const [brand, setBrand] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [unitCost, setUnitCost] = useState("");
+  const [deliveryTime, setDeliveryTime] = useState("");
+  const [warrantyNote, setWarrantyNote] = useState("");
+  const [condition, setCondition] = useState<SupplierBidCondition>("Brand New");
+  const [notes, setNotes] = useState("");
+  const [error, setError] = useState("");
+
+  const openRequests = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return partsRequests
+      .filter((row) => !["Closed", "Cancelled", "Parts Arrived", "Arrived"].includes(row.status))
+      .filter((row) =>
+        !term
+          ? true
+          : [row.requestNumber, row.roNumber, row.partName, row.partNumber, row.plateNumber, row.accountLabel, row.vehicleLabel]
+              .join(" ")
+              .toLowerCase()
+              .includes(term)
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [partsRequests, search]);
+
+  const myBids = useMemo(
+    () =>
+      partsRequests.flatMap((request) =>
+        request.bids
+          .filter((bid) => bid.supplierName.trim().toLowerCase() === supplier.supplierName.trim().toLowerCase())
+          .map((bid) => ({ request, bid }))
+      ),
+    [partsRequests, supplier.supplierName]
+  );
+
+  const selectedRequest = openRequests.find((row) => row.id === selectedRequestId) ?? null;
+
+  const submitBid = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRequest) {
+      setError("Select a parts request first.");
+      return;
+    }
+    if (!brand.trim() || !quantity.trim() || !unitCost.trim() || !deliveryTime.trim()) {
+      setError("Brand, quantity, unit cost, and delivery time are required.");
+      return;
+    }
+
+    const quantityValue = Math.max(1, parseMoneyInput(quantity));
+    const unitCostValue = parseMoneyInput(unitCost);
+    const totalCostValue = quantityValue * unitCostValue;
+    const newBid: SupplierBid = {
+      id: uid("bid"),
+      supplierName: supplier.supplierName,
+      brand: brand.trim(),
+      quantity: quantityValue.toString(),
+      unitCost: unitCostValue.toFixed(2),
+      totalCost: totalCostValue.toFixed(2),
+      deliveryTime: deliveryTime.trim(),
+      warrantyNote: warrantyNote.trim(),
+      condition,
+      notes: notes.trim(),
+      createdAt: new Date().toISOString(),
+    };
+
+    setPartsRequests((prev) =>
+      prev.map((request) =>
+        request.id === selectedRequest.id
+          ? {
+              ...request,
+              bids: [newBid, ...request.bids],
+              status:
+                request.status === "Draft" || request.status === "Requested" || request.status === "Sent to Suppliers"
+                  ? "Waiting for Bids"
+                  : "Bidding",
+              updatedAt: new Date().toISOString(),
+            }
+          : request
+      )
+    );
+
+    setBrand("");
+    setQuantity("1");
+    setUnitCost("");
+    setDeliveryTime("");
+    setWarrantyNote("");
+    setCondition("Brand New");
+    setNotes("");
+    setError("");
+    setPortalView("myBids");
+  };
+
+  return (
+    <>
+      <style>{globalCss}</style>
+      <div style={styles.appShell}>
+        <div style={styles.mainArea}>
+          <header style={styles.topBar}>
+            <div style={styles.topBarLeft}>
+              <div>
+                <div style={styles.pageTitle}>Supplier Portal</div>
+                <div style={styles.pageSubtitle}>{BUILD_VERSION}</div>
+              </div>
+            </div>
+
+            <div style={styles.topBarRight}>
+              <span style={styles.statusInfo}>Open requests: {openRequests.length} • My bids: {myBids.length}</span>
+              <div style={styles.topBarName}>{supplier.supplierName}</div>
+              <button type="button" onClick={onLogout} style={styles.logoutButtonCompact}>
+                Sign Out
+              </button>
+            </div>
+          </header>
+
+          <main style={styles.mainContent}>
+            <div style={styles.inlineActions}>
+              <button
+                type="button"
+                style={{ ...styles.secondaryButton, ...(portalView === "openRequests" ? styles.portalTabActive : {}) }}
+                onClick={() => setPortalView("openRequests")}
+              >
+                Open Requests
+              </button>
+              <button
+                type="button"
+                style={{ ...styles.secondaryButton, ...(portalView === "myBids" ? styles.portalTabActive : {}) }}
+                onClick={() => setPortalView("myBids")}
+              >
+                My Submitted Bids
+              </button>
+            </div>
+
+            <div style={styles.portalHeroCard}>
+              <div style={styles.portalHeroTitle}>Submit bids without entering the staff dashboard</div>
+              <div style={styles.portalHeroText}>
+                Review open parts requests, select the request you want to quote, and submit your supplier bid directly into the same records the front office uses for comparison and supplier selection.
+              </div>
+            </div>
+
+            {portalView === "openRequests" ? (
+              <div style={styles.grid}>
+                <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(5, isCompactLayout) }}>
+                  <Card title="Open Parts Requests" subtitle="Visible external requests ready for supplier quotation">
+                    <div style={styles.formGroup}>
+                      <label style={styles.label}>Search Requests</label>
+                      <input
+                        style={styles.input}
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Search request no., RO, plate, part, vehicle"
+                      />
+                    </div>
+
+                    {openRequests.length === 0 ? (
+                      <div style={styles.emptyState}>No open requests available right now.</div>
+                    ) : (
+                      <div style={styles.mobileCardList}>
+                        {openRequests.map((request) => (
+                          <button
+                            key={request.id}
+                            type="button"
+                            onClick={() => setSelectedRequestId(request.id)}
+                            style={{
+                              ...styles.mobileDataCard,
+                              ...(selectedRequestId === request.id ? styles.selectedQueueCard : {}),
+                              textAlign: "left",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <div style={styles.mobileDataCardHeader}>
+                              <strong>{request.requestNumber}</strong>
+                              <span style={getPartsRequestStatusStyle(request.status)}>{request.status}</span>
+                            </div>
+                            <div style={styles.mobileDataPrimary}>{request.partName}</div>
+                            <div style={styles.mobileDataSecondary}>{request.partNumber || "No part number"}</div>
+                            <div style={styles.mobileDataSecondary}>{request.vehicleLabel} • {request.plateNumber || "-"}</div>
+                            <div style={styles.mobileMetaRow}>
+                              <span>Bids</span>
+                              <strong>{request.bids.length}</strong>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+                </div>
+
+                <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(7, isCompactLayout) }}>
+                  <Card
+                    title="Submit Supplier Bid"
+                    subtitle="Your bid is added to the selected request and stays available for internal comparison"
+                    right={selectedRequest ? <span style={styles.statusInfo}>{selectedRequest.requestNumber}</span> : undefined}
+                  >
+                    {!selectedRequest ? (
+                      <div style={styles.emptyState}>Select a request from the left to submit a bid.</div>
+                    ) : (
+                      <form onSubmit={submitBid} style={styles.formStack}>
+                        <div style={styles.sectionCardMuted}>
+                          <div style={styles.quickAccessList}>
+                            <div style={styles.quickAccessRow}><span>Request</span><strong>{selectedRequest.requestNumber}</strong></div>
+                            <div style={styles.quickAccessRow}><span>RO</span><strong>{selectedRequest.roNumber}</strong></div>
+                            <div style={styles.quickAccessRow}><span>Part</span><strong>{selectedRequest.partName}</strong></div>
+                            <div style={styles.quickAccessRow}><span>Required Qty</span><strong>{selectedRequest.quantity}</strong></div>
+                            <div style={styles.quickAccessRow}><span>Vehicle</span><strong>{selectedRequest.vehicleLabel}</strong></div>
+                          </div>
+                        </div>
+
+                        <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                          <div style={styles.formGroup}>
+                            <label style={styles.label}>Supplier</label>
+                            <input style={styles.input} value={supplier.supplierName} disabled />
+                          </div>
+                          <div style={styles.formGroup}>
+                            <label style={styles.label}>Brand</label>
+                            <input style={styles.input} value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Brand or line" />
+                          </div>
+                        </div>
+
+                        <div style={isCompactLayout ? styles.formStack : styles.formGrid3}>
+                          <div style={styles.formGroup}>
+                            <label style={styles.label}>Quantity</label>
+                            <input style={styles.input} value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+                          </div>
+                          <div style={styles.formGroup}>
+                            <label style={styles.label}>Unit Cost</label>
+                            <input style={styles.input} value={unitCost} onChange={(e) => setUnitCost(e.target.value)} placeholder="PHP" />
+                          </div>
+                          <div style={styles.formGroup}>
+                            <label style={styles.label}>Condition</label>
+                            <select style={styles.select} value={condition} onChange={(e) => setCondition(e.target.value as SupplierBidCondition)}>
+                              <option value="Brand New">Brand New</option>
+                              <option value="OEM">OEM</option>
+                              <option value="Replacement">Replacement</option>
+                              <option value="Surplus">Surplus</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                          <div style={styles.formGroup}>
+                            <label style={styles.label}>Delivery Time</label>
+                            <input style={styles.input} value={deliveryTime} onChange={(e) => setDeliveryTime(e.target.value)} placeholder="Same day / 2 days / 1 week" />
+                          </div>
+                          <div style={styles.formGroup}>
+                            <label style={styles.label}>Warranty Note</label>
+                            <input style={styles.input} value={warrantyNote} onChange={(e) => setWarrantyNote(e.target.value)} placeholder="Optional warranty note" />
+                          </div>
+                        </div>
+
+                        <div style={styles.formGroup}>
+                          <label style={styles.label}>Notes</label>
+                          <textarea style={styles.textarea} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional fitment, stock, or delivery notes" />
+                        </div>
+
+                        {error ? <div style={styles.errorBox}>{error}</div> : null}
+
+                        <div style={styles.inlineActions}>
+                          <button type="submit" style={styles.primaryButton}>Submit Bid</button>
+                        </div>
+                      </form>
+                    )}
+                  </Card>
+                </div>
+              </div>
+            ) : (
+              <div style={styles.mobileCardList}>
+                {myBids.length === 0 ? (
+                  <div style={styles.emptyState}>No bids submitted from this supplier portal session yet.</div>
+                ) : (
+                  myBids.map(({ request, bid }) => (
+                    <div key={bid.id} style={styles.mobileDataCard}>
+                      <div style={styles.mobileDataCardHeader}>
+                        <strong>{request.requestNumber}</strong>
+                        <span style={getPartsRequestStatusStyle(request.status)}>{request.status}</span>
+                      </div>
+                      <div style={styles.mobileDataPrimary}>{request.partName}</div>
+                      <div style={styles.mobileDataSecondary}>{bid.brand} • {bid.condition}</div>
+                      <div style={styles.mobileMetaRow}>
+                        <span>Total Bid</span>
+                        <strong>{formatCurrency(parseMoneyInput(bid.totalCost))}</strong>
+                      </div>
+                      <div style={styles.mobileMetaRow}>
+                        <span>Delivery</span>
+                        <strong>{bid.deliveryTime}</strong>
+                      </div>
+                      <div style={styles.formHint}>{bid.notes || bid.warrantyNote || "No extra note."}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </main>
+        </div>
+      </div>
+    </>
+  );
+}
 
 function DashboardPage({
   currentUser,
@@ -2896,6 +3317,54 @@ function DashboardPage({
   const releasedCount = repairOrders.filter((row) => row.status === "Released").length;
   const avgReleaseValue = monthReleases.length ? monthlySales / monthReleases.length : 0;
   const fleetShare = intakeRecords.length ? Math.round((fleetCount / intakeRecords.length) * 100) : 0;
+
+  const laborRevenueTotal = repairOrders.reduce(
+    (sum, ro) => sum + ro.workLines.reduce((lineSum, line) => lineSum + parseMoneyInput(line.serviceEstimate), 0),
+    0
+  );
+  const partsRevenueTotal = repairOrders.reduce(
+    (sum, ro) => sum + ro.workLines.reduce((lineSum, line) => lineSum + parseMoneyInput(line.partsEstimate), 0),
+    0
+  );
+  const partsInternalCostTotal = repairOrders.reduce(
+    (sum, ro) =>
+      sum +
+      ro.workLines.reduce((lineSum, line) => {
+        const baseCost = parseMoneyInput(line.partsCost);
+        return lineSum + baseCost;
+      }, 0),
+    0
+  );
+  const estimatedGrossProfit = laborRevenueTotal + partsRevenueTotal - partsInternalCostTotal;
+  const estimatedGrossMargin = laborRevenueTotal + partsRevenueTotal > 0
+    ? Math.round((estimatedGrossProfit / (laborRevenueTotal + partsRevenueTotal)) * 100)
+    : 0;
+
+  const releasedRevenue = releaseRecords.reduce((sum, row) => sum + parseMoneyInput(row.finalTotalAmount), 0);
+  const releasedJobsCount = releaseRecords.length;
+  const averageReleasedTicket = releasedJobsCount ? releasedRevenue / releasedJobsCount : 0;
+
+  const roProfitMap = repairOrders
+    .map((ro) => {
+      const laborRevenue = ro.workLines.reduce((sum, line) => sum + parseMoneyInput(line.serviceEstimate), 0)
+      const partsRevenue = ro.workLines.reduce((sum, line) => sum + parseMoneyInput(line.partsEstimate), 0)
+      const partsCost = ro.workLines.reduce((sum, line) => sum + parseMoneyInput(line.partsCost), 0)
+      const grossProfit = laborRevenue + partsRevenue - partsCost
+      return {
+        ro,
+        laborRevenue,
+        partsRevenue,
+        partsCost,
+        grossProfit,
+        margin:
+          laborRevenue + partsRevenue > 0
+            ? Math.round((grossProfit / (laborRevenue + partsRevenue)) * 100)
+            : 0,
+      }
+    })
+    .sort((a, b) => b.grossProfit - a.grossProfit)
+    .slice(0, 6);
+
   const techRevenueMap = users.filter((u) => u.active).map((user) => {
     const assigned = repairOrders.filter((ro) => ro.primaryTechnicianId === user.id).length;
     const active = repairOrders.filter((ro) => ro.primaryTechnicianId === user.id && ["Approved / Ready to Work", "In Progress", "Waiting Parts", "Quality Check"].includes(ro.status)).length;
@@ -3035,6 +3504,30 @@ function DashboardPage({
           </div>
         </div>
 
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Estimated Gross Profit</div>
+            <div style={styles.statValueSmall}>{formatCurrency(estimatedGrossProfit)}</div>
+            <div style={styles.statNote}>Labor + parts revenue minus internal parts cost</div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Gross Margin</div>
+            <div style={styles.statValue}>{estimatedGrossMargin}%</div>
+            <div style={styles.statNote}>Estimated margin across all repair orders</div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Average Released Ticket</div>
+            <div style={styles.statValueSmall}>{formatCurrency(averageReleasedTicket)}</div>
+            <div style={styles.statNote}>Average final released amount per job</div>
+          </div>
+        </div>
+
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(7, isCompactLayout) }}>
           <Card title="User Distribution" subtitle="Active users by position">
             <div style={styles.roleGrid}>
@@ -3084,6 +3577,23 @@ function DashboardPage({
             </div>
           </Card>
         </div>
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(6, isCompactLayout) }}>
+          <Card title="Top Repair Orders by Profit" subtitle="Estimated gross profit based on labor + parts revenue less internal parts cost">
+            <div style={styles.quickAccessList}>
+              {roProfitMap.length === 0 ? (
+                <div style={styles.emptyState}>No repair orders available yet.</div>
+              ) : (
+                roProfitMap.map(({ ro, grossProfit, margin, laborRevenue, partsRevenue, partsCost }) => (
+                  <div key={ro.id} style={styles.quickAccessRow}>
+                    <span>{ro.roNumber} • {ro.plateNumber || ro.conductionNumber || "-"}</span>
+                    <strong>{formatCurrency(grossProfit)} • {margin}% margin • L {formatCurrency(laborRevenue)} • P {formatCurrency(partsRevenue)} • Cost {formatCurrency(partsCost)}</strong>
+                  </div>
+                ))
+              )}
+            </div>
+          </Card>
+        </div>
+
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
           <Card title="Recent Intake Activity" subtitle="Newest encoded vehicles first">
@@ -6013,6 +6523,28 @@ function RepairOrdersPage({
     );
   }, [search, sortedRepairOrders]);
 
+  const roSummary = useMemo(
+    () => ({
+      total: sortedRepairOrders.length,
+      waitingApproval: sortedRepairOrders.filter((row) => row.status === "Waiting Approval").length,
+      inProgress: sortedRepairOrders.filter((row) => row.status === "In Progress").length,
+      readyRelease: sortedRepairOrders.filter((row) => row.status === "Ready Release").length,
+    }),
+    [sortedRepairOrders]
+  );
+
+  const selectedROEstimateTotal = selectedRO
+    ? selectedRO.workLines.reduce((sum, line) => sum + parseMoneyInput(line.totalEstimate), 0)
+    : 0;
+
+  const selectedROApprovedCount = selectedRO
+    ? selectedRO.workLines.filter((line) => line.approvalDecision === "Approved").length
+    : 0;
+
+  const selectedROPendingCount = selectedRO
+    ? selectedRO.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length
+    : 0;
+
   useEffect(() => {
     setForm((prev) => ({
       ...prev,
@@ -6933,6 +7465,10 @@ function RepairOrdersPage({
                     <div><strong>Vehicle:</strong> {[selectedRO.make, selectedRO.model, selectedRO.year].filter(Boolean).join(" ") || "-"}</div>
                     <div><strong>Intake No.:</strong> {selectedRO.intakeNumber || "Manual"}</div>
                     <div><strong>Inspection No.:</strong> {selectedRO.inspectionNumber || "None"}</div>
+                    <div><strong>Total Estimate:</strong> {formatCurrency(selectedROEstimateTotal)}</div>
+                    <div><strong>Approved Lines:</strong> {selectedROApprovedCount}</div>
+                    <div><strong>Pending Lines:</strong> {selectedROPendingCount}</div>
+                    <div><strong>Primary Tech:</strong> {selectedRO.primaryTechnicianId ? users.find((user) => user.id === selectedRO.primaryTechnicianId)?.fullName || "Assigned" : "Unassigned"}</div>
                   </div>
                   <div style={styles.concernBanner}>
                     <strong>Concern:</strong> {selectedRO.customerConcern}
@@ -7050,8 +7586,8 @@ function RepairOrdersPage({
                         <div key={row.id} style={styles.mobileDataCard}>
                           <div style={styles.mobileDataCardHeader}>
                             <strong>{row.channel} Link</strong>
-                            <span style={row.revokedAt ? styles.statusLocked : new Date(row.expiresAt).getTime() > Date.now() ? styles.statusOk : styles.statusWarning}>
-                              {row.revokedAt ? "Revoked" : new Date(row.expiresAt).getTime() > Date.now() ? "Active" : "Expired"}
+                            <span style={row.revokedAt ? styles.statusLocked : getEffectiveTokenExpiry(row, selectedRO ?? undefined) > Date.now() ? styles.statusOk : styles.statusWarning}>
+                              {row.revokedAt ? "Revoked" : getEffectiveTokenExpiry(row, selectedRO ?? undefined) > Date.now() ? "Active" : "Expired"}
                             </span>
                           </div>
                           <div style={styles.formHint}>URL: {buildCustomerPortalUrl(row.token)}</div>
@@ -7201,9 +7737,9 @@ function RepairOrdersPage({
                               <div style={styles.concernCard}>{getCustomerFriendlyLineDescription(line)}</div>
                               {line.notes ? <div style={styles.formHint}>Tech notes: {line.notes}</div> : null}
                               <div style={styles.inlineActions}>
-                                <button type="button" style={styles.smallButtonSuccess} onClick={() => setLineDecision("Approved", line.id)}>Approve</button>
-                                <button type="button" style={styles.smallButtonMuted} onClick={() => setLineDecision("Deferred", line.id)}>Defer</button>
-                                <button type="button" style={styles.smallButtonDanger} onClick={() => setLineDecision("Declined", line.id)}>Decline</button>
+                                <button type="button" style={styles.smallButtonSuccess} onClick={() => setLineDecision("Approved", line.id)}>Approve Work</button>
+                                <button type="button" style={styles.smallButtonMuted} onClick={() => setLineDecision("Deferred", line.id)}>Decide Later</button>
+                                <button type="button" style={styles.smallButtonDanger} onClick={() => setLineDecision("Declined", line.id)}>Decline Work</button>
                               </div>
                             </div>
                           );
@@ -7246,9 +7782,9 @@ function RepairOrdersPage({
                             {approvedAt ? <div style={styles.formHint}>Decision Time: {formatDateTime(approvedAt)}</div> : null}
                             {line.notes ? <div style={styles.concernCard}>{line.notes}</div> : null}
                             <div style={styles.inlineActions}>
-                              <button type="button" style={styles.smallButtonSuccess} onClick={() => setLineDecision("Approved", line.id)}>Approve</button>
-                              <button type="button" style={styles.smallButtonMuted} onClick={() => setLineDecision("Deferred", line.id)}>Defer</button>
-                              <button type="button" style={styles.smallButtonDanger} onClick={() => setLineDecision("Declined", line.id)}>Decline</button>
+                              <button type="button" style={styles.smallButtonSuccess} onClick={() => setLineDecision("Approved", line.id)}>Approve Work</button>
+                              <button type="button" style={styles.smallButtonMuted} onClick={() => setLineDecision("Deferred", line.id)}>Decide Later</button>
+                              <button type="button" style={styles.smallButtonDanger} onClick={() => setLineDecision("Declined", line.id)}>Decline Work</button>
                             </div>
                           </div>
                         );
@@ -7476,6 +8012,41 @@ function QualityControlPage({
     [queue, selectedRoId]
   );
 
+  const selectedApprovedLines = useMemo(
+    () => (selectedRO ? selectedRO.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Approved") : []),
+    [selectedRO]
+  );
+
+  const selectedCompletedApprovedCount = useMemo(
+    () => selectedApprovedLines.filter((line) => line.status === "Completed").length,
+    [selectedApprovedLines]
+  );
+
+  const selectedOutstandingApprovedCount = Math.max(selectedApprovedLines.length - selectedCompletedApprovedCount, 0);
+
+  const latestQcForSelected = useMemo(
+    () =>
+      selectedRO
+        ? [...qcRecords]
+            .filter((row) => row.roId === selectedRO.id)
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null
+        : null,
+    [qcRecords, selectedRO]
+  );
+
+  useEffect(() => {
+    if (!selectedRO) return;
+    setChecks({
+      allApprovedWorkCompleted: selectedOutstandingApprovedCount === 0,
+      noLeaksOrWarningLights: true,
+      roadTestDone: true,
+      cleanlinessCheck: true,
+      noNewDamage: true,
+      toolsRemoved: true,
+    });
+    setNotes("");
+    setError("");
+  }, [selectedRO?.id, selectedOutstandingApprovedCount]);
 
   const history = useMemo(
     () =>
@@ -7489,6 +8060,10 @@ function QualityControlPage({
     if (!selectedRO || !canPerformQC) return;
     if (result === "Failed" && !notes.trim()) {
       setError("Failure notes are required when QC fails.");
+      return;
+    }
+    if (result === "Passed" && (!checks.allApprovedWorkCompleted || !checks.noLeaksOrWarningLights || !checks.roadTestDone || !checks.cleanlinessCheck || !checks.noNewDamage || !checks.toolsRemoved)) {
+      setError("All QC checklist items must pass before the job can move to Ready Release.");
       return;
     }
 
@@ -7616,6 +8191,33 @@ function QualityControlPage({
                     <div style={styles.summaryValue}>{selectedRO.accountLabel}</div>
                   </div>
                 </div>
+
+                <div style={isCompactLayout ? styles.formStack : styles.formGrid3}>
+                  <div style={styles.summaryTile}>
+                    <div style={styles.summaryLabel}>Approved Lines</div>
+                    <div style={styles.summaryValue}>{selectedApprovedLines.length}</div>
+                  </div>
+                  <div style={styles.summaryTile}>
+                    <div style={styles.summaryLabel}>Completed Approved</div>
+                    <div style={styles.summaryValue}>{selectedCompletedApprovedCount}</div>
+                  </div>
+                  <div style={styles.summaryTile}>
+                    <div style={styles.summaryLabel}>Outstanding</div>
+                    <div style={styles.summaryValue}>{selectedOutstandingApprovedCount}</div>
+                  </div>
+                </div>
+
+                {latestQcForSelected ? (
+                  <div style={styles.quickAccessRow}>
+                    <span>Latest QC Result</span>
+                    <strong>{latestQcForSelected.qcNumber} • {latestQcForSelected.result} • {formatDateTime(latestQcForSelected.createdAt)}</strong>
+                  </div>
+                ) : (
+                  <div style={styles.quickAccessRow}>
+                    <span>Latest QC Result</span>
+                    <strong>No prior QC record yet</strong>
+                  </div>
+                )}
 
                 <div style={styles.formStack}>
                   {checklistItems.map((item) => (
@@ -7788,6 +8390,26 @@ function ReleasePage({
     [queue, selectedRoId]
   );
 
+  const latestQcForSelected = useMemo(
+    () =>
+      selectedRO
+        ? [...qcRecords]
+            .filter((row) => row.roId === selectedRO.id)
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null
+        : null,
+    [qcRecords, selectedRO]
+  );
+
+  const latestReleaseForSelected = useMemo(
+    () =>
+      selectedRO
+        ? [...releaseRecords]
+            .filter((row) => row.roId === selectedRO.id)
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null
+        : null,
+    [releaseRecords, selectedRO]
+  );
+
   const selectedInvoice = useMemo(
     () => (selectedRO ? invoiceRecords.find((row) => row.roId === selectedRO.id) ?? null : null),
     [invoiceRecords, selectedRO]
@@ -7837,7 +8459,37 @@ function ReleasePage({
 
   const finalTotalAmount = calculateInvoiceTotal(finalServiceAmount, finalPartsAmount, discountAmount).toFixed(2);
   const effectivePaymentStatus = getPaymentStatusFromAmounts(finalTotalAmount, totalPaidAmount);
+  const outstandingBalance = Math.max(parseMoneyInput(finalTotalAmount) - totalPaidAmount, 0);
+  const latestQcPassed = latestQcForSelected?.result === "Passed";
 
+  const releaseSummaryStats = useMemo(
+    () => ({
+      visible: queue.length,
+      readyRelease: queue.filter((row) => row.status === "Ready Release").length,
+      released: queue.filter((row) => row.status === "Released").length,
+      unpaid: queue.filter((row) => {
+        const invoice = invoiceRecords.find((inv) => inv.roId === row.id);
+        return invoice ? invoice.paymentStatus === "Unpaid" && invoice.status !== "Voided" : true;
+      }).length,
+      partial: queue.filter((row) => {
+        const invoice = invoiceRecords.find((inv) => inv.roId === row.id);
+        return invoice ? invoice.paymentStatus === "Partial" && invoice.status !== "Voided" : false;
+      }).length,
+    }),
+    [queue, invoiceRecords]
+  );
+
+  const applySuggestedInvoiceTotals = () => {
+    if (!selectedRO) return;
+    const service = selectedRO.workLines.reduce((sum, line) => sum + parseMoneyInput(line.serviceEstimate), 0);
+    const parts = selectedRO.workLines.reduce((sum, line) => sum + parseMoneyInput(line.partsEstimate), 0);
+    setFinalServiceAmount(service ? service.toFixed(2) : "0.00");
+    setFinalPartsAmount(parts ? parts.toFixed(2) : "0.00");
+  };
+
+  const fillOutstandingBalance = () => {
+    setPaymentAmount(outstandingBalance > 0 ? outstandingBalance.toFixed(2) : "");
+  };
 
   const upsertInvoice = (nextStatus?: InvoiceStatus) => {
     if (!selectedRO) return null;
@@ -7919,8 +8571,8 @@ function ReleasePage({
     if (!selectedRO) return;
     const invoice = upsertInvoice("Finalized");
     if (!invoice) return;
-    if (!passedQcRoIds.has(selectedRO.id)) {
-      setError("A passed QC record is required before release.");
+    if (!latestQcPassed) {
+      setError("The latest QC result must be Passed before release.");
       return;
     }
     const canReleaseForPayment = effectivePaymentStatus === "Paid" || chargeAccountApproved;
@@ -7959,16 +8611,71 @@ function ReleasePage({
   };
 
   const closeOrder = (roId: string) => {
+    const row = repairOrders.find((item) => item.id === roId);
+    if (!row) return;
+    if (row.status !== "Released") {
+      setError("Only released jobs can be closed.");
+      return;
+    }
+    if (outstandingBalance > 0 && !chargeAccountApproved) {
+      setError("Outstanding balance must be cleared or charge account must be approved before closing.");
+      return;
+    }
     setRepairOrders((prev) =>
-      prev.map((row) =>
-        row.id === roId ? { ...row, status: "Closed", updatedAt: new Date().toISOString() } : row
+      prev.map((item) =>
+        item.id === roId ? { ...item, status: "Closed", updatedAt: new Date().toISOString() } : item
       )
     );
+    setError("");
   };
 
   return (
     <div style={styles.pageContent}>
       <div style={styles.grid}>
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card
+            title="Invoice + Payment Control Center"
+            subtitle="Finalize billing, collect payments, and release only when QC and payment gates are truly satisfied"
+            right={<span style={styles.statusInfo}>{releaseSummaryStats.visible} visible jobs</span>}
+          >
+            <div style={styles.heroText}>
+              This screen now keeps invoice totals, payment status, open balance, QC gate, charge-account approval, and release readiness in one place so front office handover is cleaner and harder to miss.
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Ready Release</div>
+            <div style={styles.statValue}>{releaseSummaryStats.readyRelease}</div>
+            <div style={styles.statNote}>Waiting to complete final handover</div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Released</div>
+            <div style={styles.statValue}>{releaseSummaryStats.released}</div>
+            <div style={styles.statNote}>Already handed over to customer</div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Unpaid</div>
+            <div style={styles.statValue}>{releaseSummaryStats.unpaid}</div>
+            <div style={styles.statNote}>Jobs still blocked by payment</div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Partial</div>
+            <div style={styles.statValue}>{releaseSummaryStats.partial}</div>
+            <div style={styles.statNote}>Jobs with remaining balance</div>
+          </div>
+        </div>
+
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(4, isCompactLayout) }}>
           <Card
             title="Release Queue"
@@ -8052,6 +8759,12 @@ function ReleasePage({
                     <strong>Total Amount:</strong> {formatCurrency(parseMoneyInput(finalTotalAmount))}
                   </div>
                   <div>
+                    <strong>Paid:</strong> {formatCurrency(totalPaidAmount)}
+                  </div>
+                  <div>
+                    <strong>Balance:</strong> {formatCurrency(outstandingBalance)}
+                  </div>
+                  <div>
                     <strong>Payment:</strong> <span style={getPaymentStatusStyle(effectivePaymentStatus)}>{effectivePaymentStatus}</span>
                   </div>
                 </div>
@@ -8097,6 +8810,7 @@ function ReleasePage({
                         </div>
 
                         <div style={styles.inlineActions}>
+                          <button type="button" style={styles.secondaryButton} onClick={applySuggestedInvoiceTotals}>Use RO Suggested Totals</button>
                           <button type="button" style={styles.secondaryButton} onClick={() => upsertInvoice("Draft")}>Save Draft Invoice</button>
                           <button type="button" style={styles.primaryButton} onClick={() => upsertInvoice("Finalized")}>Finalize Invoice</button>
                         </div>
@@ -8109,6 +8823,10 @@ function ReleasePage({
                           <div style={styles.quickAccessRow}>
                             <span>Status</span>
                             <span style={getInvoiceStatusStyle(selectedInvoice?.status || invoiceStatus)}>{selectedInvoice?.status || invoiceStatus}</span>
+                          </div>
+                          <div style={styles.quickAccessRow}>
+                            <span>Computed Total</span>
+                            <strong>{formatCurrency(parseMoneyInput(finalTotalAmount))}</strong>
                           </div>
                           <div style={styles.quickAccessRow}>
                             <span>Open Balance</span>
@@ -8150,6 +8868,7 @@ function ReleasePage({
                         </div>
 
                         <div style={styles.inlineActions}>
+                          <button type="button" style={styles.secondaryButton} onClick={fillOutstandingBalance}>Fill Outstanding Balance</button>
                           <button type="button" style={styles.primaryButton} onClick={addPayment}>Add Payment</button>
                         </div>
 
@@ -8164,7 +8883,7 @@ function ReleasePage({
                           </div>
                           <div style={styles.quickAccessRow}>
                             <span>Release Payment Gate</span>
-                            <strong>{effectivePaymentStatus === "Paid" || chargeAccountApproved ? "Cleared" : "Blocked"}</strong>
+                            <strong>{effectivePaymentStatus === "Paid" || chargeAccountApproved ? "Cleared" : `Blocked • ${formatCurrency(outstandingBalance)} due`}</strong>
                           </div>
                         </div>
                       </div>
@@ -8857,18 +9576,149 @@ function ShopFloorPage({
     [sortedRepairOrders]
   );
 
+
+  const myActiveJobsCount = sortedRepairOrders.filter(
+    (row) =>
+      ["Approved / Ready to Work", "In Progress", "Waiting Parts", "Quality Check"].includes(row.status) &&
+      (row.primaryTechnicianId === currentUser.id || row.supportTechnicianIds.includes(currentUser.id))
+  ).length;
+
+  const selectedROEstimateTotal = selectedRO
+    ? selectedRO.workLines.reduce((sum, line) => sum + parseMoneyInput(line.totalEstimate), 0)
+    : 0;
+
+  const selectedROCompletedLines = selectedRO
+    ? selectedRO.workLines.filter((line) => line.status === "Completed").length
+    : 0;
+
+  const technicianBoard = useMemo(() => {
+    const techUsers = users.filter(
+      (user) =>
+        user.active &&
+        ["Chief Technician", "Senior Mechanic", "General Mechanic", "OJT"].includes(user.role)
+    );
+
+    return techUsers
+      .map((user) => {
+        const assignedJobs = sortedRepairOrders.filter(
+          (row) => row.primaryTechnicianId === user.id || row.supportTechnicianIds.includes(user.id)
+        );
+        const liveLogs = workLogs.filter((log) => log.technicianId === user.id && !log.endedAt);
+        const bookedMinutes = workLogs
+          .filter((log) => log.technicianId === user.id)
+          .reduce((sum, log) => sum + getWorkLogMinutes(log), 0);
+        const completedJobs = assignedJobs.filter((row) =>
+          ["Ready Release", "Released", "Closed"].includes(row.status)
+        ).length;
+        const laborProduced = assignedJobs.reduce(
+          (sum, ro) =>
+            sum +
+            ro.workLines.reduce(
+              (lineSum, line) => lineSum + parseMoneyInput(line.serviceEstimate),
+              0
+            ),
+          0
+        );
+        const efficiency = bookedMinutes > 0 ? Math.round((laborProduced / bookedMinutes) * 60) : 0;
+
+        return {
+          user,
+          assignedJobs,
+          liveLogs,
+          bookedMinutes,
+          completedJobs,
+          laborProduced,
+          efficiency,
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.liveLogs.length - a.liveLogs.length ||
+          b.assignedJobs.length - a.assignedJobs.length ||
+          b.bookedMinutes - a.bookedMinutes
+      );
+  }, [sortedRepairOrders, users, workLogs]);
+
+  const myLiveLogs = useMemo(
+    () => workLogs.filter((log) => log.technicianId === currentUser.id && !log.endedAt),
+    [currentUser.id, workLogs]
+  );
+
+  const updateWorkLineStatus = (workLineId: string, status: WorkLineStatus) => {
+    if (!selectedRO) return;
+    const now = new Date().toISOString();
+
+    setRepairOrders((prev) =>
+      prev.map((row) => {
+        if (row.id !== selectedRO.id) return row;
+
+        const nextWorkLines = row.workLines.map((line) =>
+          line.id === workLineId ? { ...line, status, completedAt: status === "Completed" ? now : line.completedAt } : line
+        );
+
+        const allCompleted = nextWorkLines.length > 0 && nextWorkLines.every((line) => line.status === "Completed");
+        const hasWaitingParts = nextWorkLines.some((line) => line.status === "Waiting Parts");
+        const hasInProgress = nextWorkLines.some((line) => line.status === "In Progress");
+
+        let nextStatus = row.status;
+        if (allCompleted && !["Released", "Closed"].includes(row.status)) {
+          nextStatus = "Quality Check";
+        } else if (hasWaitingParts && row.status !== "Quality Check") {
+          nextStatus = "Waiting Parts";
+        } else if (hasInProgress && !["Quality Check", "Ready Release", "Released", "Closed"].includes(row.status)) {
+          nextStatus = "In Progress";
+        }
+
+        return {
+          ...row,
+          workLines: nextWorkLines,
+          status: nextStatus,
+          updatedAt: now,
+          workStartedAt: row.workStartedAt || now,
+        };
+      })
+    );
+  };
+
+  const stopActiveLogsForLine = (workLineId: string) => {
+    setWorkLogs((prev) =>
+      prev.map((row) => {
+        if (row.workLineId !== workLineId || !selectedRO || row.roId !== selectedRO.id || row.endedAt) return row;
+        const endedAt = new Date().toISOString();
+        const totalMinutes = Math.max(
+          0,
+          Math.floor((new Date(endedAt).getTime() - new Date(row.startedAt).getTime()) / 60000)
+        );
+        return { ...row, endedAt, totalMinutes };
+      })
+    );
+  };
+
+  const markWorkLineComplete = (workLineId: string) => {
+    stopActiveLogsForLine(workLineId);
+    updateWorkLineStatus(workLineId, "Completed");
+  };
+
   return (
     <div style={styles.pageContent}>
       <div style={styles.grid}>
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
           <Card
             title="Shop Floor Job Feed"
-            subtitle="All repair orders shown newest to oldest, including draft and waiting approval jobs"
-            right={<span style={styles.statusInfo}>{visibleRepairOrders.length} visible jobs</span>}
+            subtitle="Newest to oldest operational board with technician assignment, live timers, and no fixed bay layout"
+            right={
+              <div style={styles.inlineActions}>
+                <span style={styles.statusInfo}>{visibleRepairOrders.length} visible jobs</span>
+                <span style={canManageShopFloor ? styles.statusOk : styles.statusNeutral}>
+                  {canManageShopFloor ? "Manage Allowed" : "View Only"}
+                </span>
+              </div>
+            }
           >
             <div style={styles.heroText}>
               This board uses repair orders as the live job source. It does not use fixed bays. Jobs stay visible from
-              draft through closed so management and staff can see the full queue in one place.
+              draft through closed so management and staff can see the full queue, reassign technicians quickly, and
+              move vehicles cleanly from approval to release.
             </div>
           </Card>
         </div>
@@ -8900,6 +9750,68 @@ function ShopFloorPage({
             <div style={styles.statValue}>{statusCounts.qc + statusCounts.readyRelease}</div>
             <div style={styles.statNote}>Near-completion vehicles</div>
           </div>
+        </div>
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>My Active Jobs</div>
+            <div style={styles.statValue}>{myActiveJobsCount}</div>
+            <div style={styles.statNote}>Jobs assigned to {currentUser.fullName.split(" ")[0]}</div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card
+            title="Technician Board"
+            subtitle="Live workload, active timers, booked hours, and efficiency base for each technician"
+            right={<span style={styles.statusInfo}>{technicianBoard.length} technicians tracked</span>}
+          >
+            {technicianBoard.length === 0 ? (
+              <div style={styles.emptyState}>No active technicians found.</div>
+            ) : (
+              <div style={styles.mobileCardList}>
+                {technicianBoard.map(({ user, assignedJobs, liveLogs, bookedMinutes, completedJobs, laborProduced, efficiency }) => (
+                  <div key={user.id} style={styles.mobileDataCard}>
+                    <div style={styles.mobileDataCardHeader}>
+                      <strong>{user.fullName}</strong>
+                      <RoleBadge role={user.role} />
+                    </div>
+                    <div style={styles.mobileMetaRow}>
+                      <span>Assigned Jobs</span>
+                      <strong>{assignedJobs.length}</strong>
+                    </div>
+                    <div style={styles.mobileMetaRow}>
+                      <span>Live Timers</span>
+                      <strong>{liveLogs.length}</strong>
+                    </div>
+                    <div style={styles.mobileMetaRow}>
+                      <span>Booked Time</span>
+                      <strong>{formatMinutesAsHours(bookedMinutes)}</strong>
+                    </div>
+                    <div style={styles.mobileMetaRow}>
+                      <span>Completed Jobs</span>
+                      <strong>{completedJobs}</strong>
+                    </div>
+                    <div style={styles.mobileMetaRow}>
+                      <span>Labor Produced</span>
+                      <strong>{formatCurrency(laborProduced)}</strong>
+                    </div>
+                    <div style={styles.mobileMetaRow}>
+                      <span>Efficiency</span>
+                      <strong>{efficiency}%</strong>
+                    </div>
+                    <div style={styles.formHint}>
+                      {assignedJobs.length
+                        ? assignedJobs
+                            .slice(0, 3)
+                            .map((job) => `${job.roNumber} • ${job.status}`)
+                            .join(" • ")
+                        : "No assigned jobs."}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(4, isCompactLayout) }}>
@@ -9007,13 +9919,7 @@ function ShopFloorPage({
           <Card
             title="Job Detail"
             subtitle="Live status, technician assignment, and work summary"
-            right={
-              selectedRO ? (
-                <span style={canManageShopFloor ? styles.statusOk : styles.statusNeutral}>
-                  {canManageShopFloor ? "Manage Allowed" : "View Only"}
-                </span>
-              ) : undefined
-            }
+            right={selectedRO ? <ROStatusBadge status={selectedRO.status} /> : undefined}
           >
             {!selectedRO ? (
               <div style={styles.emptyState}>No repair orders are available yet.</div>
@@ -9046,6 +9952,22 @@ function ShopFloorPage({
                     <div>
                       <strong>Elapsed</strong>
                       <div>{formatElapsedTime(selectedRO.workStartedAt)}</div>
+                    </div>
+                    <div>
+                      <strong>Primary Tech</strong>
+                      <div>{selectedRO.primaryTechnicianId ? getUserName(selectedRO.primaryTechnicianId) : "Unassigned"}</div>
+                    </div>
+                    <div>
+                      <strong>Support Team</strong>
+                      <div>{selectedRO.supportTechnicianIds.length ? selectedRO.supportTechnicianIds.map(getUserName).join(", ") : "None"}</div>
+                    </div>
+                    <div>
+                      <strong>Completed Lines</strong>
+                      <div>{selectedROCompletedLines} / {selectedRO.workLines.length}</div>
+                    </div>
+                    <div>
+                      <strong>Total Estimate</strong>
+                      <div>{formatCurrency(selectedROEstimateTotal)}</div>
                     </div>
                   </div>
 
@@ -9260,33 +10182,110 @@ function ShopFloorPage({
                   ) : null}
                 </div>
 
+                {myLiveLogs.length ? (
+                  <div style={styles.sectionCard}>
+                    <div style={styles.mobileDataCardHeader}>
+                      <div>
+                        <div style={styles.sectionTitle}>My Live Timers</div>
+                        <div style={styles.formHint}>Quick stop controls for the signed-in technician.</div>
+                      </div>
+                      <span style={styles.statusWarning}>{myLiveLogs.length} running</span>
+                    </div>
+                    <div style={styles.mobileCardList}>
+                      {myLiveLogs.map((log) => {
+                        const ro = repairOrders.find((row) => row.id === log.roId);
+                        const line = ro?.workLines.find((row) => row.id === log.workLineId);
+                        return (
+                          <div key={log.id} style={styles.mobileDataCard}>
+                            <div style={styles.mobileDataCardHeader}>
+                              <strong>{line?.title || "Work Line"}</strong>
+                              <span style={styles.statusInfo}>{formatElapsedTime(log.startedAt)}</span>
+                            </div>
+                            <div style={styles.mobileDataSecondary}>
+                              {ro?.roNumber || "-"} • {ro?.plateNumber || ro?.conductionNumber || "-"}
+                            </div>
+                            <div style={styles.inlineActions}>
+                              <button type="button" style={styles.smallButtonDanger} onClick={() => stopWorkLog(log.id)}>
+                                Stop My Timer
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+
                 <div style={styles.sectionCard}>
                   <div style={styles.sectionTitle}>Work Summary</div>
                   <div style={styles.mobileCardList}>
-                    {selectedRO.workLines.map((line) => (
-                      <div key={line.id} style={styles.mobileDataCard}>
-                        <div style={styles.mobileDataCardHeader}>
-                          <strong>{line.title || "Untitled Work Line"}</strong>
-                          <span style={getWorkLineStatusStyle(line.status)}>{line.status}</span>
+                    {selectedRO.workLines.map((line) => {
+                      const activeLineLogs = roWorkLogs.filter((log) => log.workLineId === line.id && !log.endedAt);
+                      const lineAssignedTechId = line.assignedTechnicianId || selectedRO.primaryTechnicianId || currentUser.id;
+                      return (
+                        <div key={line.id} style={styles.mobileDataCard}>
+                          <div style={styles.mobileDataCardHeader}>
+                            <strong>{line.title || "Untitled Work Line"}</strong>
+                            <span style={getWorkLineStatusStyle(line.status)}>{line.status}</span>
+                          </div>
+                          <div style={styles.mobileDataSecondary}>
+                            {line.category} • Priority {line.priority}
+                          </div>
+                          <div style={styles.mobileMetaRow}>
+                            <span>Assigned Tech</span>
+                            <strong>{lineAssignedTechId ? getUserName(lineAssignedTechId) : "Unassigned"}</strong>
+                          </div>
+                          <div style={styles.mobileMetaRow}>
+                            <span>Logged Time</span>
+                            <strong>{formatMinutesAsHours(lineMinutesMap.get(line.id) ?? 0)}</strong>
+                          </div>
+                          <div style={styles.mobileMetaRow}>
+                            <span>Service Estimate</span>
+                            <strong>{formatCurrency(parseMoneyInput(line.serviceEstimate))}</strong>
+                          </div>
+                          <div style={styles.mobileMetaRow}>
+                            <span>Parts Estimate</span>
+                            <strong>{formatCurrency(parseMoneyInput(line.partsEstimate))}</strong>
+                          </div>
+                          <div style={styles.mobileMetaRow}>
+                            <span>Total Estimate</span>
+                            <strong>{formatCurrency(parseMoneyInput(line.totalEstimate))}</strong>
+                          </div>
+                          {line.notes ? <div style={styles.formHint}>{line.notes}</div> : null}
+                          {activeLineLogs.length ? (
+                            <div style={styles.formHint}>
+                              Live timer: {activeLineLogs.map((log) => `${getUserName(log.technicianId)} (${formatElapsedTime(log.startedAt)})`).join(" • ")}
+                            </div>
+                          ) : null}
+                          <div style={styles.inlineActions}>
+                            <button
+                              type="button"
+                              style={styles.smallButton}
+                              onClick={() => {
+                                updateWorkLineStatus(line.id, "In Progress");
+                                startWorkLog(line.id, lineAssignedTechId);
+                              }}
+                            >
+                              Start Line
+                            </button>
+                            <button
+                              type="button"
+                              style={styles.smallButtonMuted}
+                              onClick={() => updateWorkLineStatus(line.id, "Waiting Parts")}
+                            >
+                              Waiting Parts
+                            </button>
+                            <button
+                              type="button"
+                              style={styles.smallButtonSuccess}
+                              onClick={() => markWorkLineComplete(line.id)}
+                            >
+                              Mark Complete
+                            </button>
+                          </div>
                         </div>
-                        <div style={styles.mobileDataSecondary}>
-                          {line.category} • Priority {line.priority}
-                        </div>
-                        <div style={styles.mobileMetaRow}>
-                          <span>Service Estimate</span>
-                          <strong>{formatCurrency(parseMoneyInput(line.serviceEstimate))}</strong>
-                        </div>
-                        <div style={styles.mobileMetaRow}>
-                          <span>Parts Estimate</span>
-                          <strong>{formatCurrency(parseMoneyInput(line.partsEstimate))}</strong>
-                        </div>
-                        <div style={styles.mobileMetaRow}>
-                          <span>Total Estimate</span>
-                          <strong>{formatCurrency(parseMoneyInput(line.totalEstimate))}</strong>
-                        </div>
-                        {line.notes ? <div style={styles.formHint}>{line.notes}</div> : null}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -9525,6 +10524,27 @@ function PartsPage({
   const customerPrice = selectedRequest ? parseMoneyInput(selectedRequest.customerSellingPrice) : 0;
   const estimatedMargin = customerPrice - internalCost;
 
+  const requestSummary = useMemo(
+    () => ({
+      total: visibleRequests.length,
+      waitingBids: visibleRequests.filter((row) => ["Sent to Suppliers", "Waiting for Bids", "Bidding"].includes(row.status)).length,
+      supplierSelected: visibleRequests.filter((row) => row.status === "Supplier Selected").length,
+      inTransit: visibleRequests.filter((row) => ["Ordered", "Shipped"].includes(row.status)).length,
+      arrived: visibleRequests.filter((row) => ["Arrived", "Parts Arrived"].includes(row.status)).length,
+      closed: visibleRequests.filter((row) => row.status === "Closed").length,
+    }),
+    [visibleRequests]
+  );
+
+  const totalSelectedBidsValue = useMemo(
+    () =>
+      visibleRequests.reduce((sum, row) => {
+        const selected = row.bids.find((bid) => bid.id === row.selectedBidId);
+        return sum + parseMoneyInput(selected?.totalCost ?? "0");
+      }, 0),
+    [visibleRequests]
+  );
+
   const setRequestStatus = (request: PartsRequestRecord, status: PartsRequestStatus) => {
     updateRequest(request.id, { status });
     if (status === "Arrived" || status === "Parts Arrived") {
@@ -9538,6 +10558,66 @@ function PartsPage({
   return (
     <div style={styles.pageContent}>
       <div style={styles.grid}>
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card
+            title="Parts + Supplier Bidding Control Center"
+            subtitle="Track requests from draft to arrival with selected supplier cost visibility and cleaner purchasing actions"
+            right={<span style={styles.statusInfo}>{requestSummary.total} visible requests</span>}
+          >
+            <div style={styles.heroText}>
+              Parts requests stay linked to the repair order, selected supplier bids stay internal, customer selling price remains visible for margin review, and arrival automatically helps move the linked job back into active work.
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Waiting Bids</div>
+            <div style={styles.statValue}>{requestSummary.waitingBids}</div>
+            <div style={styles.statNote}>Sent or waiting for supplier pricing</div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Supplier Selected</div>
+            <div style={styles.statValue}>{requestSummary.supplierSelected}</div>
+            <div style={styles.statNote}>Ready for purchasing decision</div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>In Transit</div>
+            <div style={styles.statValue}>{requestSummary.inTransit}</div>
+            <div style={styles.statNote}>Ordered or already shipped</div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Arrived</div>
+            <div style={styles.statValue}>{requestSummary.arrived}</div>
+            <div style={styles.statNote}>Parts back in the shop</div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Closed</div>
+            <div style={styles.statValue}>{requestSummary.closed}</div>
+            <div style={styles.statNote}>Completed purchasing requests</div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Selected Bid Value</div>
+            <div style={styles.statValueSmall}>{formatCurrency(totalSelectedBidsValue)}</div>
+            <div style={styles.statNote}>Internal supplier cost total</div>
+          </div>
+        </div>
+
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(5, isCompactLayout) }}>
           <Card title="Create Parts Request" subtitle="Linked to an existing RO with supplier bidding support">
             <form onSubmit={createRequest} style={styles.formStack}>
@@ -9707,7 +10787,7 @@ function PartsPage({
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
           <Card
             title={selectedRequest ? `Request Details — ${selectedRequest.requestNumber}` : "Request Details"}
-            subtitle="Internal supplier cost stays in this module; customer selling price can be tracked separately"
+            subtitle="Selected supplier cost stays internal while selling price, margin view, and request progression remain easier to manage"
           >
             {!selectedRequest ? (
               <div style={styles.emptyState}>Select a parts request to manage bidding and status.</div>
@@ -9788,9 +10868,20 @@ function PartsPage({
                           type="button"
                           style={{ ...styles.secondaryButton, ...(selectedRequest.selectedBidId ? {} : styles.buttonDisabled) }}
                           disabled={!selectedRequest.selectedBidId}
+                          onClick={() => setRequestStatus(selectedRequest, "Supplier Selected")}
+                        >
+                          Confirm Supplier
+                        </button>
+                        <button
+                          type="button"
+                          style={{ ...styles.secondaryButton, ...(selectedRequest.selectedBidId ? {} : styles.buttonDisabled) }}
+                          disabled={!selectedRequest.selectedBidId}
                           onClick={() => setRequestStatus(selectedRequest, "Ordered")}
                         >
                           Mark Ordered
+                        </button>
+                        <button type="button" style={styles.secondaryButton} onClick={() => setRequestStatus(selectedRequest, "Shipped")}>
+                          Mark Shipped
                         </button>
                         <button type="button" style={styles.primaryButton} onClick={() => setRequestStatus(selectedRequest, "Parts Arrived")}>
                           Mark Parts Arrived
@@ -10152,6 +11243,7 @@ export default function App() {
   const [customerSession, setCustomerSession] = useState<CustomerAccount | null>(() =>
     readLocalStorage<CustomerAccount | null>(STORAGE_KEYS.customerSession, null)
   );
+  const [supplierSession, setSupplierSession] = useState<SupplierSession | null>(null);
 
   const [approvalLinkTokens, setApprovalLinkTokens] = useState<ApprovalLinkToken[]>(() =>
     readLocalStorage<ApprovalLinkToken[]>(STORAGE_KEYS.approvalLinkTokens, [])
@@ -10169,8 +11261,12 @@ export default function App() {
     identifier: "",
     password: "",
   });
+  const [supplierLoginForm, setSupplierLoginForm] = useState<SupplierLoginForm>({
+    supplierName: "",
+  });
 
   const [customerLoginError, setCustomerLoginError] = useState("");
+  const [supplierLoginError, setSupplierLoginError] = useState("");
 
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(() =>
     readLocalStorage<SessionUser | null>(STORAGE_KEYS.session, null)
@@ -10335,7 +11431,8 @@ export default function App() {
       setCustomerLoginError("This approval link is invalid or has been revoked.");
       return;
     }
-    if (new Date(tokenRecord.expiresAt).getTime() <= Date.now()) {
+    const tokenRo = repairOrders.find((ro) => ro.id === tokenRecord.roId);
+    if (getEffectiveTokenExpiry(tokenRecord, tokenRo) <= Date.now()) {
       setLoginAudience("customer");
       setCustomerLoginError("This approval link has expired.");
       return;
@@ -10357,7 +11454,7 @@ export default function App() {
     url.searchParams.delete("portal");
     url.searchParams.delete("token");
     window.history.replaceState({}, "", url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : ""));
-  }, [approvalLinkTokens, customerAccounts]);
+  }, [approvalLinkTokens, customerAccounts, repairOrders]);
 
   const allowedNav = useMemo(() => {
     if (!currentUser) return [];
@@ -10367,6 +11464,555 @@ export default function App() {
   const currentNavItem = useMemo(() => {
     return NAV_ITEMS.find((item) => item.key === currentView) ?? NAV_ITEMS[0];
   }, [currentView]);
+
+  const completeStaffLogin = (found: UserAccount) => {
+    setCurrentUser({
+      id: found.id,
+      username: found.username,
+      fullName: found.fullName,
+      role: found.role,
+      active: found.active,
+      createdAt: found.createdAt,
+    });
+    setCurrentView(getDefaultViewForRole(found.role, roleDefinitions));
+    setLoginForm({ username: "", password: "" });
+    setLoginError("");
+    setCustomerSession(null);
+  };
+
+  const loadSimulatedData = () => {
+    const now = new Date();
+    const iso = (hoursAgo: number) => new Date(now.getTime() - hoursAgo * 60 * 60 * 1000).toISOString();
+
+    const defaultUsers = getDefaultUsers();
+    const adminUser = defaultUsers.find((user) => user.role === "Admin") ?? defaultUsers[0];
+    const advisorUser = defaultUsers.find((user) => user.role === "Service Advisor") ?? defaultUsers[0];
+    const chiefUser = defaultUsers.find((user) => user.role === "Chief Technician") ?? defaultUsers[0];
+    const seniorUser = defaultUsers.find((user) => user.role === "Senior Mechanic") ?? defaultUsers[0];
+    const mechanicUser = defaultUsers.find((user) => user.role === "General Mechanic") ?? defaultUsers[0];
+    const officeUser = defaultUsers.find((user) => user.role === "Office Staff") ?? defaultUsers[0];
+
+    const intake1Id = uid("intake");
+    const intake2Id = uid("intake");
+    const inspection1Id = uid("insp");
+    const inspection2Id = uid("insp");
+    const ro1Id = uid("ro");
+    const ro2Id = uid("ro");
+    const workLine1Id = uid("wl");
+    const workLine2Id = uid("wl");
+    const workLine3Id = uid("wl");
+    const workLine4Id = uid("wl");
+    const approval1Id = uid("apr");
+    const qc1Id = uid("qc");
+    const release1Id = uid("rel");
+    const parts1Id = uid("pr");
+    const invoice1Id = uid("inv");
+    const payment1Id = uid("pay");
+    const customer1Id = uid("cust");
+    const customer2Id = uid("cust");
+    const token1Id = uid("tok");
+
+    const intakeRecordsSeed: IntakeRecord[] = [
+      {
+        id: intake1Id,
+        intakeNumber: nextDailyNumber("INT"),
+        createdAt: iso(30),
+        updatedAt: iso(28),
+        customerName: "Miguel Santos",
+        companyName: "",
+        accountType: "Personal",
+        phone: "09171234567",
+        email: "miguel.santos@example.com",
+        plateNumber: "NEX-2451",
+        conductionNumber: "",
+        make: "Toyota",
+        model: "Fortuner",
+        year: "2021",
+        color: "Gray",
+        odometerKm: "58210",
+        fuelLevel: "1/2",
+        assignedAdvisor: advisorUser.fullName,
+        concern: "Front suspension noise and uneven tire wear.",
+        notes: "Customer requested full underchassis check.",
+        status: "Converted to RO",
+        encodedBy: advisorUser.fullName,
+      },
+      {
+        id: intake2Id,
+        intakeNumber: nextDailyNumber("INT"),
+        createdAt: iso(18),
+        updatedAt: iso(12),
+        customerName: "Andrea Lim",
+        companyName: "Prime Movers Logistics",
+        accountType: "Company / Fleet",
+        phone: "09179876543",
+        email: "fleet@primemovers.example.com",
+        plateNumber: "ABJ-9087",
+        conductionNumber: "",
+        make: "Mitsubishi",
+        model: "Montero Sport",
+        year: "2023",
+        color: "White",
+        odometerKm: "22145",
+        fuelLevel: "3/4",
+        assignedAdvisor: advisorUser.fullName,
+        concern: "A/C weak cooling and PMS due.",
+        notes: "Fleet vehicle priority service.",
+        status: "Converted to RO",
+        encodedBy: advisorUser.fullName,
+      },
+    ];
+
+    const inspection1: InspectionRecord = {
+      ...getDefaultInspectionForm(),
+      id: inspection1Id,
+      inspectionNumber: nextDailyNumber("INSP"),
+      intakeId: intake1Id,
+      intakeNumber: intakeRecordsSeed[0].intakeNumber,
+      createdAt: iso(27),
+      updatedAt: iso(24),
+      startedBy: chiefUser.fullName,
+      status: "Completed",
+      accountLabel: "Miguel Santos",
+      plateNumber: "NEX-2451",
+      conductionNumber: "",
+      make: "Toyota",
+      model: "Fortuner",
+      year: "2021",
+      color: "Gray",
+      odometerKm: "58210",
+      concern: "Front suspension noise and uneven tire wear.",
+      enableSuspensionCheck: true,
+      enableAlignmentCheck: true,
+      frontShockState: "Needs Replacement",
+      frontLowerControlArmState: "Needs Attention",
+      frontLeftTireState: "Needs Attention",
+      frontRightTireState: "Needs Attention",
+      steeringFeelNotes: "Pulling slightly to the right during road test.",
+      suspensionRoadTestNotes: "Knocking noise over uneven road.",
+      recommendedWork: "Replace front shocks, inspect control arm bushings, perform alignment.",
+      recommendationLines: [
+        "Replace front shock absorbers",
+        "Inspect / service lower control arm bushings",
+        "Wheel alignment",
+      ],
+    };
+
+    const inspection2: InspectionRecord = {
+      ...getDefaultInspectionForm(),
+      id: inspection2Id,
+      inspectionNumber: nextDailyNumber("INSP"),
+      intakeId: intake2Id,
+      intakeNumber: intakeRecordsSeed[1].intakeNumber,
+      createdAt: iso(11),
+      updatedAt: iso(8),
+      startedBy: seniorUser.fullName,
+      status: "Completed",
+      accountLabel: "Prime Movers Logistics",
+      plateNumber: "ABJ-9087",
+      conductionNumber: "",
+      make: "Mitsubishi",
+      model: "Montero Sport",
+      year: "2023",
+      color: "White",
+      odometerKm: "22145",
+      concern: "A/C weak cooling and PMS due.",
+      enableAcCheck: true,
+      enableUnderHood: true,
+      acCoolingPerformanceState: "Needs Attention",
+      acCabinFilterState: "Needs Replacement",
+      acNotes: "Cabin filter dirty; vent temperature higher than expected.",
+      engineOilCondition: "Needs Attention",
+      recommendedWork: "Basic PMS, cabin filter replacement, A/C performance service.",
+      recommendationLines: [
+        "Basic PMS package",
+        "Replace cabin air filter",
+        "A/C performance inspection and service",
+      ],
+    };
+
+    const repairOrdersSeed: RepairOrderRecord[] = [
+      {
+        id: ro1Id,
+        roNumber: nextDailyNumber("RO"),
+        createdAt: iso(25),
+        updatedAt: iso(1),
+        workStartedAt: iso(6),
+        sourceType: "Intake",
+        intakeId: intake1Id,
+        inspectionId: inspection1Id,
+        intakeNumber: intakeRecordsSeed[0].intakeNumber,
+        inspectionNumber: inspection1.inspectionNumber,
+        customerName: "Miguel Santos",
+        companyName: "",
+        accountType: "Personal",
+        accountLabel: "Miguel Santos",
+        phone: "09171234567",
+        email: "miguel.santos@example.com",
+        plateNumber: "NEX-2451",
+        conductionNumber: "",
+        make: "Toyota",
+        model: "Fortuner",
+        year: "2021",
+        color: "Gray",
+        odometerKm: "58210",
+        customerConcern: "Front suspension noise and uneven tire wear.",
+        advisorName: advisorUser.fullName,
+        status: "In Progress",
+        primaryTechnicianId: chiefUser.id,
+        supportTechnicianIds: [mechanicUser.id],
+        workLines: [
+          {
+            ...recalculateWorkLine({
+              ...getEmptyWorkLine(),
+              id: workLine1Id,
+              title: "Replace front shock absorbers",
+              category: "Suspension",
+              priority: "High",
+              status: "In Progress",
+              laborHours: "2.5",
+              laborRate: "950",
+              partsCost: "6200",
+              partsMarkupPercent: "20",
+              notes: "Use matched pair replacement.",
+              assignedTechnicianId: chiefUser.id,
+              timerStatus: "Running",
+              timerStartedAt: iso(2),
+              accumulatedMinutes: 90,
+              approvalDecision: "Approved",
+              approvalAt: iso(20),
+            }),
+          },
+          {
+            ...recalculateWorkLine({
+              ...getEmptyWorkLine(),
+              id: workLine2Id,
+              title: "Wheel alignment",
+              category: "Alignment",
+              priority: "Medium",
+              status: "Pending",
+              laborHours: "1",
+              laborRate: "850",
+              partsCost: "0",
+              partsMarkupPercent: "0",
+              notes: "Perform after suspension work completion.",
+              assignedTechnicianId: mechanicUser.id,
+              timerStatus: "Idle",
+              timerStartedAt: "",
+              accumulatedMinutes: 0,
+              approvalDecision: "Approved",
+              approvalAt: iso(20),
+            }),
+          },
+        ],
+        latestApprovalRecordId: approval1Id,
+        deferredLineTitles: [],
+        backjobReferenceRoId: "",
+        findingRecommendationDecisions: [],
+        encodedBy: advisorUser.fullName,
+      },
+      {
+        id: ro2Id,
+        roNumber: nextDailyNumber("RO"),
+        createdAt: iso(10),
+        updatedAt: iso(3),
+        workStartedAt: iso(7),
+        sourceType: "Intake",
+        intakeId: intake2Id,
+        inspectionId: inspection2Id,
+        intakeNumber: intakeRecordsSeed[1].intakeNumber,
+        inspectionNumber: inspection2.inspectionNumber,
+        customerName: "Andrea Lim",
+        companyName: "Prime Movers Logistics",
+        accountType: "Company / Fleet",
+        accountLabel: "Prime Movers Logistics",
+        phone: "09179876543",
+        email: "fleet@primemovers.example.com",
+        plateNumber: "ABJ-9087",
+        conductionNumber: "",
+        make: "Mitsubishi",
+        model: "Montero Sport",
+        year: "2023",
+        color: "White",
+        odometerKm: "22145",
+        customerConcern: "A/C weak cooling and PMS due.",
+        advisorName: advisorUser.fullName,
+        status: "Ready Release",
+        primaryTechnicianId: seniorUser.id,
+        supportTechnicianIds: [mechanicUser.id],
+        workLines: [
+          {
+            ...recalculateWorkLine({
+              ...getEmptyWorkLine(),
+              id: workLine3Id,
+              title: "Basic PMS package",
+              category: "Preventive Maintenance",
+              priority: "High",
+              status: "Completed",
+              laborHours: "1.5",
+              laborRate: "900",
+              partsCost: "4995",
+              partsMarkupPercent: "0",
+              notes: "Promo package applied.",
+              assignedTechnicianId: seniorUser.id,
+              timerStatus: "Completed",
+              timerStartedAt: "",
+              accumulatedMinutes: 95,
+              completedAt: iso(5),
+              approvalDecision: "Approved",
+              approvalAt: iso(9),
+            }),
+          },
+          {
+            ...recalculateWorkLine({
+              ...getEmptyWorkLine(),
+              id: workLine4Id,
+              title: "Replace cabin air filter",
+              category: "Air Conditioning",
+              priority: "Medium",
+              status: "Completed",
+              laborHours: "0.5",
+              laborRate: "900",
+              partsCost: "650",
+              partsMarkupPercent: "15",
+              notes: "Restored airflow after replacement.",
+              assignedTechnicianId: mechanicUser.id,
+              timerStatus: "Completed",
+              timerStartedAt: "",
+              accumulatedMinutes: 35,
+              completedAt: iso(6),
+              approvalDecision: "Approved",
+              approvalAt: iso(9),
+            }),
+          },
+        ],
+        latestApprovalRecordId: "",
+        deferredLineTitles: [],
+        backjobReferenceRoId: "",
+        findingRecommendationDecisions: [],
+        encodedBy: officeUser.fullName,
+      },
+    ];
+
+    const approvalRecordsSeed: ApprovalRecord[] = [
+      {
+        id: approval1Id,
+        approvalNumber: nextDailyNumber("APP"),
+        roId: ro1Id,
+        roNumber: repairOrdersSeed[0].roNumber,
+        createdAt: iso(20),
+        decidedBy: advisorUser.fullName,
+        customerName: "Miguel Santos",
+        customerContact: "09171234567",
+        summary: "Customer approved main suspension repair items.",
+        communicationHook: "SMS",
+        items: [
+          { workLineId: workLine1Id, title: "Replace front shock absorbers", decision: "Approved", approvedAt: iso(20), note: "Approved by customer" },
+          { workLineId: workLine2Id, title: "Wheel alignment", decision: "Approved", approvedAt: iso(20), note: "Approved by customer" },
+        ],
+      },
+    ];
+
+    const partsRequestsSeed: PartsRequestRecord[] = [
+      {
+        id: parts1Id,
+        requestNumber: nextDailyNumber("PR"),
+        roId: ro1Id,
+        roNumber: repairOrdersSeed[0].roNumber,
+        createdAt: iso(19),
+        updatedAt: iso(4),
+        requestedBy: chiefUser.fullName,
+        status: "Ordered",
+        partName: "Front shock absorber set",
+        partNumber: "FSA-FTN-2021",
+        quantity: "2",
+        urgency: "High",
+        notes: "Needed before alignment.",
+        customerSellingPrice: "7440",
+        selectedBidId: "bid_demo_1",
+        plateNumber: "NEX-2451",
+        vehicleLabel: "Toyota Fortuner 2021",
+        accountLabel: "Miguel Santos",
+        bids: [
+          {
+            id: "bid_demo_1",
+            supplierName: "Northeast Parts Supply",
+            brand: "KYB",
+            quantity: "2",
+            unitCost: "3100",
+            totalCost: "6200",
+            deliveryTime: "Same day",
+            warrantyNote: "6 months supplier warranty",
+            condition: "Brand New",
+            notes: "Preferred supplier",
+            createdAt: iso(18),
+          },
+        ],
+      },
+    ];
+
+    const qcRecordsSeed: QCRecord[] = [
+      {
+        id: qc1Id,
+        qcNumber: nextDailyNumber("QC"),
+        roId: ro2Id,
+        roNumber: repairOrdersSeed[1].roNumber,
+        createdAt: iso(4),
+        qcBy: chiefUser.fullName,
+        result: "Passed",
+        allApprovedWorkCompleted: true,
+        noLeaksOrWarningLights: true,
+        roadTestDone: true,
+        cleanlinessCheck: true,
+        noNewDamage: true,
+        toolsRemoved: true,
+        notes: "Ready for customer release.",
+      },
+    ];
+
+    const releaseRecordsSeed: ReleaseRecord[] = [
+      {
+        id: release1Id,
+        releaseNumber: nextDailyNumber("REL"),
+        roId: ro2Id,
+        roNumber: repairOrdersSeed[1].roNumber,
+        createdAt: iso(2),
+        releasedBy: officeUser.fullName,
+        finalServiceAmount: "1800",
+        finalPartsAmount: "5642.50",
+        finalTotalAmount: "7442.50",
+        releaseSummary: "Released after PMS and A/C refresh.",
+        documentsReady: true,
+        paymentSettled: true,
+        noNewDamage: true,
+        cleanVehicle: true,
+        toolsRemoved: true,
+      },
+    ];
+
+    const invoiceRecordsSeed: InvoiceRecord[] = [
+      {
+        id: invoice1Id,
+        invoiceNumber: nextDailyNumber("INV"),
+        roId: ro2Id,
+        roNumber: repairOrdersSeed[1].roNumber,
+        createdAt: iso(3),
+        updatedAt: iso(2),
+        createdBy: officeUser.fullName,
+        laborSubtotal: "1800",
+        partsSubtotal: "5642.50",
+        discountAmount: "0",
+        totalAmount: "7442.50",
+        status: "Finalized",
+        paymentStatus: "Paid",
+        chargeAccountApproved: false,
+        notes: "Demo paid invoice.",
+      },
+    ];
+
+    const paymentRecordsSeed: PaymentRecord[] = [
+      {
+        id: payment1Id,
+        paymentNumber: nextDailyNumber("PAY"),
+        invoiceId: invoice1Id,
+        roId: ro2Id,
+        roNumber: repairOrdersSeed[1].roNumber,
+        createdAt: iso(2),
+        receivedBy: officeUser.fullName,
+        amount: "7442.50",
+        method: "GCash",
+        referenceNumber: "GCASH-DEMO-2026",
+        notes: "Demo payment",
+      },
+    ];
+
+    const workLogsSeed: WorkLog[] = [
+      { id: uid("wlog"), roId: ro2Id, workLineId: workLine3Id, technicianId: seniorUser.id, startedAt: iso(7), endedAt: iso(5), totalMinutes: 95, note: "Completed basic PMS package" },
+      { id: uid("wlog"), roId: ro2Id, workLineId: workLine4Id, technicianId: mechanicUser.id, startedAt: iso(6.5), endedAt: iso(6), totalMinutes: 35, note: "Replaced cabin air filter" },
+    ];
+
+    const customerAccountsSeed: CustomerAccount[] = [
+      {
+        id: customer1Id,
+        fullName: "Miguel Santos",
+        phone: "09171234567",
+        email: "miguel.santos@example.com",
+        password: "4567",
+        linkedPlateNumbers: ["NEX-2451"],
+        linkedRoIds: [ro1Id],
+        createdAt: iso(30),
+        updatedAt: iso(1),
+      },
+      {
+        id: customer2Id,
+        fullName: "Andrea Lim",
+        phone: "09179876543",
+        email: "fleet@primemovers.example.com",
+        password: "6543",
+        linkedPlateNumbers: ["ABJ-9087"],
+        linkedRoIds: [ro2Id],
+        createdAt: iso(18),
+        updatedAt: iso(2),
+      },
+    ];
+
+    const approvalLinkTokensSeed: ApprovalLinkToken[] = [
+      {
+        id: token1Id,
+        roId: ro1Id,
+        customerId: customer1Id,
+        token: createSecurePortalToken(),
+        createdAt: iso(20),
+        expiresAt: getPortalTokenExpiry(),
+        lastUsedAt: "",
+        revokedAt: "",
+        channel: "SMS",
+      },
+    ];
+
+    const smsApprovalLogsSeed: SmsApprovalDispatchLog[] = [
+      {
+        id: uid("sms"),
+        roId: ro1Id,
+        customerId: customer1Id,
+        tokenId: token1Id,
+        sentTo: "09171234567",
+        message: `Demo approval link for ${repairOrdersSeed[0].roNumber}: ${buildCustomerPortalUrl(approvalLinkTokensSeed[0].token)}`,
+        createdAt: iso(20),
+      },
+    ];
+
+    setUsers(defaultUsers);
+    setRoleDefinitions(getDefaultRoleDefinitions());
+    setIntakeRecords(intakeRecordsSeed);
+    setInspectionRecords([inspection1, inspection2]);
+    setRepairOrders(repairOrdersSeed);
+    setApprovalRecords(approvalRecordsSeed);
+    setPartsRequests(partsRequestsSeed);
+    setQcRecords(qcRecordsSeed);
+    setReleaseRecords(releaseRecordsSeed);
+    setInvoiceRecords(invoiceRecordsSeed);
+    setPaymentRecords(paymentRecordsSeed);
+    setWorkLogs(workLogsSeed);
+    setBackjobRecords([]);
+    setCustomerAccounts(customerAccountsSeed);
+    setApprovalLinkTokens(approvalLinkTokensSeed);
+    setSmsApprovalLogs(smsApprovalLogsSeed);
+    setCurrentView("dashboard");
+    setLoginError("");
+    setCustomerLoginError("");
+    setCustomerSession(null);
+  };
+
+  const quickStaffLogin = (username: string) => {
+    const found = users.find((user) => user.active && user.username.toLowerCase() === username.toLowerCase());
+    if (!found) {
+      setLoginError("Demo user not found.");
+      return;
+    }
+    setLoginForm({ username: found.username, password: found.password });
+    completeStaffLogin(found);
+  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -10431,6 +12077,23 @@ export default function App() {
   const handleCustomerLogout = () => {
     setCustomerSession(null);
     setCustomerLoginError("");
+  };
+
+  const handleSupplierLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const supplierName = supplierLoginForm.supplierName.trim();
+    if (!supplierName) {
+      setSupplierLoginError("Please enter your supplier name.");
+      return;
+    }
+    setSupplierSession({ supplierName });
+    setSupplierLoginForm({ supplierName: "" });
+    setSupplierLoginError("");
+  };
+
+  const handleSupplierLogout = () => {
+    setSupplierSession(null);
+    setSupplierLoginError("");
   };
 
   const generateSmsApprovalLink = (ro: RepairOrderRecord) => {
@@ -10718,6 +12381,18 @@ export default function App() {
     );
   }
 
+  if (supplierSession) {
+    return (
+      <SupplierPortalPage
+        supplier={supplierSession}
+        partsRequests={partsRequests}
+        setPartsRequests={setPartsRequests}
+        onLogout={handleSupplierLogout}
+        isCompactLayout={isMobile}
+      />
+    );
+  }
+
   if (!currentUser) {
     return (
       <>
@@ -10733,6 +12408,12 @@ export default function App() {
           setCustomerForm={setCustomerLoginForm}
           customerError={customerLoginError}
           onCustomerSubmit={handleCustomerLogin}
+          supplierForm={supplierLoginForm}
+          setSupplierForm={setSupplierLoginForm}
+          supplierError={supplierLoginError}
+          onSupplierSubmit={handleSupplierLogin}
+          onQuickStaffLogin={quickStaffLogin}
+          onLoadDemoData={loadSimulatedData}
         />
       </>
     );
@@ -11081,7 +12762,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   mainContent: {
-    padding: 14,
+    padding: 18,
     minWidth: 0,
   },
 
@@ -11118,15 +12799,17 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   cardTitle: {
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: 800,
-    color: "#111827",
+    color: "#0f172a",
+    lineHeight: 1.3,
   },
 
   cardSubtitle: {
     marginTop: 4,
     fontSize: 13,
     color: "#64748b",
+    lineHeight: 1.5,
   },
 
   roleBadge: {
@@ -11147,11 +12830,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   statCard: {
-    background: "#fff",
-    border: "1px solid #e5e7eb",
+    background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+    border: "1px solid rgba(148, 163, 184, 0.18)",
     borderRadius: 18,
     padding: 18,
-    boxShadow: "0 2px 12px rgba(15, 23, 42, 0.05)",
+    boxShadow: "0 6px 18px rgba(15, 23, 42, 0.06)",
     height: "100%",
   },
 
@@ -11177,13 +12860,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   roleTile: {
-    border: "1px solid #e5e7eb",
-    borderRadius: 14,
+    border: "1px solid rgba(148, 163, 184, 0.18)",
+    borderRadius: 16,
     padding: 14,
     display: "flex",
     flexDirection: "column",
     gap: 10,
-    background: "#f8fafc",
+    background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
     color: "#334155",
     alignItems: "flex-start",
   },
@@ -11201,8 +12884,9 @@ const styles: Record<string, React.CSSProperties> = {
   quickAccessRow: {
     display: "flex",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: 10,
-    border: "1px solid #e5e7eb",
+    border: "1px solid rgba(148, 163, 184, 0.18)",
     borderRadius: 12,
     padding: "10px 12px",
     background: "#f8fafc",
@@ -11219,6 +12903,9 @@ const styles: Record<string, React.CSSProperties> = {
   tableWrap: {
     width: "100%",
     overflowX: "auto",
+    border: "1px solid rgba(148, 163, 184, 0.18)",
+    borderRadius: 16,
+    background: "#ffffff",
   },
 
   table: {
@@ -11228,21 +12915,23 @@ const styles: Record<string, React.CSSProperties> = {
 
   th: {
     textAlign: "left",
-    padding: "12px 10px",
-    borderBottom: "1px solid #e5e7eb",
+    padding: "13px 12px",
+    borderBottom: "1px solid rgba(226, 232, 240, 0.95)",
     background: "#f8fafc",
     color: "#475569",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 800,
+    letterSpacing: 0.2,
     whiteSpace: "nowrap",
   },
 
   td: {
-    padding: "12px 10px",
-    borderBottom: "1px solid #e5e7eb",
+    padding: "13px 12px",
+    borderBottom: "1px solid rgba(226, 232, 240, 0.9)",
     color: "#111827",
-    fontSize: 14,
+    fontSize: 13,
     verticalAlign: "top",
+    lineHeight: 1.5,
   },
 
   moduleText: {
@@ -11326,12 +13015,12 @@ const styles: Record<string, React.CSSProperties> = {
 
   loginPanel: {
     width: "100%",
-    maxWidth: 500,
-    background: "rgba(255,255,255,0.96)",
+    maxWidth: 520,
+    background: "rgba(255,255,255,0.97)",
     borderRadius: 24,
-    padding: 24,
-    border: "1px solid rgba(255,255,255,0.6)",
-    boxShadow: "0 20px 60px rgba(2, 8, 23, 0.25)",
+    padding: 26,
+    border: "1px solid rgba(255,255,255,0.72)",
+    boxShadow: "0 24px 70px rgba(2, 8, 23, 0.24)",
   },
 
   loginBrand: {
@@ -11423,33 +13112,36 @@ const styles: Record<string, React.CSSProperties> = {
 
   input: {
     width: "100%",
-    border: "1px solid rgba(37, 99, 235, 0.22)",
+    border: "1px solid rgba(148, 163, 184, 0.35)",
     borderRadius: 12,
     padding: "12px 14px",
     background: "#ffffff",
     outline: "none",
     color: "#0f172a",
+    minHeight: 44,
   },
 
   select: {
     width: "100%",
-    border: "1px solid rgba(37, 99, 235, 0.22)",
+    border: "1px solid rgba(148, 163, 184, 0.35)",
     borderRadius: 12,
     padding: "12px 14px",
     background: "#ffffff",
     outline: "none",
     color: "#0f172a",
+    minHeight: 44,
   },
 
   textarea: {
     width: "100%",
-    minHeight: 92,
-    border: "1px solid rgba(37, 99, 235, 0.22)",
+    minHeight: 96,
+    border: "1px solid rgba(148, 163, 184, 0.35)",
     borderRadius: 12,
     padding: "12px 14px",
     background: "#ffffff",
     outline: "none",
     color: "#0f172a",
+    lineHeight: 1.5,
   },
 
   checkboxRow: {
@@ -11473,14 +13165,15 @@ const styles: Record<string, React.CSSProperties> = {
     border: "none",
     borderRadius: 12,
     padding: "13px 16px",
-    background: "#2563eb",
+    background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
     color: "#fff",
     fontWeight: 800,
     cursor: "pointer",
+    boxShadow: "0 10px 24px rgba(37, 99, 235, 0.22)",
   },
 
   secondaryButton: {
-    border: "1px solid rgba(29,78,216,0.25)",
+    border: "1px solid rgba(148, 163, 184, 0.3)",
     borderRadius: 12,
     padding: "13px 16px",
     background: "#ffffff",
@@ -11511,4 +13204,576 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
   },
 
+  buttonDisabled: {
+    opacity: 0.55,
+    cursor: "not-allowed",
+  },
+
+  inlineActions: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    alignItems: "center",
+  },
+
+  inlineActionsColumn: {
+    display: "grid",
+    gap: 8,
+  },
+
+  demoBox: {
+    marginTop: 20,
+    paddingTop: 16,
+    borderTop: "1px solid rgba(148, 163, 184, 0.28)",
+  },
+
+  demoTitle: {
+    fontSize: 14,
+    fontWeight: 800,
+    color: "#0f172a",
+    marginBottom: 10,
+  },
+
+  demoGrid: {
+    display: "grid",
+    gap: 8,
+    fontSize: 13,
+    color: "#475569",
+    lineHeight: 1.55,
+  },
+
+  updateNoteBox: {
+    background: "linear-gradient(180deg, #f8fafc 0%, #eff6ff 100%)",
+    border: "1px solid rgba(37, 99, 235, 0.16)",
+    borderRadius: 16,
+    padding: 14,
+    marginTop: 18,
+  },
+
+  updateNoteTitle: {
+    fontSize: 13,
+    fontWeight: 800,
+    color: "#0f172a",
+    marginBottom: 6,
+  },
+
+  updateNoteText: {
+    fontSize: 13,
+    color: "#475569",
+    lineHeight: 1.55,
+  },
+
+  statusOk: {
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: 999,
+    padding: "6px 10px",
+    background: "#dcfce7",
+    color: "#166534",
+    fontSize: 12,
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+
+  statusInfo: {
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: 999,
+    padding: "6px 10px",
+    background: "#dbeafe",
+    color: "#1d4ed8",
+    fontSize: 12,
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+
+  statusWarning: {
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: 999,
+    padding: "6px 10px",
+    background: "#fef3c7",
+    color: "#92400e",
+    fontSize: 12,
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+
+  statusLocked: {
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: 999,
+    padding: "6px 10px",
+    background: "#fee2e2",
+    color: "#991b1b",
+    fontSize: 12,
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+
+  statusNeutral: {
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: 999,
+    padding: "6px 10px",
+    background: "#e2e8f0",
+    color: "#475569",
+    fontSize: 12,
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+
+  portalTabActive: {
+    background: "#1d4ed8",
+    color: "#ffffff",
+    borderColor: "#1d4ed8",
+    boxShadow: "0 10px 24px rgba(29, 78, 216, 0.22)",
+  },
+
+  textareaLarge: {
+    width: "100%",
+    minHeight: 140,
+    border: "1px solid rgba(37, 99, 235, 0.22)",
+    borderRadius: 14,
+    padding: "12px 14px",
+    background: "#ffffff",
+    outline: "none",
+    color: "#0f172a",
+    lineHeight: 1.5,
+  },
+
+  smallButtonSuccess: {
+    border: "none",
+    borderRadius: 10,
+    padding: "8px 10px",
+    background: "#16a34a",
+    color: "#fff",
+    fontWeight: 700,
+    cursor: "pointer",
+    fontSize: 12,
+  },
+
+  smallButtonDanger: {
+    border: "none",
+    borderRadius: 10,
+    padding: "8px 10px",
+    background: "#dc2626",
+    color: "#fff",
+    fontWeight: 700,
+    cursor: "pointer",
+    fontSize: 12,
+  },
+
+  sectionCard: {
+    background: "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.98) 100%)",
+    border: "1px solid rgba(148, 163, 184, 0.2)",
+    borderRadius: 18,
+    padding: 16,
+    boxShadow: "0 6px 22px rgba(15, 23, 42, 0.06)",
+  },
+
+  sectionCardMuted: {
+    background: "#f8fafc",
+    border: "1px solid rgba(148, 163, 184, 0.22)",
+    borderRadius: 16,
+    padding: 14,
+  },
+
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: 800,
+    color: "#0f172a",
+    marginBottom: 10,
+  },
+
+  formHint: {
+    fontSize: 12,
+    color: "#64748b",
+    lineHeight: 1.5,
+  },
+
+  summaryGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+    gap: 10,
+    marginBottom: 12,
+  },
+
+  concernBanner: {
+    borderRadius: 14,
+    padding: "12px 14px",
+    background: "#fff7ed",
+    border: "1px solid #fed7aa",
+    color: "#9a3412",
+    fontSize: 13,
+    lineHeight: 1.5,
+    marginBottom: 12,
+  },
+
+  queueStack: {
+    display: "grid",
+    gap: 10,
+  },
+
+  queueCard: {
+    width: "100%",
+    textAlign: "left",
+    border: "1px solid rgba(148, 163, 184, 0.2)",
+    background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+    borderRadius: 16,
+    padding: 14,
+    cursor: "pointer",
+    boxShadow: "0 4px 16px rgba(15, 23, 42, 0.05)",
+  },
+
+  queueCardActive: {
+    border: "1px solid #1d4ed8",
+    boxShadow: "0 0 0 3px rgba(29, 78, 216, 0.12)",
+  },
+
+  queueCardHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 8,
+  },
+
+  queueLine: {
+    fontSize: 14,
+    fontWeight: 800,
+    color: "#0f172a",
+  },
+
+  queueLineMuted: {
+    fontSize: 13,
+    color: "#64748b",
+    marginTop: 4,
+  },
+
+  mobileCardList: {
+    display: "grid",
+    gap: 12,
+  },
+
+  mobileDataCard: {
+    border: "1px solid rgba(148, 163, 184, 0.22)",
+    background: "#ffffff",
+    borderRadius: 18,
+    padding: 14,
+    boxShadow: "0 6px 18px rgba(15, 23, 42, 0.05)",
+  },
+
+  mobileDataCardSelected: {
+    border: "1px solid #1d4ed8",
+    boxShadow: "0 0 0 3px rgba(29, 78, 216, 0.12)",
+  },
+
+  mobileDataCardHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 8,
+    flexWrap: "wrap",
+  },
+
+  mobileDataPrimary: {
+    fontSize: 14,
+    fontWeight: 800,
+    color: "#0f172a",
+  },
+
+  mobileDataSecondary: {
+    fontSize: 13,
+    color: "#64748b",
+    marginTop: 4,
+    lineHeight: 1.5,
+  },
+
+  mobileMetaRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingTop: 8,
+    marginTop: 8,
+    borderTop: "1px solid rgba(226, 232, 240, 0.9)",
+    fontSize: 13,
+    color: "#475569",
+  },
+
+  mobileActionStack: {
+    display: "grid",
+    gap: 8,
+    marginTop: 12,
+  },
+
+  emptyState: {
+    border: "1px dashed rgba(148, 163, 184, 0.55)",
+    background: "#f8fafc",
+    borderRadius: 16,
+    padding: 20,
+    textAlign: "center",
+    color: "#64748b",
+    fontSize: 14,
+  },
+
+  stickyActionBar: {
+    position: "sticky",
+    bottom: 0,
+    display: "grid",
+    gap: 8,
+    padding: 12,
+    background: "rgba(255,255,255,0.96)",
+    borderTop: "1px solid rgba(148, 163, 184, 0.2)",
+    borderRadius: 16,
+    boxShadow: "0 -8px 24px rgba(15, 23, 42, 0.08)",
+  },
+
+  actionButtonWide: {
+    width: "100%",
+    justifyContent: "center",
+  },
+
+  toggleGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+    gap: 10,
+  },
+
+  checkboxTile: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "12px 14px",
+    borderRadius: 14,
+    border: "1px solid rgba(148, 163, 184, 0.22)",
+    background: "#ffffff",
+    color: "#334155",
+    fontSize: 13,
+    fontWeight: 700,
+  },
+
+  tablePrimary: {
+    fontSize: 13,
+    fontWeight: 800,
+    color: "#0f172a",
+  },
+
+  tableSecondary: {
+    fontSize: 12,
+    color: "#64748b",
+    marginTop: 4,
+    lineHeight: 1.4,
+  },
+
+  concernCell: {
+    maxWidth: 260,
+    whiteSpace: "normal",
+    lineHeight: 1.5,
+    color: "#334155",
+  },
+
+  concernCard: {
+    marginTop: 10,
+    padding: "10px 12px",
+    borderRadius: 12,
+    background: "#f8fafc",
+    border: "1px solid rgba(148, 163, 184, 0.2)",
+    fontSize: 13,
+    color: "#334155",
+    lineHeight: 1.5,
+  },
+
+  registrySummary: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  logoutButtonCompact: {
+    border: "none",
+    background: "#dc2626",
+    color: "#fff",
+    borderRadius: 10,
+    padding: "9px 12px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+
+  statNote: {
+    fontSize: 12,
+    color: "#94a3b8",
+    marginTop: 8,
+  },
+
+  summaryBar: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    flexWrap: "wrap",
+    padding: "12px 14px",
+    borderRadius: 14,
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+  },
+
+  summaryPanel: {
+    padding: 14,
+    borderRadius: 16,
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+  },
+
+  summaryTile: {
+    padding: 12,
+    borderRadius: 14,
+    background: "#ffffff",
+    border: "1px solid #e2e8f0",
+  },
+
+  summaryLabel: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#64748b",
+    marginBottom: 6,
+  },
+
+  summaryValue: {
+    fontSize: 15,
+    fontWeight: 800,
+    color: "#0f172a",
+    lineHeight: 1.4,
+  },
+
+  detailPanel: {
+    padding: 16,
+    borderRadius: 18,
+    background: "#ffffff",
+    border: "1px solid #dbe4f0",
+    boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+  },
+
+  detailBanner: {
+    padding: 14,
+    borderRadius: 16,
+    background: "#eff6ff",
+    border: "1px solid #bfdbfe",
+  },
+
+  detailGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: 12,
+  },
+
+  filterBar: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto auto",
+    gap: 10,
+    alignItems: "end",
+  },
+
+  twoColumnForm: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 14,
+  },
+
+  threeColumnForm: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 14,
+  },
+
+  formGrid4: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: 14,
+  },
+
+  checkboxList: {
+    display: "grid",
+    gap: 10,
+    padding: 12,
+    borderRadius: 14,
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+  },
+
+  checkboxCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "10px 12px",
+    borderRadius: 12,
+    background: "#ffffff",
+    border: "1px solid #dbe4f0",
+    fontWeight: 600,
+    color: "#334155",
+  },
+
+  mobileCard: {
+    border: "1px solid #e2e8f0",
+    borderRadius: 16,
+    background: "#ffffff",
+    padding: 14,
+    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
+  },
+
+  mobileCardHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 8,
+  },
+
+  mobileCardTitle: {
+    fontSize: 15,
+    fontWeight: 800,
+    color: "#0f172a",
+  },
+
+  mobileCardSubtitle: {
+    fontSize: 12,
+    color: "#64748b",
+    marginTop: 4,
+  },
+
+  mobileCardMeta: {
+    fontSize: 13,
+    color: "#475569",
+    lineHeight: 1.6,
+  },
+
+  mobileCardNote: {
+    marginTop: 8,
+    fontSize: 13,
+    color: "#475569",
+    lineHeight: 1.6,
+    padding: "10px 12px",
+    borderRadius: 12,
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+  },
+
+  mobileDataCardButton: {
+    width: "100%",
+    border: "1px solid #dbe4f0",
+    borderRadius: 16,
+    background: "#ffffff",
+    padding: 12,
+    textAlign: "left",
+    cursor: "pointer",
+    transition: "all 0.15s ease",
+  },
+
+  mobileDataCardButtonActive: {
+    borderColor: "#93c5fd",
+    background: "#eff6ff",
+    boxShadow: "0 0 0 1px #bfdbfe inset",
+  },
 };
