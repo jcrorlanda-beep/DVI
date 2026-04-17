@@ -19,6 +19,7 @@ type Permission =
   | "qualityControl.view"
   | "release.view"
   | "parts.view"
+  | "backjobs.view"
   | "users.view"
   | "users.manage"
   | "roles.view"
@@ -34,6 +35,7 @@ type ViewKey =
   | "qualityControl"
   | "release"
   | "parts"
+  | "backjobs"
   | "users"
   | "roles"
   | "settings";
@@ -674,12 +676,21 @@ type BackjobRecord = {
   linkedRoId: string;
   linkedRoNumber: string;
   createdAt: string;
+  updatedAt: string;
   plateNumber: string;
   customerLabel: string;
+  originalInvoiceNumber: string;
+  comebackInvoiceNumber: string;
+  originalPrimaryTechnicianId: string;
+  comebackPrimaryTechnicianId: string;
+  supportingTechnicianIds: string[];
   complaint: string;
+  findings: string;
   rootCause: string;
   responsibility: BackjobOutcome;
+  actionTaken: string;
   resolutionNotes: string;
+  status: "Open" | "In Progress" | "Monitoring" | "Closed";
   createdBy: string;
 };
 
@@ -731,7 +742,7 @@ type WorkLog = {
   note: string;
 };
 
-const BUILD_VERSION = "Phase 16L — Admin Reports Cleanup + Profit / Margin Dashboard";
+const BUILD_VERSION = "Phase 16P — Visual Inspection Report + Condition Colors";
 
 const STORAGE_KEYS = {
   users: "dvi_phase1_users_v2",
@@ -776,6 +787,7 @@ const ALL_PERMISSIONS: Permission[] = [
   "qualityControl.view",
   "release.view",
   "parts.view",
+  "backjobs.view",
   "users.view",
   "users.manage",
   "roles.view",
@@ -802,6 +814,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   { key: "release", label: "Release", icon: "🚗", permission: "release.view" },
   { key: "parts", label: "Parts", icon: "📦", permission: "parts.view" },
+  { key: "backjobs", label: "Backjobs", icon: "↩️", permission: "backjobs.view" },
   { key: "users", label: "Users", icon: "👥", permission: "users.view" },
   { key: "roles", label: "Roles & Permissions", icon: "🛡️", permission: "roles.view" },
   { key: "settings", label: "Settings", icon: "⚙️", permission: "settings.view" },
@@ -1011,6 +1024,149 @@ function formatDateTime(value: string) {
   return date.toLocaleString();
 }
 
+function downloadTextFile(filename: string, content: string) {
+  if (typeof document === "undefined") return;
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
+function printTextDocument(title: string, content: string) {
+  if (typeof window === "undefined") return;
+  const popup = window.open("", "_blank", "width=900,height=700");
+  if (!popup) return;
+  const escapedTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const escapedBody = content.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  popup.document.write(`
+    <html>
+      <head>
+        <title>${escapedTitle}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
+          h1 { font-size: 24px; margin-bottom: 16px; }
+          pre { white-space: pre-wrap; font-family: Arial, sans-serif; line-height: 1.5; font-size: 13px; }
+        </style>
+      </head>
+      <body>
+        <h1>${escapedTitle}</h1>
+        <pre>${escapedBody}</pre>
+      </body>
+    </html>
+  `);
+  popup.document.close();
+  popup.focus();
+  popup.print();
+}
+
+function buildRepairOrderExportText(ro: RepairOrderRecord, users: UserAccount[]) {
+  const primary = users.find((user) => user.id === ro.primaryTechnicianId)?.fullName || "Unassigned";
+  const support = ro.supportTechnicianIds.map((id) => users.find((user) => user.id === id)?.fullName || id).join(", ") || "None";
+  const workLines = ro.workLines.map((line, index) =>
+    `${index + 1}. ${line.title || "Untitled"} | ${line.category} | ${line.status} | ${line.approvalDecision ?? "Pending"} | ${formatCurrency(parseMoneyInput(line.totalEstimate))}`
+  ).join("\n");
+  return [
+    `Repair Order: ${ro.roNumber}`,
+    `Status: ${ro.status}`,
+    `Customer: ${ro.accountLabel}`,
+    `Plate: ${ro.plateNumber || ro.conductionNumber || "-"}`,
+    `Vehicle: ${[ro.make, ro.model, ro.year, ro.color].filter(Boolean).join(" ") || "-"}`,
+    `Concern: ${ro.customerConcern || "-"}`,
+    `Advisor: ${ro.advisorName || "-"}`,
+    `Primary Technician: ${primary}`,
+    `Support Technicians: ${support}`,
+    `Created: ${formatDateTime(ro.createdAt)}`,
+    `Updated: ${formatDateTime(ro.updatedAt)}`,
+    "",
+    "Work Lines:",
+    workLines || "No work lines yet.",
+  ].join("\n");
+}
+
+function buildQcExportText(ro: RepairOrderRecord, qc: QCRecord | null) {
+  return [
+    `QC Record for ${ro.roNumber}`,
+    `RO Status: ${ro.status}`,
+    `Customer: ${ro.accountLabel}`,
+    `Plate: ${ro.plateNumber || ro.conductionNumber || "-"}`,
+    `Vehicle: ${[ro.make, ro.model, ro.year].filter(Boolean).join(" ") || "-"}`,
+    "",
+    qc
+      ? `Latest QC: ${qc.qcNumber} | ${qc.result} | ${formatDateTime(qc.createdAt)} | By: ${qc.qcBy}`
+      : "Latest QC: No QC record yet",
+    qc ? `Notes: ${qc.notes || "-"}` : "",
+    "",
+    "Approved Work Lines:",
+    ro.workLines
+      .filter((line) => line.approvalDecision === "Approved")
+      .map((line, index) => `${index + 1}. ${line.title} | ${line.status} | ${formatCurrency(parseMoneyInput(line.totalEstimate))}`)
+      .join("\n") || "No approved work lines.",
+  ].join("\n");
+}
+
+function buildReleaseExportText(
+  ro: RepairOrderRecord,
+  invoice: InvoiceRecord | null,
+  payments: PaymentRecord[],
+  release: ReleaseRecord | null,
+  qc: QCRecord | null,
+  finalTotalAmount: string
+) {
+  const paid = payments.reduce((sum, row) => sum + parseMoneyInput(row.amount), 0);
+  return [
+    `Release Summary for ${ro.roNumber}`,
+    `RO Status: ${ro.status}`,
+    `Customer: ${ro.accountLabel}`,
+    `Plate: ${ro.plateNumber || ro.conductionNumber || "-"}`,
+    `Vehicle: ${[ro.make, ro.model, ro.year].filter(Boolean).join(" ") || "-"}`,
+    `Latest QC: ${qc ? `${qc.qcNumber} | ${qc.result}` : "No QC record"}`,
+    `Invoice: ${invoice ? invoice.invoiceNumber : "No invoice"}`,
+    `Invoice Status: ${invoice ? invoice.status : "-"}`,
+    `Payment Status: ${invoice ? invoice.paymentStatus : "-"}`,
+    `Final Total: ${formatCurrency(parseMoneyInput(finalTotalAmount))}`,
+    `Total Paid: ${formatCurrency(paid)}`,
+    `Balance: ${formatCurrency(Math.max(parseMoneyInput(finalTotalAmount) - paid, 0))}`,
+    "",
+    "Payments:",
+    payments.map((payment, index) =>
+      `${index + 1}. ${payment.paymentNumber} | ${formatCurrency(parseMoneyInput(payment.amount))} | ${payment.method} | ${formatDateTime(payment.createdAt)}`
+    ).join("\n") || "No payments yet.",
+    "",
+    release
+      ? `Latest Release: ${release.releaseNumber} | ${formatDateTime(release.createdAt)} | By: ${release.releasedBy}`
+      : "Latest Release: No release record yet",
+  ].join("\n");
+}
+
+function buildBackjobExportText(backjob: BackjobRecord, users: UserAccount[]) {
+  const comebackTech = users.find((user) => user.id === backjob.comebackPrimaryTechnicianId)?.fullName || "Unassigned";
+  const originalTech = users.find((user) => user.id === backjob.originalPrimaryTechnicianId)?.fullName || "Unassigned";
+  return [
+    `Backjob: ${backjob.backjobNumber}`,
+    `Status: ${backjob.status}`,
+    `Linked RO: ${backjob.linkedRoNumber}`,
+    `Customer: ${backjob.customerLabel}`,
+    `Plate: ${backjob.plateNumber || "-"}`,
+    `Responsibility: ${backjob.responsibility}`,
+    `Original Invoice: ${backjob.originalInvoiceNumber || "-"}`,
+    `Comeback Invoice: ${backjob.comebackInvoiceNumber || "-"}`,
+    `Original Technician: ${originalTech}`,
+    `Comeback Technician: ${comebackTech}`,
+    `Complaint: ${backjob.complaint || "-"}`,
+    `Findings: ${backjob.findings || "-"}`,
+    `Root Cause: ${backjob.rootCause || "-"}`,
+    `Action Taken: ${backjob.actionTaken || "-"}`,
+    `Resolution Notes: ${backjob.resolutionNotes || "-"}`,
+    `Created: ${formatDateTime(backjob.createdAt)}`,
+    `Updated: ${formatDateTime(backjob.updatedAt)}`,
+  ].join("\n");
+}
+
 function getResponsiveSpan(span: number, isCompactLayout: boolean) {
   return isCompactLayout ? "span 12" : `span ${span}`;
 }
@@ -1028,6 +1184,7 @@ function getDefaultRoleDefinitions(): RoleDefinition[] {
         "shopFloor.view",
         "release.view",
         "parts.view",
+        "backjobs.view",
       ],
     },
     {
@@ -1038,6 +1195,7 @@ function getDefaultRoleDefinitions(): RoleDefinition[] {
         "repairOrders.view",
         "shopFloor.view",
         "qualityControl.view",
+        "backjobs.view",
       ],
     },
     {
@@ -1061,6 +1219,7 @@ function getDefaultRoleDefinitions(): RoleDefinition[] {
         "repairOrders.view",
         "release.view",
         "parts.view",
+        "backjobs.view",
       ],
     },
     {
@@ -1598,6 +1757,21 @@ function getWarningLightStyle(value: WarningLightState): React.CSSProperties {
   if (value === "On") return styles.statusLocked;
   if (value === "Off") return styles.statusOk;
   return styles.statusNeutral;
+}
+
+function getCustomerConditionLabelFromWorkLine(line: RepairOrderWorkLine) {
+  if (line.status === "Completed") return "Good";
+  if (line.status === "Waiting Parts") return "Needs Attention";
+  if (line.priority === "High") return "Needs Replacement";
+  if (line.priority === "Medium") return "Needs Attention";
+  return "Monitor";
+}
+
+function getCustomerConditionStyle(label: "Good" | "Monitor" | "Needs Attention" | "Needs Replacement"): React.CSSProperties {
+  if (label === "Good") return styles.statusOk;
+  if (label === "Monitor") return styles.statusNeutral;
+  if (label === "Needs Attention") return styles.statusWarning;
+  return styles.statusLocked;
 }
 
 function buildScanRecommendations(form: InspectionForm) {
@@ -2344,6 +2518,24 @@ function migratePaymentRecord(record: PaymentRecord): PaymentRecord {
 }
 
 
+function migrateBackjobRecord(record: BackjobRecord): BackjobRecord {
+  return {
+    ...record,
+    updatedAt: (record as any).updatedAt ?? record.createdAt ?? new Date().toISOString(),
+    originalInvoiceNumber: (record as any).originalInvoiceNumber ?? "",
+    comebackInvoiceNumber: (record as any).comebackInvoiceNumber ?? "",
+    originalPrimaryTechnicianId: (record as any).originalPrimaryTechnicianId ?? "",
+    comebackPrimaryTechnicianId: (record as any).comebackPrimaryTechnicianId ?? "",
+    supportingTechnicianIds: Array.isArray((record as any).supportingTechnicianIds)
+      ? (record as any).supportingTechnicianIds.map((item: any) => String(item))
+      : [],
+    findings: (record as any).findings ?? "",
+    actionTaken: (record as any).actionTaken ?? "",
+    status: (record as any).status ?? "Open",
+  };
+}
+
+
 function Card({
   title,
   subtitle,
@@ -2782,6 +2974,13 @@ function CustomerPortalPage({
               >
                 Approvals
               </button>
+              <button
+                type="button"
+                style={{ ...styles.secondaryButton, ...(portalView === "inspection" ? styles.portalTabActive : {}) }}
+                onClick={() => setPortalView("inspection")}
+              >
+                Inspection Report
+              </button>
             </div>
 
             <div style={styles.portalHeroCard}>
@@ -2865,9 +3064,97 @@ function CustomerPortalPage({
                   ))
                 )}
               </div>
-            ) : null}
+            ) : portalView === "inspection" ? (
+              <div style={styles.mobileCardList}>
+                <div style={styles.sectionCardMuted}>
+                  <div style={styles.sectionTitle}>Condition Legend</div>
+                  <div style={styles.inlineActions}>
+                    <span style={styles.statusOk}>Good</span>
+                    <span style={styles.statusNeutral}>Monitor</span>
+                    <span style={styles.statusWarning}>Needs Attention</span>
+                    <span style={styles.statusLocked}>Needs Replacement</span>
+                  </div>
+                </div>
+                {linkedRepairOrders.length === 0 ? (
+                  <div style={styles.emptyState}>No inspection records available.</div>
+                ) : (
+                  linkedRepairOrders.map((row) => {
+                    const grouped = row.workLines.reduce((acc, line) => {
+                      const key = line.category || "General";
+                      if (!acc[key]) acc[key] = [];
+                      acc[key].push(line);
+                      return acc;
+                    }, {} as Record<string, RepairOrderWorkLine[]>);
 
-            {portalView === "approvals" ? (
+                    return (
+                      <div key={row.id} style={styles.mobileDataCard}>
+                        <div style={styles.mobileDataCardHeader}>
+                          <strong>{row.roNumber}</strong>
+                          <span style={styles.statusInfo}>{row.status}</span>
+                        </div>
+                        <div style={styles.mobileDataPrimary}>{row.accountLabel}</div>
+                        <div style={styles.mobileDataSecondary}>
+                          {row.plateNumber || row.conductionNumber || "-"} • {[row.make, row.model, row.year].filter(Boolean).join(" ")}
+                        </div>
+
+                        <div style={styles.sectionCardMuted}>
+                          <div style={styles.sectionTitle}>Inspection Summary</div>
+                          <div style={styles.quickAccessList}>
+                            <div style={styles.quickAccessRow}>
+                              <span>Total Findings</span>
+                              <strong>{row.workLines.length}</strong>
+                            </div>
+                            <div style={styles.quickAccessRow}>
+                              <span>Approved</span>
+                              <strong>{row.workLines.filter((l) => l.approvalDecision === "Approved").length}</strong>
+                            </div>
+                            <div style={styles.quickAccessRow}>
+                              <span>Pending</span>
+                              <strong>{row.workLines.filter((l) => (l.approvalDecision ?? "Pending") === "Pending").length}</strong>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={styles.sectionCardMuted}>
+                          <div style={styles.sectionTitle}>Inspection Evidence</div>
+                          <div style={styles.formHint}>
+                            Photos, videos, scan reports, and printouts uploaded during inspection appear in the internal record. This customer view shows the inspection summary and itemized results.
+                          </div>
+                        </div>
+
+                        {Object.entries(grouped).length === 0 ? (
+                          <div style={styles.emptyState}>No findings recorded.</div>
+                        ) : (
+                          Object.entries(grouped).map(([category, lines]) => (
+                            <div key={category} style={styles.sectionCardMuted}>
+                              <div style={styles.sectionTitle}>{category}</div>
+                              <div style={styles.formHint}>{lines.length} item(s) in this category</div>
+                              <div style={styles.formStack}>
+                                {lines.map((line, idx) => {
+                                  const customerCondition = getCustomerConditionLabelFromWorkLine(line);
+                                  return (
+                                    <div key={line.id || idx} style={styles.concernCard}>
+                                      <div style={styles.mobileDataCardHeader}>
+                                        <strong>{line.title || "Untitled"}</strong>
+                                        <span style={getCustomerConditionStyle(customerCondition)}>{customerCondition}</span>
+                                      </div>
+                                      <div style={styles.formHint}>Workflow Status: {line.status}</div>
+                                      <div style={styles.formHint}>Recommendation: {line.approvalDecision ?? "Pending"}</div>
+                                      <div style={styles.formHint}>Estimate: {formatCurrency(parseMoneyInput(line.totalEstimate))}</div>
+                                      {line.notes ? <div style={styles.formHint}>Notes: {line.notes}</div> : null}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            ) : portalView === "approvals" ? (
               <div style={styles.mobileCardList}>
                 <div style={styles.sectionCardMuted}>
                   <div style={styles.sectionTitle}>Approval Guide</div>
@@ -2901,13 +3188,13 @@ function CustomerPortalPage({
                             </div>
                             <div style={styles.inlineActions}>
                               <button type="button" style={styles.smallButtonSuccess} onClick={() => setCustomerDecision(row.id, line.id, "Approved")}>
-                                Approve
+                                Approve Work
                               </button>
                               <button type="button" style={styles.smallButtonMuted} onClick={() => setCustomerDecision(row.id, line.id, "Deferred")}>
-                                Defer
+                                Decide Later
                               </button>
                               <button type="button" style={styles.smallButtonDanger} onClick={() => setCustomerDecision(row.id, line.id, "Declined")}>
-                                Decline
+                                Decline Work
                               </button>
                             </div>
                           </div>
@@ -7454,7 +7741,23 @@ function RepairOrdersPage({
                     <div style={styles.cardTitle}>{selectedRO.roNumber}</div>
                     <div style={styles.cardSubtitle}>Linked intake is optional. Inspection is optional.</div>
                   </div>
-                  <ROStatusBadge status={selectedRO.status} />
+                  <div style={styles.inlineActions}>
+                    <button
+                      type="button"
+                      style={styles.smallButtonMuted}
+                      onClick={() => printTextDocument(`Repair Order ${selectedRO.roNumber}`, buildRepairOrderExportText(selectedRO, users))}
+                    >
+                      Print RO
+                    </button>
+                    <button
+                      type="button"
+                      style={styles.smallButton}
+                      onClick={() => downloadTextFile(`${selectedRO.roNumber}_repair_order.txt`, buildRepairOrderExportText(selectedRO, users))}
+                    >
+                      Export RO
+                    </button>
+                    <ROStatusBadge status={selectedRO.status} />
+                  </div>
                 </div>
 
                 <div style={styles.summaryPanel}>
@@ -8171,7 +8474,31 @@ function QualityControlPage({
           <Card
             title="QC Form"
             subtitle="Chief Technician / Senior Mechanic gate before release"
-            right={canPerformQC ? <span style={styles.statusOk}>QC Allowed</span> : <span style={styles.statusLocked}>QC Locked</span>}
+            right={
+              selectedRO ? (
+                <div style={styles.inlineActions}>
+                  <button
+                    type="button"
+                    style={styles.smallButtonMuted}
+                    onClick={() => printTextDocument(`QC ${selectedRO.roNumber}`, buildQcExportText(selectedRO, latestQcForSelected))}
+                  >
+                    Print QC
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.smallButton}
+                    onClick={() => downloadTextFile(`${selectedRO.roNumber}_qc.txt`, buildQcExportText(selectedRO, latestQcForSelected))}
+                  >
+                    Export QC
+                  </button>
+                  {canPerformQC ? <span style={styles.statusOk}>QC Allowed</span> : <span style={styles.statusLocked}>QC Locked</span>}
+                </div>
+              ) : canPerformQC ? (
+                <span style={styles.statusOk}>QC Allowed</span>
+              ) : (
+                <span style={styles.statusLocked}>QC Locked</span>
+              )
+            }
           >
             {!selectedRO ? (
               <div style={styles.emptyState}>Select a repair order from the QC queue.</div>
@@ -8722,7 +9049,40 @@ function ReleasePage({
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(8, isCompactLayout) }}>
-          <Card title="Release Form" subtitle="Final gate before vehicle handover">
+          <Card
+            title="Release Form"
+            subtitle="Final gate before vehicle handover"
+            right={
+              selectedRO ? (
+                <div style={styles.inlineActions}>
+                  <button
+                    type="button"
+                    style={styles.smallButtonMuted}
+                    onClick={() =>
+                      printTextDocument(
+                        `Release ${selectedRO.roNumber}`,
+                        buildReleaseExportText(selectedRO, selectedInvoice, selectedPayments, latestReleaseForSelected, latestQcForSelected, finalTotalAmount)
+                      )
+                    }
+                  >
+                    Print Release
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.smallButton}
+                    onClick={() =>
+                      downloadTextFile(
+                        `${selectedRO.roNumber}_release.txt`,
+                        buildReleaseExportText(selectedRO, selectedInvoice, selectedPayments, latestReleaseForSelected, latestQcForSelected, finalTotalAmount)
+                      )
+                    }
+                  >
+                    Export Release
+                  </button>
+                </div>
+              ) : undefined
+            }
+          >
             {!selectedRO ? (
               <div style={styles.emptyState}>Select a repair order from the release queue.</div>
             ) : (
@@ -9012,6 +9372,387 @@ function ReleasePage({
   );
 }
 
+
+
+function BackjobPage({
+  currentUser,
+  users,
+  repairOrders,
+  invoiceRecords,
+  backjobRecords,
+  setBackjobRecords,
+  isCompactLayout,
+}: {
+  currentUser: SessionUser;
+  users: UserAccount[];
+  repairOrders: RepairOrderRecord[];
+  invoiceRecords: InvoiceRecord[];
+  backjobRecords: BackjobRecord[];
+  setBackjobRecords: React.Dispatch<React.SetStateAction<BackjobRecord[]>>;
+  isCompactLayout: boolean;
+}) {
+  const [selectedRoId, setSelectedRoId] = useState("");
+  const [search, setSearch] = useState("");
+  const [error, setError] = useState("");
+  const [complaint, setComplaint] = useState("");
+  const [findings, setFindings] = useState("");
+  const [rootCause, setRootCause] = useState("");
+  const [responsibility, setResponsibility] = useState<BackjobOutcome>("Internal");
+  const [actionTaken, setActionTaken] = useState("");
+  const [resolutionNotes, setResolutionNotes] = useState("");
+  const [status, setStatus] = useState<"Open" | "In Progress" | "Monitoring" | "Closed">("Open");
+  const [comebackPrimaryTechnicianId, setComebackPrimaryTechnicianId] = useState("");
+  const [supportingTechnicianIds, setSupportingTechnicianIds] = useState<string[]>([]);
+  const [comebackInvoiceNumber, setComebackInvoiceNumber] = useState("");
+
+  const eligibleRos = useMemo(
+    () => repairOrders.filter((row) => ["Released", "Closed", "Ready Release", "In Progress", "Quality Check"].includes(row.status)),
+    [repairOrders]
+  );
+
+  const selectedRO = useMemo(
+    () => eligibleRos.find((row) => row.id === selectedRoId) ?? null,
+    [eligibleRos, selectedRoId]
+  );
+
+  const selectedOriginalInvoice = useMemo(
+    () => (selectedRO ? invoiceRecords.find((row) => row.roId === selectedRO.id) ?? null : null),
+    [invoiceRecords, selectedRO]
+  );
+
+  useEffect(() => {
+    if (!selectedRO) return;
+    setComebackPrimaryTechnicianId((prev) => prev || selectedRO.primaryTechnicianId || "");
+    setSupportingTechnicianIds((prev) => (prev.length ? prev : selectedRO.supportTechnicianIds || []));
+  }, [selectedRO]);
+
+  const techNameById = useMemo(() => new Map(users.map((user) => [user.id, user.fullName])), [users]);
+
+  const summary = useMemo(
+    () => ({
+      total: backjobRecords.length,
+      open: backjobRecords.filter((row) => row.status === "Open").length,
+      inProgress: backjobRecords.filter((row) => row.status === "In Progress").length,
+      monitoring: backjobRecords.filter((row) => row.status === "Monitoring").length,
+      closed: backjobRecords.filter((row) => row.status === "Closed").length,
+      warranty: backjobRecords.filter((row) => row.responsibility === "Warranty").length,
+    }),
+    [backjobRecords]
+  );
+
+  const visibleRecords = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return backjobRecords;
+    return backjobRecords.filter((row) =>
+      [
+        row.backjobNumber,
+        row.linkedRoNumber,
+        row.plateNumber,
+        row.customerLabel,
+        row.complaint,
+        row.rootCause,
+        row.findings,
+        row.actionTaken,
+        row.responsibility,
+        row.status,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(term)
+    );
+  }, [backjobRecords, search]);
+
+  const resetForm = () => {
+    setSelectedRoId("");
+    setComplaint("");
+    setFindings("");
+    setRootCause("");
+    setResponsibility("Internal");
+    setActionTaken("");
+    setResolutionNotes("");
+    setStatus("Open");
+    setComebackPrimaryTechnicianId("");
+    setSupportingTechnicianIds([]);
+    setComebackInvoiceNumber("");
+    setError("");
+  };
+
+  const saveBackjob = () => {
+    if (!selectedRO) {
+      setError("Select a linked repair order first.");
+      return;
+    }
+    if (!complaint.trim()) {
+      setError("Complaint is required.");
+      return;
+    }
+    if (!rootCause.trim()) {
+      setError("Root cause is required.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const record: BackjobRecord = {
+      id: uid("bj"),
+      backjobNumber: nextDailyNumber("BJ"),
+      linkedRoId: selectedRO.id,
+      linkedRoNumber: selectedRO.roNumber,
+      createdAt: now,
+      updatedAt: now,
+      plateNumber: selectedRO.plateNumber || selectedRO.conductionNumber || "",
+      customerLabel: selectedRO.accountLabel,
+      originalInvoiceNumber: selectedOriginalInvoice?.invoiceNumber || "",
+      comebackInvoiceNumber: comebackInvoiceNumber.trim(),
+      originalPrimaryTechnicianId: selectedRO.primaryTechnicianId || "",
+      comebackPrimaryTechnicianId,
+      supportingTechnicianIds,
+      complaint: complaint.trim(),
+      findings: findings.trim(),
+      rootCause: rootCause.trim(),
+      responsibility,
+      actionTaken: actionTaken.trim(),
+      resolutionNotes: resolutionNotes.trim(),
+      status,
+      createdBy: currentUser.fullName,
+    };
+
+    setBackjobRecords((prev) => [record, ...prev]);
+    resetForm();
+  };
+
+  const updateBackjobStatus = (id: string, nextStatus: "Open" | "In Progress" | "Monitoring" | "Closed") => {
+    setBackjobRecords((prev) =>
+      prev.map((row) =>
+        row.id === id ? { ...row, status: nextStatus, updatedAt: new Date().toISOString() } : row
+      )
+    );
+  };
+
+  const technicians = users.filter((user) =>
+    ["Chief Technician", "Senior Mechanic", "General Mechanic", "OJT"].includes(user.role)
+  );
+
+  return (
+    <div style={styles.pageContent}>
+      <div style={styles.grid}>
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card
+            title="Backjob / Comeback Control Center"
+            subtitle="Track returned jobs, root cause, responsibility, technician linkage, and comeback resolution in one place"
+            right={<span style={styles.statusInfo}>{summary.total} tracked comebacks</span>}
+          >
+            <div style={styles.heroText}>
+              Use this area for customer returns, warranty comebacks, internal backjobs, and follow-up monitoring so the original RO, invoice, and technician accountability stay visible.
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
+          <div style={styles.statCard}><div style={styles.statLabel}>Open</div><div style={styles.statValue}>{summary.open}</div><div style={styles.statNote}>New comeback cases</div></div>
+        </div>
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
+          <div style={styles.statCard}><div style={styles.statLabel}>In Progress</div><div style={styles.statValue}>{summary.inProgress}</div><div style={styles.statNote}>Actively being resolved</div></div>
+        </div>
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
+          <div style={styles.statCard}><div style={styles.statLabel}>Monitoring</div><div style={styles.statValue}>{summary.monitoring}</div><div style={styles.statNote}>Watching after repair</div></div>
+        </div>
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
+          <div style={styles.statCard}><div style={styles.statLabel}>Closed</div><div style={styles.statValue}>{summary.closed}</div><div style={styles.statNote}>Resolved cases</div></div>
+        </div>
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
+          <div style={styles.statCard}><div style={styles.statLabel}>Warranty</div><div style={styles.statValue}>{summary.warranty}</div><div style={styles.statNote}>Warranty-tagged comebacks</div></div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(5, isCompactLayout) }}>
+          <Card title="New Backjob Record" subtitle="Link a comeback to the original RO and keep the cause and resolution visible">
+            <div style={styles.formStack}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Linked Repair Order</label>
+                <select style={styles.select} value={selectedRoId} onChange={(e) => setSelectedRoId(e.target.value)}>
+                  <option value="">Select released or active RO</option>
+                  {eligibleRos.map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {row.roNumber} • {row.plateNumber || row.conductionNumber || "-"} • {row.accountLabel}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedRO ? (
+                <div style={styles.sectionCardMuted}>
+                  <div style={styles.quickAccessList}>
+                    <div style={styles.quickAccessRow}><span>Customer</span><strong>{selectedRO.accountLabel}</strong></div>
+                    <div style={styles.quickAccessRow}><span>Plate</span><strong>{selectedRO.plateNumber || selectedRO.conductionNumber || "-"}</strong></div>
+                    <div style={styles.quickAccessRow}><span>Original Invoice</span><strong>{selectedOriginalInvoice?.invoiceNumber || "None yet"}</strong></div>
+                    <div style={styles.quickAccessRow}><span>Original Primary Tech</span><strong>{techNameById.get(selectedRO.primaryTechnicianId) || "-"}</strong></div>
+                  </div>
+                </div>
+              ) : null}
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Complaint</label>
+                <textarea style={styles.textarea} value={complaint} onChange={(e) => setComplaint(e.target.value)} placeholder="Customer comeback complaint or follow-up concern" />
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Findings</label>
+                <textarea style={styles.textarea} value={findings} onChange={(e) => setFindings(e.target.value)} placeholder="Inspection findings for the comeback" />
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Root Cause</label>
+                <textarea style={styles.textarea} value={rootCause} onChange={(e) => setRootCause(e.target.value)} placeholder="Underlying cause of the return or repeat issue" />
+              </div>
+
+              <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Responsibility</label>
+                  <select style={styles.select} value={responsibility} onChange={(e) => setResponsibility(e.target.value as BackjobOutcome)}>
+                    <option value="Customer Pay">Customer Pay</option>
+                    <option value="Internal">Internal</option>
+                    <option value="Warranty">Warranty</option>
+                    <option value="Goodwill">Goodwill</option>
+                  </select>
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Case Status</label>
+                  <select style={styles.select} value={status} onChange={(e) => setStatus(e.target.value as "Open" | "In Progress" | "Monitoring" | "Closed")}>
+                    <option value="Open">Open</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Monitoring">Monitoring</option>
+                    <option value="Closed">Closed</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Comeback Primary Technician</label>
+                  <select style={styles.select} value={comebackPrimaryTechnicianId} onChange={(e) => setComebackPrimaryTechnicianId(e.target.value)}>
+                    <option value="">Select technician</option>
+                    {technicians.map((user) => (
+                      <option key={user.id} value={user.id}>{user.fullName} • {user.role}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Comeback Invoice Number</label>
+                  <input style={styles.input} value={comebackInvoiceNumber} onChange={(e) => setComebackInvoiceNumber(e.target.value)} placeholder="Optional invoice for comeback work" />
+                </div>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Action Taken</label>
+                <textarea style={styles.textarea} value={actionTaken} onChange={(e) => setActionTaken(e.target.value)} placeholder="Repair or corrective action performed during comeback" />
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Resolution Notes</label>
+                <textarea style={styles.textarea} value={resolutionNotes} onChange={(e) => setResolutionNotes(e.target.value)} placeholder="Final notes, customer communication, monitoring note, or closure summary" />
+              </div>
+
+              {error ? <div style={styles.errorBox}>{error}</div> : null}
+
+              <div style={styles.inlineActions}>
+                <button type="button" style={styles.primaryButton} onClick={saveBackjob}>Save Backjob</button>
+                <button type="button" style={styles.secondaryButton} onClick={resetForm}>Reset</button>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(7, isCompactLayout) }}>
+          <Card
+            title="Backjob Registry"
+            subtitle="Search returned jobs by backjob number, RO, plate, complaint, cause, or status"
+            right={<span style={styles.statusNeutral}>{visibleRecords.length} shown</span>}
+          >
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Search</label>
+              <input style={styles.input} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search backjob no., RO, plate, complaint, root cause, responsibility" />
+            </div>
+
+            {visibleRecords.length === 0 ? (
+              <div style={styles.emptyState}>No backjob records yet.</div>
+            ) : isCompactLayout ? (
+              <div style={styles.mobileCardList}>
+                {visibleRecords.map((row) => (
+                  <div key={row.id} style={styles.mobileDataCard}>
+                    <div style={styles.mobileDataCardHeader}>
+                      <strong>{row.backjobNumber}</strong>
+                      <span style={styles.statusInfo}>{row.status}</span>
+                    </div>
+                    <div style={styles.mobileDataPrimary}>{row.linkedRoNumber} • {row.plateNumber || "-"}</div>
+                    <div style={styles.mobileDataSecondary}>{row.customerLabel}</div>
+                    <div style={styles.concernCard}>{row.complaint}</div>
+                    <div style={styles.formHint}>Root cause: {row.rootCause || "-"}</div>
+                    <div style={styles.formHint}>Responsibility: {row.responsibility}</div>
+                    <div style={styles.mobileActionStack}>
+                      <button type="button" style={styles.smallButton} onClick={() => updateBackjobStatus(row.id, "In Progress")}>Set In Progress</button>
+                      <button type="button" style={styles.smallButtonMuted} onClick={() => updateBackjobStatus(row.id, "Monitoring")}>Monitoring</button>
+                      <button type="button" style={styles.smallButtonSuccess} onClick={() => updateBackjobStatus(row.id, "Closed")}>Close</button>
+                      <button type="button" style={styles.smallButtonMuted} onClick={() => printTextDocument(`Backjob ${row.backjobNumber}`, buildBackjobExportText(row, users))}>Print</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={styles.tableWrap}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Backjob No.</th>
+                      <th style={styles.th}>Linked RO / Plate</th>
+                      <th style={styles.th}>Customer</th>
+                      <th style={styles.th}>Complaint / Root Cause</th>
+                      <th style={styles.th}>Responsibility</th>
+                      <th style={styles.th}>Tech Link</th>
+                      <th style={styles.th}>Status</th>
+                      <th style={styles.th}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleRecords.map((row) => (
+                      <tr key={row.id}>
+                        <td style={styles.td}>
+                          <div style={styles.tablePrimary}>{row.backjobNumber}</div>
+                          <div style={styles.tableSecondary}>{formatDateTime(row.createdAt)}</div>
+                        </td>
+                        <td style={styles.td}>
+                          <div style={styles.tablePrimary}>{row.linkedRoNumber}</div>
+                          <div style={styles.tableSecondary}>{row.plateNumber || "-"}</div>
+                        </td>
+                        <td style={styles.td}>{row.customerLabel}</td>
+                        <td style={styles.td}>
+                          <div style={styles.concernCell}>{row.complaint}</div>
+                          <div style={styles.tableSecondary}>Cause: {row.rootCause || "-"}</div>
+                        </td>
+                        <td style={styles.td}><span style={styles.statusWarning}>{row.responsibility}</span></td>
+                        <td style={styles.td}>
+                          <div style={styles.tablePrimary}>{techNameById.get(row.comebackPrimaryTechnicianId) || techNameById.get(row.originalPrimaryTechnicianId) || "-"}</div>
+                          <div style={styles.tableSecondary}>Orig Inv: {row.originalInvoiceNumber || "-"} • Comeback Inv: {row.comebackInvoiceNumber || "-"}</div>
+                        </td>
+                        <td style={styles.td}><span style={styles.statusInfo}>{row.status}</span></td>
+                        <td style={styles.td}>
+                          <div style={styles.inlineActionsColumn}>
+                            <button type="button" style={styles.smallButton} onClick={() => updateBackjobStatus(row.id, "In Progress")}>In Progress</button>
+                            <button type="button" style={styles.smallButtonMuted} onClick={() => updateBackjobStatus(row.id, "Monitoring")}>Monitoring</button>
+                            <button type="button" style={styles.smallButtonSuccess} onClick={() => updateBackjobStatus(row.id, "Closed")}>Close</button>
+                            <button type="button" style={styles.smallButtonMuted} onClick={() => downloadTextFile(`${row.backjobNumber}_backjob.txt`, buildBackjobExportText(row, users))}>Export</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function UsersPage({
   currentUser,
@@ -11221,7 +11962,7 @@ export default function App() {
   );
 
   const [backjobRecords, setBackjobRecords] = useState<BackjobRecord[]>(() =>
-    readLocalStorage<BackjobRecord[]>(STORAGE_KEYS.backjobRecords, [])
+    readLocalStorage<BackjobRecord[]>(STORAGE_KEYS.backjobRecords, []).map(migrateBackjobRecord)
   );
 
   const [invoiceRecords, setInvoiceRecords] = useState<InvoiceRecord[]>(() =>
@@ -12343,6 +13084,18 @@ export default function App() {
             setRepairOrders={setRepairOrders}
             partsRequests={partsRequests}
             setPartsRequests={setPartsRequests}
+            isCompactLayout={isMobile}
+          />
+        );
+      case "backjobs":
+        return (
+          <BackjobPage
+            currentUser={currentUser}
+            users={users}
+            repairOrders={repairOrders}
+            invoiceRecords={invoiceRecords}
+            backjobRecords={backjobRecords}
+            setBackjobRecords={setBackjobRecords}
             isCompactLayout={isMobile}
           />
         );
