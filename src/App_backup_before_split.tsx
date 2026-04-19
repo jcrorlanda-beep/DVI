@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import DashboardPage from "./modules/dashboard/DashboardPage";
 
 type UserRole =
   | "Admin"
@@ -5089,7 +5088,22 @@ function SupplierPortalPage({
 }
 
 
-type AppState = {
+function DashboardPage({
+  currentUser,
+  users,
+  roleDefinitions,
+  allowedNav,
+  intakeRecords,
+  repairOrders,
+  qcRecords,
+  releaseRecords,
+  approvalRecords,
+  backjobRecords,
+  invoiceRecords,
+  paymentRecords,
+  workLogs,
+  isCompactLayout,
+}: {
   currentUser: SessionUser;
   users: UserAccount[];
   roleDefinitions: RoleDefinition[];
@@ -5104,7 +5118,7 @@ type AppState = {
   paymentRecords: PaymentRecord[];
   workLogs: WorkLog[];
   isCompactLayout: boolean;
-};
+}) {
   const activeUsers = users.filter((u) => u.active);
   const userRoleCounts = ALL_ROLES.map((role) => ({
     role,
