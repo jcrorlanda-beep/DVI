@@ -19,7 +19,6 @@ type Permission =
   | "qualityControl.view"
   | "release.view"
   | "parts.view"
-  | "backjobs.view"
   | "users.view"
   | "users.manage"
   | "roles.view"
@@ -35,7 +34,6 @@ type ViewKey =
   | "qualityControl"
   | "release"
   | "parts"
-  | "backjobs"
   | "users"
   | "roles"
   | "settings";
@@ -82,19 +80,9 @@ type CustomerLoginForm = {
   password: string;
 };
 
-type LoginAudience = "staff" | "customer" | "supplier";
+type LoginAudience = "staff" | "customer";
 
-type SupplierPortalView = "openRequests" | "myBids";
-
-type SupplierSession = {
-  supplierName: string;
-};
-
-type SupplierLoginForm = {
-  supplierName: string;
-};
-
-type CustomerPortalView = "dashboard" | "jobs" | "approvals";
+type CustomerPortalView = "dashboard" | "jobs" | "approvals" | "inspection";
 
 type CustomerAccount = {
   id: string;
@@ -412,6 +400,10 @@ type InspectionRecord = {
   suspensionRoadTestNotes: string;
   inspectionNotes: string;
   evidenceItems: InspectionEvidenceRecord[];
+  lastUpdatedBy?: string;
+  reopenedAt?: string;
+  reopenedBy?: string;
+  linkedRoIds?: string[];
 };
 
 type InspectionForm = Omit<
@@ -469,11 +461,6 @@ type RepairOrderWorkLine = {
   recommendationSource?: string;
   approvalDecision?: ApprovalDecision;
   approvalAt?: string;
-  assignedTechnicianId?: string;
-  timerStatus?: "Idle" | "Running" | "Paused" | "Completed";
-  timerStartedAt?: string;
-  accumulatedMinutes?: number;
-  completedAt?: string;
 };
 
 type RepairOrderRecord = {
@@ -676,21 +663,12 @@ type BackjobRecord = {
   linkedRoId: string;
   linkedRoNumber: string;
   createdAt: string;
-  updatedAt: string;
   plateNumber: string;
   customerLabel: string;
-  originalInvoiceNumber: string;
-  comebackInvoiceNumber: string;
-  originalPrimaryTechnicianId: string;
-  comebackPrimaryTechnicianId: string;
-  supportingTechnicianIds: string[];
   complaint: string;
-  findings: string;
   rootCause: string;
   responsibility: BackjobOutcome;
-  actionTaken: string;
   resolutionNotes: string;
-  status: "Open" | "In Progress" | "Monitoring" | "Closed";
   createdBy: string;
 };
 
@@ -742,7 +720,7 @@ type WorkLog = {
   note: string;
 };
 
-const BUILD_VERSION = "Phase 16P — Visual Inspection Report + Condition Colors";
+const BUILD_VERSION = "Phase 17A — Inspection Edit + History Lookup";
 
 const STORAGE_KEYS = {
   users: "dvi_phase1_users_v2",
@@ -787,7 +765,6 @@ const ALL_PERMISSIONS: Permission[] = [
   "qualityControl.view",
   "release.view",
   "parts.view",
-  "backjobs.view",
   "users.view",
   "users.manage",
   "roles.view",
@@ -814,7 +791,6 @@ const NAV_ITEMS: NavItem[] = [
   },
   { key: "release", label: "Release", icon: "🚗", permission: "release.view" },
   { key: "parts", label: "Parts", icon: "📦", permission: "parts.view" },
-  { key: "backjobs", label: "Backjobs", icon: "↩️", permission: "backjobs.view" },
   { key: "users", label: "Users", icon: "👥", permission: "users.view" },
   { key: "roles", label: "Roles & Permissions", icon: "🛡️", permission: "roles.view" },
   { key: "settings", label: "Settings", icon: "⚙️", permission: "settings.view" },
@@ -1024,149 +1000,6 @@ function formatDateTime(value: string) {
   return date.toLocaleString();
 }
 
-function downloadTextFile(filename: string, content: string) {
-  if (typeof document === "undefined") return;
-  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
-}
-
-function printTextDocument(title: string, content: string) {
-  if (typeof window === "undefined") return;
-  const popup = window.open("", "_blank", "width=900,height=700");
-  if (!popup) return;
-  const escapedTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const escapedBody = content.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  popup.document.write(`
-    <html>
-      <head>
-        <title>${escapedTitle}</title>
-        <style>
-          body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
-          h1 { font-size: 24px; margin-bottom: 16px; }
-          pre { white-space: pre-wrap; font-family: Arial, sans-serif; line-height: 1.5; font-size: 13px; }
-        </style>
-      </head>
-      <body>
-        <h1>${escapedTitle}</h1>
-        <pre>${escapedBody}</pre>
-      </body>
-    </html>
-  `);
-  popup.document.close();
-  popup.focus();
-  popup.print();
-}
-
-function buildRepairOrderExportText(ro: RepairOrderRecord, users: UserAccount[]) {
-  const primary = users.find((user) => user.id === ro.primaryTechnicianId)?.fullName || "Unassigned";
-  const support = ro.supportTechnicianIds.map((id) => users.find((user) => user.id === id)?.fullName || id).join(", ") || "None";
-  const workLines = ro.workLines.map((line, index) =>
-    `${index + 1}. ${line.title || "Untitled"} | ${line.category} | ${line.status} | ${line.approvalDecision ?? "Pending"} | ${formatCurrency(parseMoneyInput(line.totalEstimate))}`
-  ).join("\n");
-  return [
-    `Repair Order: ${ro.roNumber}`,
-    `Status: ${ro.status}`,
-    `Customer: ${ro.accountLabel}`,
-    `Plate: ${ro.plateNumber || ro.conductionNumber || "-"}`,
-    `Vehicle: ${[ro.make, ro.model, ro.year, ro.color].filter(Boolean).join(" ") || "-"}`,
-    `Concern: ${ro.customerConcern || "-"}`,
-    `Advisor: ${ro.advisorName || "-"}`,
-    `Primary Technician: ${primary}`,
-    `Support Technicians: ${support}`,
-    `Created: ${formatDateTime(ro.createdAt)}`,
-    `Updated: ${formatDateTime(ro.updatedAt)}`,
-    "",
-    "Work Lines:",
-    workLines || "No work lines yet.",
-  ].join("\n");
-}
-
-function buildQcExportText(ro: RepairOrderRecord, qc: QCRecord | null) {
-  return [
-    `QC Record for ${ro.roNumber}`,
-    `RO Status: ${ro.status}`,
-    `Customer: ${ro.accountLabel}`,
-    `Plate: ${ro.plateNumber || ro.conductionNumber || "-"}`,
-    `Vehicle: ${[ro.make, ro.model, ro.year].filter(Boolean).join(" ") || "-"}`,
-    "",
-    qc
-      ? `Latest QC: ${qc.qcNumber} | ${qc.result} | ${formatDateTime(qc.createdAt)} | By: ${qc.qcBy}`
-      : "Latest QC: No QC record yet",
-    qc ? `Notes: ${qc.notes || "-"}` : "",
-    "",
-    "Approved Work Lines:",
-    ro.workLines
-      .filter((line) => line.approvalDecision === "Approved")
-      .map((line, index) => `${index + 1}. ${line.title} | ${line.status} | ${formatCurrency(parseMoneyInput(line.totalEstimate))}`)
-      .join("\n") || "No approved work lines.",
-  ].join("\n");
-}
-
-function buildReleaseExportText(
-  ro: RepairOrderRecord,
-  invoice: InvoiceRecord | null,
-  payments: PaymentRecord[],
-  release: ReleaseRecord | null,
-  qc: QCRecord | null,
-  finalTotalAmount: string
-) {
-  const paid = payments.reduce((sum, row) => sum + parseMoneyInput(row.amount), 0);
-  return [
-    `Release Summary for ${ro.roNumber}`,
-    `RO Status: ${ro.status}`,
-    `Customer: ${ro.accountLabel}`,
-    `Plate: ${ro.plateNumber || ro.conductionNumber || "-"}`,
-    `Vehicle: ${[ro.make, ro.model, ro.year].filter(Boolean).join(" ") || "-"}`,
-    `Latest QC: ${qc ? `${qc.qcNumber} | ${qc.result}` : "No QC record"}`,
-    `Invoice: ${invoice ? invoice.invoiceNumber : "No invoice"}`,
-    `Invoice Status: ${invoice ? invoice.status : "-"}`,
-    `Payment Status: ${invoice ? invoice.paymentStatus : "-"}`,
-    `Final Total: ${formatCurrency(parseMoneyInput(finalTotalAmount))}`,
-    `Total Paid: ${formatCurrency(paid)}`,
-    `Balance: ${formatCurrency(Math.max(parseMoneyInput(finalTotalAmount) - paid, 0))}`,
-    "",
-    "Payments:",
-    payments.map((payment, index) =>
-      `${index + 1}. ${payment.paymentNumber} | ${formatCurrency(parseMoneyInput(payment.amount))} | ${payment.method} | ${formatDateTime(payment.createdAt)}`
-    ).join("\n") || "No payments yet.",
-    "",
-    release
-      ? `Latest Release: ${release.releaseNumber} | ${formatDateTime(release.createdAt)} | By: ${release.releasedBy}`
-      : "Latest Release: No release record yet",
-  ].join("\n");
-}
-
-function buildBackjobExportText(backjob: BackjobRecord, users: UserAccount[]) {
-  const comebackTech = users.find((user) => user.id === backjob.comebackPrimaryTechnicianId)?.fullName || "Unassigned";
-  const originalTech = users.find((user) => user.id === backjob.originalPrimaryTechnicianId)?.fullName || "Unassigned";
-  return [
-    `Backjob: ${backjob.backjobNumber}`,
-    `Status: ${backjob.status}`,
-    `Linked RO: ${backjob.linkedRoNumber}`,
-    `Customer: ${backjob.customerLabel}`,
-    `Plate: ${backjob.plateNumber || "-"}`,
-    `Responsibility: ${backjob.responsibility}`,
-    `Original Invoice: ${backjob.originalInvoiceNumber || "-"}`,
-    `Comeback Invoice: ${backjob.comebackInvoiceNumber || "-"}`,
-    `Original Technician: ${originalTech}`,
-    `Comeback Technician: ${comebackTech}`,
-    `Complaint: ${backjob.complaint || "-"}`,
-    `Findings: ${backjob.findings || "-"}`,
-    `Root Cause: ${backjob.rootCause || "-"}`,
-    `Action Taken: ${backjob.actionTaken || "-"}`,
-    `Resolution Notes: ${backjob.resolutionNotes || "-"}`,
-    `Created: ${formatDateTime(backjob.createdAt)}`,
-    `Updated: ${formatDateTime(backjob.updatedAt)}`,
-  ].join("\n");
-}
-
 function getResponsiveSpan(span: number, isCompactLayout: boolean) {
   return isCompactLayout ? "span 12" : `span ${span}`;
 }
@@ -1184,7 +1017,6 @@ function getDefaultRoleDefinitions(): RoleDefinition[] {
         "shopFloor.view",
         "release.view",
         "parts.view",
-        "backjobs.view",
       ],
     },
     {
@@ -1195,7 +1027,6 @@ function getDefaultRoleDefinitions(): RoleDefinition[] {
         "repairOrders.view",
         "shopFloor.view",
         "qualityControl.view",
-        "backjobs.view",
       ],
     },
     {
@@ -1219,7 +1050,6 @@ function getDefaultRoleDefinitions(): RoleDefinition[] {
         "repairOrders.view",
         "release.view",
         "parts.view",
-        "backjobs.view",
       ],
     },
     {
@@ -1757,21 +1587,6 @@ function getWarningLightStyle(value: WarningLightState): React.CSSProperties {
   if (value === "On") return styles.statusLocked;
   if (value === "Off") return styles.statusOk;
   return styles.statusNeutral;
-}
-
-function getCustomerConditionLabelFromWorkLine(line: RepairOrderWorkLine) {
-  if (line.status === "Completed") return "Good";
-  if (line.status === "Waiting Parts") return "Needs Attention";
-  if (line.priority === "High") return "Needs Replacement";
-  if (line.priority === "Medium") return "Needs Attention";
-  return "Monitor";
-}
-
-function getCustomerConditionStyle(label: "Good" | "Monitor" | "Needs Attention" | "Needs Replacement"): React.CSSProperties {
-  if (label === "Good") return styles.statusOk;
-  if (label === "Monitor") return styles.statusNeutral;
-  if (label === "Needs Attention") return styles.statusWarning;
-  return styles.statusLocked;
 }
 
 function buildScanRecommendations(form: InspectionForm) {
@@ -2444,6 +2259,10 @@ function migrateInspectionRecord(record: InspectionRecord): InspectionRecord {
     arrivalWipers: (record as any).arrivalWipers ?? "Not Checked",
     arrivalHorn: (record as any).arrivalHorn ?? "Not Checked",
     evidenceItems: (record as any).evidenceItems ?? [],
+    lastUpdatedBy: (record as any).lastUpdatedBy ?? "",
+    reopenedAt: (record as any).reopenedAt ?? "",
+    reopenedBy: (record as any).reopenedBy ?? "",
+    linkedRoIds: Array.isArray((record as any).linkedRoIds) ? (record as any).linkedRoIds.map((item: any) => String(item)) : [],
   };
 }
 
@@ -2514,24 +2333,6 @@ function migratePaymentRecord(record: PaymentRecord): PaymentRecord {
     method: (record as any).method ?? "Cash",
     referenceNumber: (record as any).referenceNumber ?? "",
     notes: (record as any).notes ?? "",
-  };
-}
-
-
-function migrateBackjobRecord(record: BackjobRecord): BackjobRecord {
-  return {
-    ...record,
-    updatedAt: (record as any).updatedAt ?? record.createdAt ?? new Date().toISOString(),
-    originalInvoiceNumber: (record as any).originalInvoiceNumber ?? "",
-    comebackInvoiceNumber: (record as any).comebackInvoiceNumber ?? "",
-    originalPrimaryTechnicianId: (record as any).originalPrimaryTechnicianId ?? "",
-    comebackPrimaryTechnicianId: (record as any).comebackPrimaryTechnicianId ?? "",
-    supportingTechnicianIds: Array.isArray((record as any).supportingTechnicianIds)
-      ? (record as any).supportingTechnicianIds.map((item: any) => String(item))
-      : [],
-    findings: (record as any).findings ?? "",
-    actionTaken: (record as any).actionTaken ?? "",
-    status: (record as any).status ?? "Open",
   };
 }
 
@@ -2637,10 +2438,6 @@ function LoginScreen({
   setCustomerForm,
   customerError,
   onCustomerSubmit,
-  supplierForm,
-  setSupplierForm,
-  supplierError,
-  onSupplierSubmit,
   onQuickStaffLogin,
   onLoadDemoData,
 }: {
@@ -2654,15 +2451,10 @@ function LoginScreen({
   setCustomerForm: React.Dispatch<React.SetStateAction<CustomerLoginForm>>;
   customerError: string;
   onCustomerSubmit: (e: React.FormEvent) => void;
-  supplierForm: SupplierLoginForm;
-  setSupplierForm: React.Dispatch<React.SetStateAction<SupplierLoginForm>>;
-  supplierError: string;
-  onSupplierSubmit: (e: React.FormEvent) => void;
   onQuickStaffLogin: (username: string) => void;
   onLoadDemoData: () => void;
 }) {
   const isStaff = audience === "staff";
-  const isCustomer = audience === "customer";
 
   return (
     <div style={styles.loginShell}>
@@ -2690,34 +2482,22 @@ function LoginScreen({
             type="button"
             style={{
               ...styles.secondaryButton,
-              ...(isCustomer ? styles.portalTabActive : {}),
+              ...(!isStaff ? styles.portalTabActive : {}),
             }}
             onClick={() => setAudience("customer")}
           >
             Customer Portal
           </button>
-          <button
-            type="button"
-            style={{
-              ...styles.secondaryButton,
-              ...(!isStaff && !isCustomer ? styles.portalTabActive : {}),
-            }}
-            onClick={() => setAudience("supplier")}
-          >
-            Supplier Portal
-          </button>
         </div>
 
         <div style={styles.buildNoteBox}>
           <div style={styles.buildNoteTitle}>
-            {isStaff ? "Staff Access" : isCustomer ? "Customer Portal Access" : "Supplier Portal Access"}
+            {isStaff ? "Staff Access" : "Customer Portal Access"}
           </div>
           <div style={styles.buildNoteText}>
             {isStaff
               ? "Continue using your staff account to manage intake, inspections, repair orders, parts, QC, release, and reporting."
-              : isCustomer
-                ? "Customers can sign in using their phone number or email plus password to review jobs, track progress, and approve, decline, or defer service items."
-                : "Suppliers can enter their supplier name and submit bids into open parts requests without opening the staff dashboard."}
+              : "Customers can sign in using their phone number or email plus password to review jobs, track progress, and approve, decline, or defer service items."}
           </div>
         </div>
 
@@ -2774,7 +2554,7 @@ function LoginScreen({
               </div>
             </div>
           </>
-        ) : isCustomer ? (
+        ) : (
           <>
             <form onSubmit={onCustomerSubmit} style={styles.loginForm}>
               <div style={styles.formGroup}>
@@ -2813,35 +2593,6 @@ function LoginScreen({
                 <div>Customer accounts are generated from intake and repair-order records.</div>
                 <div>Default portal password uses the last 4 digits of the customer phone number.</div>
                 <div>Customers can review active jobs, see approval items, and track progress.</div>
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            <form onSubmit={onSupplierSubmit} style={styles.loginForm}>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Supplier Name</label>
-                <input
-                  style={styles.input}
-                  value={supplierForm.supplierName}
-                  onChange={(e) => setSupplierForm({ supplierName: e.target.value })}
-                  placeholder="Enter supplier name"
-                />
-              </div>
-
-              {supplierError ? <div style={styles.errorBox}>{supplierError}</div> : null}
-
-              <button type="submit" style={styles.primaryButton}>
-                Open Supplier Portal
-              </button>
-            </form>
-
-            <div style={styles.demoBox}>
-              <div style={styles.demoTitle}>Supplier Portal Note</div>
-              <div style={styles.demoGrid}>
-                <div>Open requests come from the same internal Parts module.</div>
-                <div>Bids submitted here are added directly to the matching request record.</div>
-                <div>Staff can still privately compare bids and choose the winning supplier internally.</div>
               </div>
             </div>
           </>
@@ -2974,20 +2725,6 @@ function CustomerPortalPage({
               >
                 Approvals
               </button>
-              <button
-                type="button"
-                style={{ ...styles.secondaryButton, ...(portalView === "inspection" ? styles.portalTabActive : {}) }}
-                onClick={() => setPortalView("inspection")}
-              >
-                Inspection Report
-              </button>
-            </div>
-
-            <div style={styles.portalHeroCard}>
-              <div style={styles.portalHeroTitle}>Welcome back, {customer.fullName}</div>
-              <div style={styles.portalHeroText}>
-                Review current repair orders, track job status, and approve or defer recommended work from one cleaner customer portal.
-              </div>
             </div>
 
             {portalView === "dashboard" ? (
@@ -2996,33 +2733,31 @@ function CustomerPortalPage({
                   <div style={styles.statCard}>
                     <div style={styles.statLabel}>Active Jobs</div>
                     <div style={styles.statValue}>{activeJobCount}</div>
-                    <div style={styles.statNote}>Jobs still being worked on or awaiting next action</div>
+                    <div style={styles.statNote}>Open or in-progress repair orders</div>
                   </div>
                 </div>
                 <div style={{ ...styles.gridItem, gridColumn: isCompactLayout ? "span 12" : "span 4" }}>
                   <div style={styles.statCard}>
                     <div style={styles.statLabel}>Pending Approvals</div>
                     <div style={styles.statValue}>{pendingApprovalCount}</div>
-                    <div style={styles.statNote}>Recommended items that still need your decision</div>
+                    <div style={styles.statNote}>Items waiting for customer decision</div>
                   </div>
                 </div>
                 <div style={{ ...styles.gridItem, gridColumn: isCompactLayout ? "span 12" : "span 4" }}>
                   <div style={styles.statCard}>
                     <div style={styles.statLabel}>Completed Jobs</div>
                     <div style={styles.statValue}>{releasedJobCount}</div>
-                    <div style={styles.statNote}>Finished jobs already handed over or closed</div>
+                    <div style={styles.statNote}>Released or closed repair orders</div>
                   </div>
                 </div>
 
                 <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-                  <Card title="Your Account" subtitle="Cleaner customer-facing view of linked vehicles, open jobs, approvals, and portal access">
+                  <Card title="Your Account" subtitle="Portal foundation with linked vehicles and jobs">
                     <div style={styles.quickAccessList}>
                       <div style={styles.quickAccessRow}><span>Name</span><strong>{customer.fullName}</strong></div>
                       <div style={styles.quickAccessRow}><span>Phone</span><strong>{customer.phone || "-"}</strong></div>
                       <div style={styles.quickAccessRow}><span>Email</span><strong>{customer.email || "-"}</strong></div>
                       <div style={styles.quickAccessRow}><span>Vehicles</span><strong>{customer.linkedPlateNumbers.join(", ") || "-"}</strong></div>
-                      <div style={styles.quickAccessRow}><span>Open Jobs</span><strong>{activeJobCount}</strong></div>
-                      <div style={styles.quickAccessRow}><span>Pending Decisions</span><strong>{pendingApprovalCount}</strong></div>
                       <div style={styles.quickAccessRow}><span>SMS Approval Links</span><strong>{activePortalLinks}</strong></div>
                     </div>
                   </Card>
@@ -3045,10 +2780,6 @@ function CustomerPortalPage({
                       <div style={styles.mobileDataSecondary}>{[row.make, row.model, row.year].filter(Boolean).join(" ") || "-"}</div>
                       <div style={styles.mobileDataSecondary}>Advisor: {row.advisorName || "-"}</div>
                       <div style={styles.mobileMetaRow}>
-                        <span>Approval Snapshot</span>
-                        <strong>{row.workLines.filter((line) => line.approvalDecision === "Approved").length} approved • {row.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length} pending</strong>
-                      </div>
-                      <div style={styles.mobileMetaRow}>
                         <span>Concern</span>
                         <strong>{row.customerConcern || "-"}</strong>
                       </div>
@@ -3064,104 +2795,10 @@ function CustomerPortalPage({
                   ))
                 )}
               </div>
-            ) : portalView === "inspection" ? (
+            ) : null}
+
+            {portalView === "approvals" ? (
               <div style={styles.mobileCardList}>
-                <div style={styles.sectionCardMuted}>
-                  <div style={styles.sectionTitle}>Condition Legend</div>
-                  <div style={styles.inlineActions}>
-                    <span style={styles.statusOk}>Good</span>
-                    <span style={styles.statusNeutral}>Monitor</span>
-                    <span style={styles.statusWarning}>Needs Attention</span>
-                    <span style={styles.statusLocked}>Needs Replacement</span>
-                  </div>
-                </div>
-                {linkedRepairOrders.length === 0 ? (
-                  <div style={styles.emptyState}>No inspection records available.</div>
-                ) : (
-                  linkedRepairOrders.map((row) => {
-                    const grouped = row.workLines.reduce((acc, line) => {
-                      const key = line.category || "General";
-                      if (!acc[key]) acc[key] = [];
-                      acc[key].push(line);
-                      return acc;
-                    }, {} as Record<string, RepairOrderWorkLine[]>);
-
-                    return (
-                      <div key={row.id} style={styles.mobileDataCard}>
-                        <div style={styles.mobileDataCardHeader}>
-                          <strong>{row.roNumber}</strong>
-                          <span style={styles.statusInfo}>{row.status}</span>
-                        </div>
-                        <div style={styles.mobileDataPrimary}>{row.accountLabel}</div>
-                        <div style={styles.mobileDataSecondary}>
-                          {row.plateNumber || row.conductionNumber || "-"} • {[row.make, row.model, row.year].filter(Boolean).join(" ")}
-                        </div>
-
-                        <div style={styles.sectionCardMuted}>
-                          <div style={styles.sectionTitle}>Inspection Summary</div>
-                          <div style={styles.quickAccessList}>
-                            <div style={styles.quickAccessRow}>
-                              <span>Total Findings</span>
-                              <strong>{row.workLines.length}</strong>
-                            </div>
-                            <div style={styles.quickAccessRow}>
-                              <span>Approved</span>
-                              <strong>{row.workLines.filter((l) => l.approvalDecision === "Approved").length}</strong>
-                            </div>
-                            <div style={styles.quickAccessRow}>
-                              <span>Pending</span>
-                              <strong>{row.workLines.filter((l) => (l.approvalDecision ?? "Pending") === "Pending").length}</strong>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div style={styles.sectionCardMuted}>
-                          <div style={styles.sectionTitle}>Inspection Evidence</div>
-                          <div style={styles.formHint}>
-                            Photos, videos, scan reports, and printouts uploaded during inspection appear in the internal record. This customer view shows the inspection summary and itemized results.
-                          </div>
-                        </div>
-
-                        {Object.entries(grouped).length === 0 ? (
-                          <div style={styles.emptyState}>No findings recorded.</div>
-                        ) : (
-                          Object.entries(grouped).map(([category, lines]) => (
-                            <div key={category} style={styles.sectionCardMuted}>
-                              <div style={styles.sectionTitle}>{category}</div>
-                              <div style={styles.formHint}>{lines.length} item(s) in this category</div>
-                              <div style={styles.formStack}>
-                                {lines.map((line, idx) => {
-                                  const customerCondition = getCustomerConditionLabelFromWorkLine(line);
-                                  return (
-                                    <div key={line.id || idx} style={styles.concernCard}>
-                                      <div style={styles.mobileDataCardHeader}>
-                                        <strong>{line.title || "Untitled"}</strong>
-                                        <span style={getCustomerConditionStyle(customerCondition)}>{customerCondition}</span>
-                                      </div>
-                                      <div style={styles.formHint}>Workflow Status: {line.status}</div>
-                                      <div style={styles.formHint}>Recommendation: {line.approvalDecision ?? "Pending"}</div>
-                                      <div style={styles.formHint}>Estimate: {formatCurrency(parseMoneyInput(line.totalEstimate))}</div>
-                                      {line.notes ? <div style={styles.formHint}>Notes: {line.notes}</div> : null}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            ) : portalView === "approvals" ? (
-              <div style={styles.mobileCardList}>
-                <div style={styles.sectionCardMuted}>
-                  <div style={styles.sectionTitle}>Approval Guide</div>
-                  <div style={styles.formHint}>
-                    Approve work you want done now, choose decide later for items you want to postpone, or decline work you do not want included in the current repair order.
-                  </div>
-                </div>
                 {linkedRepairOrders.every((row) => row.workLines.every((line) => (line.approvalDecision ?? "Pending") !== "Pending")) ? (
                   <div style={styles.emptyState}>No pending approvals right now.</div>
                 ) : (
@@ -3188,13 +2825,13 @@ function CustomerPortalPage({
                             </div>
                             <div style={styles.inlineActions}>
                               <button type="button" style={styles.smallButtonSuccess} onClick={() => setCustomerDecision(row.id, line.id, "Approved")}>
-                                Approve Work
+                                Approve
                               </button>
                               <button type="button" style={styles.smallButtonMuted} onClick={() => setCustomerDecision(row.id, line.id, "Deferred")}>
-                                Decide Later
+                                Defer
                               </button>
                               <button type="button" style={styles.smallButtonDanger} onClick={() => setCustomerDecision(row.id, line.id, "Declined")}>
-                                Decline Work
+                                Decline
                               </button>
                             </div>
                           </div>
@@ -3212,321 +2849,6 @@ function CustomerPortalPage({
   );
 }
 
-
-
-
-function SupplierPortalPage({
-  supplier,
-  partsRequests,
-  setPartsRequests,
-  onLogout,
-  isCompactLayout,
-}: {
-  supplier: SupplierSession;
-  partsRequests: PartsRequestRecord[];
-  setPartsRequests: React.Dispatch<React.SetStateAction<PartsRequestRecord[]>>;
-  onLogout: () => void;
-  isCompactLayout: boolean;
-}) {
-  const [portalView, setPortalView] = useState<SupplierPortalView>("openRequests");
-  const [search, setSearch] = useState("");
-  const [selectedRequestId, setSelectedRequestId] = useState("");
-  const [brand, setBrand] = useState("");
-  const [quantity, setQuantity] = useState("1");
-  const [unitCost, setUnitCost] = useState("");
-  const [deliveryTime, setDeliveryTime] = useState("");
-  const [warrantyNote, setWarrantyNote] = useState("");
-  const [condition, setCondition] = useState<SupplierBidCondition>("Brand New");
-  const [notes, setNotes] = useState("");
-  const [error, setError] = useState("");
-
-  const openRequests = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return partsRequests
-      .filter((row) => !["Closed", "Cancelled", "Parts Arrived", "Arrived"].includes(row.status))
-      .filter((row) =>
-        !term
-          ? true
-          : [row.requestNumber, row.roNumber, row.partName, row.partNumber, row.plateNumber, row.accountLabel, row.vehicleLabel]
-              .join(" ")
-              .toLowerCase()
-              .includes(term)
-      )
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [partsRequests, search]);
-
-  const myBids = useMemo(
-    () =>
-      partsRequests.flatMap((request) =>
-        request.bids
-          .filter((bid) => bid.supplierName.trim().toLowerCase() === supplier.supplierName.trim().toLowerCase())
-          .map((bid) => ({ request, bid }))
-      ),
-    [partsRequests, supplier.supplierName]
-  );
-
-  const selectedRequest = openRequests.find((row) => row.id === selectedRequestId) ?? null;
-
-  const submitBid = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedRequest) {
-      setError("Select a parts request first.");
-      return;
-    }
-    if (!brand.trim() || !quantity.trim() || !unitCost.trim() || !deliveryTime.trim()) {
-      setError("Brand, quantity, unit cost, and delivery time are required.");
-      return;
-    }
-
-    const quantityValue = Math.max(1, parseMoneyInput(quantity));
-    const unitCostValue = parseMoneyInput(unitCost);
-    const totalCostValue = quantityValue * unitCostValue;
-    const newBid: SupplierBid = {
-      id: uid("bid"),
-      supplierName: supplier.supplierName,
-      brand: brand.trim(),
-      quantity: quantityValue.toString(),
-      unitCost: unitCostValue.toFixed(2),
-      totalCost: totalCostValue.toFixed(2),
-      deliveryTime: deliveryTime.trim(),
-      warrantyNote: warrantyNote.trim(),
-      condition,
-      notes: notes.trim(),
-      createdAt: new Date().toISOString(),
-    };
-
-    setPartsRequests((prev) =>
-      prev.map((request) =>
-        request.id === selectedRequest.id
-          ? {
-              ...request,
-              bids: [newBid, ...request.bids],
-              status:
-                request.status === "Draft" || request.status === "Requested" || request.status === "Sent to Suppliers"
-                  ? "Waiting for Bids"
-                  : "Bidding",
-              updatedAt: new Date().toISOString(),
-            }
-          : request
-      )
-    );
-
-    setBrand("");
-    setQuantity("1");
-    setUnitCost("");
-    setDeliveryTime("");
-    setWarrantyNote("");
-    setCondition("Brand New");
-    setNotes("");
-    setError("");
-    setPortalView("myBids");
-  };
-
-  return (
-    <>
-      <style>{globalCss}</style>
-      <div style={styles.appShell}>
-        <div style={styles.mainArea}>
-          <header style={styles.topBar}>
-            <div style={styles.topBarLeft}>
-              <div>
-                <div style={styles.pageTitle}>Supplier Portal</div>
-                <div style={styles.pageSubtitle}>{BUILD_VERSION}</div>
-              </div>
-            </div>
-
-            <div style={styles.topBarRight}>
-              <span style={styles.statusInfo}>Open requests: {openRequests.length} • My bids: {myBids.length}</span>
-              <div style={styles.topBarName}>{supplier.supplierName}</div>
-              <button type="button" onClick={onLogout} style={styles.logoutButtonCompact}>
-                Sign Out
-              </button>
-            </div>
-          </header>
-
-          <main style={styles.mainContent}>
-            <div style={styles.inlineActions}>
-              <button
-                type="button"
-                style={{ ...styles.secondaryButton, ...(portalView === "openRequests" ? styles.portalTabActive : {}) }}
-                onClick={() => setPortalView("openRequests")}
-              >
-                Open Requests
-              </button>
-              <button
-                type="button"
-                style={{ ...styles.secondaryButton, ...(portalView === "myBids" ? styles.portalTabActive : {}) }}
-                onClick={() => setPortalView("myBids")}
-              >
-                My Submitted Bids
-              </button>
-            </div>
-
-            <div style={styles.portalHeroCard}>
-              <div style={styles.portalHeroTitle}>Submit bids without entering the staff dashboard</div>
-              <div style={styles.portalHeroText}>
-                Review open parts requests, select the request you want to quote, and submit your supplier bid directly into the same records the front office uses for comparison and supplier selection.
-              </div>
-            </div>
-
-            {portalView === "openRequests" ? (
-              <div style={styles.grid}>
-                <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(5, isCompactLayout) }}>
-                  <Card title="Open Parts Requests" subtitle="Visible external requests ready for supplier quotation">
-                    <div style={styles.formGroup}>
-                      <label style={styles.label}>Search Requests</label>
-                      <input
-                        style={styles.input}
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search request no., RO, plate, part, vehicle"
-                      />
-                    </div>
-
-                    {openRequests.length === 0 ? (
-                      <div style={styles.emptyState}>No open requests available right now.</div>
-                    ) : (
-                      <div style={styles.mobileCardList}>
-                        {openRequests.map((request) => (
-                          <button
-                            key={request.id}
-                            type="button"
-                            onClick={() => setSelectedRequestId(request.id)}
-                            style={{
-                              ...styles.mobileDataCard,
-                              ...(selectedRequestId === request.id ? styles.selectedQueueCard : {}),
-                              textAlign: "left",
-                              cursor: "pointer",
-                            }}
-                          >
-                            <div style={styles.mobileDataCardHeader}>
-                              <strong>{request.requestNumber}</strong>
-                              <span style={getPartsRequestStatusStyle(request.status)}>{request.status}</span>
-                            </div>
-                            <div style={styles.mobileDataPrimary}>{request.partName}</div>
-                            <div style={styles.mobileDataSecondary}>{request.partNumber || "No part number"}</div>
-                            <div style={styles.mobileDataSecondary}>{request.vehicleLabel} • {request.plateNumber || "-"}</div>
-                            <div style={styles.mobileMetaRow}>
-                              <span>Bids</span>
-                              <strong>{request.bids.length}</strong>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </Card>
-                </div>
-
-                <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(7, isCompactLayout) }}>
-                  <Card
-                    title="Submit Supplier Bid"
-                    subtitle="Your bid is added to the selected request and stays available for internal comparison"
-                    right={selectedRequest ? <span style={styles.statusInfo}>{selectedRequest.requestNumber}</span> : undefined}
-                  >
-                    {!selectedRequest ? (
-                      <div style={styles.emptyState}>Select a request from the left to submit a bid.</div>
-                    ) : (
-                      <form onSubmit={submitBid} style={styles.formStack}>
-                        <div style={styles.sectionCardMuted}>
-                          <div style={styles.quickAccessList}>
-                            <div style={styles.quickAccessRow}><span>Request</span><strong>{selectedRequest.requestNumber}</strong></div>
-                            <div style={styles.quickAccessRow}><span>RO</span><strong>{selectedRequest.roNumber}</strong></div>
-                            <div style={styles.quickAccessRow}><span>Part</span><strong>{selectedRequest.partName}</strong></div>
-                            <div style={styles.quickAccessRow}><span>Required Qty</span><strong>{selectedRequest.quantity}</strong></div>
-                            <div style={styles.quickAccessRow}><span>Vehicle</span><strong>{selectedRequest.vehicleLabel}</strong></div>
-                          </div>
-                        </div>
-
-                        <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
-                          <div style={styles.formGroup}>
-                            <label style={styles.label}>Supplier</label>
-                            <input style={styles.input} value={supplier.supplierName} disabled />
-                          </div>
-                          <div style={styles.formGroup}>
-                            <label style={styles.label}>Brand</label>
-                            <input style={styles.input} value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Brand or line" />
-                          </div>
-                        </div>
-
-                        <div style={isCompactLayout ? styles.formStack : styles.formGrid3}>
-                          <div style={styles.formGroup}>
-                            <label style={styles.label}>Quantity</label>
-                            <input style={styles.input} value={quantity} onChange={(e) => setQuantity(e.target.value)} />
-                          </div>
-                          <div style={styles.formGroup}>
-                            <label style={styles.label}>Unit Cost</label>
-                            <input style={styles.input} value={unitCost} onChange={(e) => setUnitCost(e.target.value)} placeholder="PHP" />
-                          </div>
-                          <div style={styles.formGroup}>
-                            <label style={styles.label}>Condition</label>
-                            <select style={styles.select} value={condition} onChange={(e) => setCondition(e.target.value as SupplierBidCondition)}>
-                              <option value="Brand New">Brand New</option>
-                              <option value="OEM">OEM</option>
-                              <option value="Replacement">Replacement</option>
-                              <option value="Surplus">Surplus</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
-                          <div style={styles.formGroup}>
-                            <label style={styles.label}>Delivery Time</label>
-                            <input style={styles.input} value={deliveryTime} onChange={(e) => setDeliveryTime(e.target.value)} placeholder="Same day / 2 days / 1 week" />
-                          </div>
-                          <div style={styles.formGroup}>
-                            <label style={styles.label}>Warranty Note</label>
-                            <input style={styles.input} value={warrantyNote} onChange={(e) => setWarrantyNote(e.target.value)} placeholder="Optional warranty note" />
-                          </div>
-                        </div>
-
-                        <div style={styles.formGroup}>
-                          <label style={styles.label}>Notes</label>
-                          <textarea style={styles.textarea} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional fitment, stock, or delivery notes" />
-                        </div>
-
-                        {error ? <div style={styles.errorBox}>{error}</div> : null}
-
-                        <div style={styles.inlineActions}>
-                          <button type="submit" style={styles.primaryButton}>Submit Bid</button>
-                        </div>
-                      </form>
-                    )}
-                  </Card>
-                </div>
-              </div>
-            ) : (
-              <div style={styles.mobileCardList}>
-                {myBids.length === 0 ? (
-                  <div style={styles.emptyState}>No bids submitted from this supplier portal session yet.</div>
-                ) : (
-                  myBids.map(({ request, bid }) => (
-                    <div key={bid.id} style={styles.mobileDataCard}>
-                      <div style={styles.mobileDataCardHeader}>
-                        <strong>{request.requestNumber}</strong>
-                        <span style={getPartsRequestStatusStyle(request.status)}>{request.status}</span>
-                      </div>
-                      <div style={styles.mobileDataPrimary}>{request.partName}</div>
-                      <div style={styles.mobileDataSecondary}>{bid.brand} • {bid.condition}</div>
-                      <div style={styles.mobileMetaRow}>
-                        <span>Total Bid</span>
-                        <strong>{formatCurrency(parseMoneyInput(bid.totalCost))}</strong>
-                      </div>
-                      <div style={styles.mobileMetaRow}>
-                        <span>Delivery</span>
-                        <strong>{bid.deliveryTime}</strong>
-                      </div>
-                      <div style={styles.formHint}>{bid.notes || bid.warrantyNote || "No extra note."}</div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </main>
-        </div>
-      </div>
-    </>
-  );
-}
 
 function DashboardPage({
   currentUser,
@@ -3604,54 +2926,6 @@ function DashboardPage({
   const releasedCount = repairOrders.filter((row) => row.status === "Released").length;
   const avgReleaseValue = monthReleases.length ? monthlySales / monthReleases.length : 0;
   const fleetShare = intakeRecords.length ? Math.round((fleetCount / intakeRecords.length) * 100) : 0;
-
-  const laborRevenueTotal = repairOrders.reduce(
-    (sum, ro) => sum + ro.workLines.reduce((lineSum, line) => lineSum + parseMoneyInput(line.serviceEstimate), 0),
-    0
-  );
-  const partsRevenueTotal = repairOrders.reduce(
-    (sum, ro) => sum + ro.workLines.reduce((lineSum, line) => lineSum + parseMoneyInput(line.partsEstimate), 0),
-    0
-  );
-  const partsInternalCostTotal = repairOrders.reduce(
-    (sum, ro) =>
-      sum +
-      ro.workLines.reduce((lineSum, line) => {
-        const baseCost = parseMoneyInput(line.partsCost);
-        return lineSum + baseCost;
-      }, 0),
-    0
-  );
-  const estimatedGrossProfit = laborRevenueTotal + partsRevenueTotal - partsInternalCostTotal;
-  const estimatedGrossMargin = laborRevenueTotal + partsRevenueTotal > 0
-    ? Math.round((estimatedGrossProfit / (laborRevenueTotal + partsRevenueTotal)) * 100)
-    : 0;
-
-  const releasedRevenue = releaseRecords.reduce((sum, row) => sum + parseMoneyInput(row.finalTotalAmount), 0);
-  const releasedJobsCount = releaseRecords.length;
-  const averageReleasedTicket = releasedJobsCount ? releasedRevenue / releasedJobsCount : 0;
-
-  const roProfitMap = repairOrders
-    .map((ro) => {
-      const laborRevenue = ro.workLines.reduce((sum, line) => sum + parseMoneyInput(line.serviceEstimate), 0)
-      const partsRevenue = ro.workLines.reduce((sum, line) => sum + parseMoneyInput(line.partsEstimate), 0)
-      const partsCost = ro.workLines.reduce((sum, line) => sum + parseMoneyInput(line.partsCost), 0)
-      const grossProfit = laborRevenue + partsRevenue - partsCost
-      return {
-        ro,
-        laborRevenue,
-        partsRevenue,
-        partsCost,
-        grossProfit,
-        margin:
-          laborRevenue + partsRevenue > 0
-            ? Math.round((grossProfit / (laborRevenue + partsRevenue)) * 100)
-            : 0,
-      }
-    })
-    .sort((a, b) => b.grossProfit - a.grossProfit)
-    .slice(0, 6);
-
   const techRevenueMap = users.filter((u) => u.active).map((user) => {
     const assigned = repairOrders.filter((ro) => ro.primaryTechnicianId === user.id).length;
     const active = repairOrders.filter((ro) => ro.primaryTechnicianId === user.id && ["Approved / Ready to Work", "In Progress", "Waiting Parts", "Quality Check"].includes(ro.status)).length;
@@ -3791,30 +3065,6 @@ function DashboardPage({
           </div>
         </div>
 
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>Estimated Gross Profit</div>
-            <div style={styles.statValueSmall}>{formatCurrency(estimatedGrossProfit)}</div>
-            <div style={styles.statNote}>Labor + parts revenue minus internal parts cost</div>
-          </div>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>Gross Margin</div>
-            <div style={styles.statValue}>{estimatedGrossMargin}%</div>
-            <div style={styles.statNote}>Estimated margin across all repair orders</div>
-          </div>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>Average Released Ticket</div>
-            <div style={styles.statValueSmall}>{formatCurrency(averageReleasedTicket)}</div>
-            <div style={styles.statNote}>Average final released amount per job</div>
-          </div>
-        </div>
-
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(7, isCompactLayout) }}>
           <Card title="User Distribution" subtitle="Active users by position">
             <div style={styles.roleGrid}>
@@ -3864,23 +3114,6 @@ function DashboardPage({
             </div>
           </Card>
         </div>
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(6, isCompactLayout) }}>
-          <Card title="Top Repair Orders by Profit" subtitle="Estimated gross profit based on labor + parts revenue less internal parts cost">
-            <div style={styles.quickAccessList}>
-              {roProfitMap.length === 0 ? (
-                <div style={styles.emptyState}>No repair orders available yet.</div>
-              ) : (
-                roProfitMap.map(({ ro, grossProfit, margin, laborRevenue, partsRevenue, partsCost }) => (
-                  <div key={ro.id} style={styles.quickAccessRow}>
-                    <span>{ro.roNumber} • {ro.plateNumber || ro.conductionNumber || "-"}</span>
-                    <strong>{formatCurrency(grossProfit)} • {margin}% margin • L {formatCurrency(laborRevenue)} • P {formatCurrency(partsRevenue)} • Cost {formatCurrency(partsCost)}</strong>
-                  </div>
-                ))
-              )}
-            </div>
-          </Card>
-        </div>
-
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
           <Card title="Recent Intake Activity" subtitle="Newest encoded vehicles first">
@@ -3964,11 +3197,15 @@ function IntakePage({
   currentUser,
   intakeRecords,
   setIntakeRecords,
+  inspectionRecords,
+  setInspectionRecords,
   isCompactLayout,
 }: {
   currentUser: SessionUser;
   intakeRecords: IntakeRecord[];
   setIntakeRecords: React.Dispatch<React.SetStateAction<IntakeRecord[]>>;
+  inspectionRecords: InspectionRecord[];
+  setInspectionRecords: React.Dispatch<React.SetStateAction<InspectionRecord[]>>;
   isCompactLayout: boolean;
 }) {
   const [form, setForm] = useState<IntakeForm>(() => getDefaultIntakeForm(currentUser.fullName));
@@ -4019,6 +3256,30 @@ function IntakePage({
     setForm(getDefaultIntakeForm(currentUser.fullName));
     setError("");
   };
+
+  const loadHistoryIntoForm = (row: IntakeRecord) => {
+    setForm({
+      customerName: row.customerName,
+      companyName: row.companyName,
+      accountType: row.accountType,
+      phone: row.phone,
+      email: row.email,
+      plateNumber: row.plateNumber,
+      conductionNumber: row.conductionNumber,
+      make: row.make,
+      model: row.model,
+      year: row.year,
+      color: row.color,
+      odometerKm: row.odometerKm,
+      fuelLevel: row.fuelLevel,
+      assignedAdvisor: row.assignedAdvisor || currentUser.fullName,
+      concern: row.concern,
+      notes: row.notes,
+      status: row.status === "Converted to RO" ? "Waiting Inspection" : row.status,
+    });
+    setError("");
+  };
+
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -4093,6 +3354,214 @@ function IntakePage({
     };
 
     setIntakeRecords((prev) => [newRecord, ...prev]);
+
+    if (!inspectionRecords.some((row) => row.intakeId === newRecord.id)) {
+      const inspectionSeedForm = getDefaultInspectionForm();
+      const recommendationLines = parseRecommendationLines(inspectionSeedForm.recommendedWork || "");
+      const draftInspection: InspectionRecord = {
+        id: uid("insp"),
+        inspectionNumber: nextDailyNumber("INSP"),
+        intakeId: newRecord.id,
+        intakeNumber: newRecord.intakeNumber,
+        createdAt: now,
+        updatedAt: now,
+        startedBy: currentUser.fullName,
+        status: "In Progress",
+        accountLabel: newRecord.companyName || newRecord.customerName || "Unknown Customer",
+        plateNumber: newRecord.plateNumber,
+        conductionNumber: newRecord.conductionNumber,
+        make: newRecord.make,
+        model: newRecord.model,
+        year: newRecord.year,
+        color: newRecord.color,
+        odometerKm: newRecord.odometerKm,
+        concern: newRecord.concern,
+        underHoodState: inspectionSeedForm.underHoodState,
+        engineOilLevel: inspectionSeedForm.engineOilLevel,
+        engineOilCondition: inspectionSeedForm.engineOilCondition,
+        engineOilLeaks: inspectionSeedForm.engineOilLeaks,
+        coolantLevel: inspectionSeedForm.coolantLevel,
+        coolantCondition: inspectionSeedForm.coolantCondition,
+        radiatorHoseCondition: inspectionSeedForm.radiatorHoseCondition,
+        coolingLeaks: inspectionSeedForm.coolingLeaks,
+        brakeFluidLevel: inspectionSeedForm.brakeFluidLevel,
+        brakeFluidCondition: inspectionSeedForm.brakeFluidCondition,
+        powerSteeringLevel: inspectionSeedForm.powerSteeringLevel,
+        powerSteeringCondition: inspectionSeedForm.powerSteeringCondition,
+        batteryCondition: inspectionSeedForm.batteryCondition,
+        batteryTerminalCondition: inspectionSeedForm.batteryTerminalCondition,
+        batteryHoldDownCondition: inspectionSeedForm.batteryHoldDownCondition,
+        driveBeltCondition: inspectionSeedForm.driveBeltCondition,
+        airFilterCondition: inspectionSeedForm.airFilterCondition,
+        intakeHoseCondition: inspectionSeedForm.intakeHoseCondition,
+        engineMountCondition: inspectionSeedForm.engineMountCondition,
+        wiringCondition: inspectionSeedForm.wiringCondition,
+        unusualSmellState: inspectionSeedForm.unusualSmellState,
+        unusualSoundState: inspectionSeedForm.unusualSoundState,
+        visibleEngineLeakState: inspectionSeedForm.visibleEngineLeakState,
+        engineOilNotes: inspectionSeedForm.engineOilNotes,
+        coolantNotes: inspectionSeedForm.coolantNotes,
+        brakeFluidNotes: inspectionSeedForm.brakeFluidNotes,
+        powerSteeringNotes: inspectionSeedForm.powerSteeringNotes,
+        batteryNotes: inspectionSeedForm.batteryNotes,
+        beltNotes: inspectionSeedForm.beltNotes,
+        intakeNotes: inspectionSeedForm.intakeNotes,
+        leakNotes: inspectionSeedForm.leakNotes,
+        underHoodSummary: inspectionSeedForm.underHoodSummary,
+        recommendedWork: inspectionSeedForm.recommendedWork,
+        recommendationLines,
+        inspectionPhotoNotes: inspectionSeedForm.inspectionPhotoNotes,
+        arrivalFrontPhotoNote: inspectionSeedForm.arrivalFrontPhotoNote,
+        arrivalDriverSidePhotoNote: inspectionSeedForm.arrivalDriverSidePhotoNote,
+        arrivalRearPhotoNote: inspectionSeedForm.arrivalRearPhotoNote,
+        arrivalPassengerSidePhotoNote: inspectionSeedForm.arrivalPassengerSidePhotoNote,
+        additionalFindingPhotoNotes: inspectionSeedForm.additionalFindingPhotoNotes,
+        enableSafetyChecks: inspectionSeedForm.enableSafetyChecks,
+        enableTires: inspectionSeedForm.enableTires,
+        enableUnderHood: inspectionSeedForm.enableUnderHood,
+        enableBrakes: inspectionSeedForm.enableBrakes,
+        enableAlignmentCheck: inspectionSeedForm.enableAlignmentCheck,
+        enableAcCheck: inspectionSeedForm.enableAcCheck,
+        enableCoolingCheck: inspectionSeedForm.enableCoolingCheck,
+        coolingFanOperationState: inspectionSeedForm.coolingFanOperationState,
+        radiatorConditionState: inspectionSeedForm.radiatorConditionState,
+        waterPumpConditionState: inspectionSeedForm.waterPumpConditionState,
+        thermostatConditionState: inspectionSeedForm.thermostatConditionState,
+        overflowReservoirConditionState: inspectionSeedForm.overflowReservoirConditionState,
+        coolingSystemPressureState: inspectionSeedForm.coolingSystemPressureState,
+        coolingSystemNotes: inspectionSeedForm.coolingSystemNotes,
+        coolingAdditionalFindings: inspectionSeedForm.coolingAdditionalFindings,
+        enableSteeringCheck: inspectionSeedForm.enableSteeringCheck,
+        steeringWheelPlayState: inspectionSeedForm.steeringWheelPlayState,
+        steeringPumpMotorState: inspectionSeedForm.steeringPumpMotorState,
+        steeringFluidConditionState: inspectionSeedForm.steeringFluidConditionState,
+        steeringHoseConditionState: inspectionSeedForm.steeringHoseConditionState,
+        steeringColumnConditionState: inspectionSeedForm.steeringColumnConditionState,
+        steeringRoadFeelState: inspectionSeedForm.steeringRoadFeelState,
+        steeringSystemNotes: inspectionSeedForm.steeringSystemNotes,
+        steeringAdditionalFindings: inspectionSeedForm.steeringAdditionalFindings,
+        enableEnginePerformanceCheck: inspectionSeedForm.enableEnginePerformanceCheck,
+        engineStartingState: inspectionSeedForm.engineStartingState,
+        idleQualityState: inspectionSeedForm.idleQualityState,
+        accelerationResponseState: inspectionSeedForm.accelerationResponseState,
+        engineMisfireState: inspectionSeedForm.engineMisfireState,
+        engineSmokeState: inspectionSeedForm.engineSmokeState,
+        fuelEfficiencyConcernState: inspectionSeedForm.fuelEfficiencyConcernState,
+        enginePerformanceNotes: inspectionSeedForm.enginePerformanceNotes,
+        enginePerformanceAdditionalFindings: inspectionSeedForm.enginePerformanceAdditionalFindings,
+        enableRoadTestCheck: inspectionSeedForm.enableRoadTestCheck,
+        roadTestNoiseState: inspectionSeedForm.roadTestNoiseState,
+        roadTestBrakeFeelState: inspectionSeedForm.roadTestBrakeFeelState,
+        roadTestSteeringTrackingState: inspectionSeedForm.roadTestSteeringTrackingState,
+        roadTestRideQualityState: inspectionSeedForm.roadTestRideQualityState,
+        roadTestAccelerationState: inspectionSeedForm.roadTestAccelerationState,
+        roadTestTransmissionShiftState: inspectionSeedForm.roadTestTransmissionShiftState,
+        roadTestNotes: inspectionSeedForm.roadTestNotes,
+        roadTestAdditionalFindings: inspectionSeedForm.roadTestAdditionalFindings,
+        acVentTemperature: inspectionSeedForm.acVentTemperature,
+        acCoolingPerformanceState: inspectionSeedForm.acCoolingPerformanceState,
+        acCompressorState: inspectionSeedForm.acCompressorState,
+        acCondenserFanState: inspectionSeedForm.acCondenserFanState,
+        acCabinFilterState: inspectionSeedForm.acCabinFilterState,
+        acAirflowState: inspectionSeedForm.acAirflowState,
+        acOdorState: inspectionSeedForm.acOdorState,
+        acNotes: inspectionSeedForm.acNotes,
+        enableElectricalCheck: inspectionSeedForm.enableElectricalCheck,
+        electricalBatteryVoltage: inspectionSeedForm.electricalBatteryVoltage,
+        electricalChargingVoltage: inspectionSeedForm.electricalChargingVoltage,
+        electricalStarterState: inspectionSeedForm.electricalStarterState,
+        electricalAlternatorState: inspectionSeedForm.electricalAlternatorState,
+        electricalFuseRelayState: inspectionSeedForm.electricalFuseRelayState,
+        electricalWiringState: inspectionSeedForm.electricalWiringState,
+        electricalWarningLightState: inspectionSeedForm.electricalWarningLightState,
+        electricalNotes: inspectionSeedForm.electricalNotes,
+        enableTransmissionCheck: inspectionSeedForm.enableTransmissionCheck,
+        enableScanCheck: inspectionSeedForm.enableScanCheck,
+        scanPerformed: inspectionSeedForm.scanPerformed,
+        scanToolUsed: inspectionSeedForm.scanToolUsed,
+        scanNotes: inspectionSeedForm.scanNotes,
+        scanUploadNames: inspectionSeedForm.scanUploadNames,
+        transmissionFluidState: inspectionSeedForm.transmissionFluidState,
+        transmissionFluidConditionState: inspectionSeedForm.transmissionFluidConditionState,
+        transmissionLeakState: inspectionSeedForm.transmissionLeakState,
+        shiftingPerformanceState: inspectionSeedForm.shiftingPerformanceState,
+        clutchOperationState: inspectionSeedForm.clutchOperationState,
+        drivetrainVibrationState: inspectionSeedForm.drivetrainVibrationState,
+        cvJointDriveAxleState: inspectionSeedForm.cvJointDriveAxleState,
+        transmissionMountState: inspectionSeedForm.transmissionMountState,
+        transmissionNotes: inspectionSeedForm.transmissionNotes,
+        alignmentConcernNotes: inspectionSeedForm.alignmentConcernNotes,
+        alignmentRecommended: inspectionSeedForm.alignmentRecommended,
+        alignmentBeforePrintoutName: inspectionSeedForm.alignmentBeforePrintoutName,
+        alignmentAfterPrintoutName: inspectionSeedForm.alignmentAfterPrintoutName,
+        arrivalLights: inspectionSeedForm.arrivalLights,
+        arrivalBrokenGlass: inspectionSeedForm.arrivalBrokenGlass,
+        arrivalWipers: inspectionSeedForm.arrivalWipers,
+        arrivalHorn: inspectionSeedForm.arrivalHorn,
+        arrivalCheckEngineLight: inspectionSeedForm.arrivalCheckEngineLight,
+        arrivalAbsLight: inspectionSeedForm.arrivalAbsLight,
+        arrivalAirbagLight: inspectionSeedForm.arrivalAirbagLight,
+        arrivalBatteryLight: inspectionSeedForm.arrivalBatteryLight,
+        arrivalOilPressureLight: inspectionSeedForm.arrivalOilPressureLight,
+        arrivalTempLight: inspectionSeedForm.arrivalTempLight,
+        arrivalTransmissionLight: inspectionSeedForm.arrivalTransmissionLight,
+        arrivalOtherWarningLight: inspectionSeedForm.arrivalOtherWarningLight,
+        arrivalOtherWarningNote: inspectionSeedForm.arrivalOtherWarningNote,
+        frontLeftTreadMm: inspectionSeedForm.frontLeftTreadMm,
+        frontRightTreadMm: inspectionSeedForm.frontRightTreadMm,
+        rearLeftTreadMm: inspectionSeedForm.rearLeftTreadMm,
+        rearRightTreadMm: inspectionSeedForm.rearRightTreadMm,
+        frontLeftWearPattern: inspectionSeedForm.frontLeftWearPattern,
+        frontRightWearPattern: inspectionSeedForm.frontRightWearPattern,
+        rearLeftWearPattern: inspectionSeedForm.rearLeftWearPattern,
+        rearRightWearPattern: inspectionSeedForm.rearRightWearPattern,
+        frontLeftTireState: inspectionSeedForm.frontLeftTireState,
+        frontRightTireState: inspectionSeedForm.frontRightTireState,
+        rearLeftTireState: inspectionSeedForm.rearLeftTireState,
+        rearRightTireState: inspectionSeedForm.rearRightTireState,
+        frontBrakeCondition: inspectionSeedForm.frontBrakeCondition,
+        rearBrakeCondition: inspectionSeedForm.rearBrakeCondition,
+        frontBrakeState: inspectionSeedForm.frontBrakeState,
+        rearBrakeState: inspectionSeedForm.rearBrakeState,
+        enableSuspensionCheck: inspectionSeedForm.enableSuspensionCheck,
+        frontShockState: inspectionSeedForm.frontShockState,
+        frontBallJointState: inspectionSeedForm.frontBallJointState,
+        frontTieRodEndState: inspectionSeedForm.frontTieRodEndState,
+        frontRackEndState: inspectionSeedForm.frontRackEndState,
+        frontStabilizerLinkState: inspectionSeedForm.frontStabilizerLinkState,
+        frontControlArmBushingState: inspectionSeedForm.frontControlArmBushingState,
+        frontUpperControlArmState: inspectionSeedForm.frontUpperControlArmState,
+        frontLowerControlArmState: inspectionSeedForm.frontLowerControlArmState,
+        frontStrutMountState: inspectionSeedForm.frontStrutMountState,
+        steeringRackConditionState: inspectionSeedForm.steeringRackConditionState,
+        frontCvBootState: inspectionSeedForm.frontCvBootState,
+        frontWheelBearingState: inspectionSeedForm.frontWheelBearingState,
+        rearSuspensionType: inspectionSeedForm.rearSuspensionType,
+        rearShockState: inspectionSeedForm.rearShockState,
+        rearStabilizerLinkState: inspectionSeedForm.rearStabilizerLinkState,
+        rearBushingState: inspectionSeedForm.rearBushingState,
+        rearSpringState: inspectionSeedForm.rearSpringState,
+        rearControlArmState: inspectionSeedForm.rearControlArmState,
+        rearCoilSpringState: inspectionSeedForm.rearCoilSpringState,
+        rearLeafSpringState: inspectionSeedForm.rearLeafSpringState,
+        rearLeafSpringBushingState: inspectionSeedForm.rearLeafSpringBushingState,
+        rearUBoltMountState: inspectionSeedForm.rearUBoltMountState,
+        rearAxleMountState: inspectionSeedForm.rearAxleMountState,
+        rearWheelBearingState: inspectionSeedForm.rearWheelBearingState,
+        frontSuspensionNotes: inspectionSeedForm.frontSuspensionNotes,
+        rearSuspensionNotes: inspectionSeedForm.rearSuspensionNotes,
+        steeringFeelNotes: inspectionSeedForm.steeringFeelNotes,
+        suspensionRoadTestNotes: inspectionSeedForm.suspensionRoadTestNotes,
+        inspectionNotes: inspectionSeedForm.inspectionNotes,
+        evidenceItems: inspectionSeedForm.evidenceItems,
+        lastUpdatedBy: currentUser.fullName,
+        reopenedAt: "",
+        reopenedBy: "",
+        linkedRoIds: [],
+      };
+      setInspectionRecords((prev) => [draftInspection, ...prev]);
+    }
+
     resetForm();
   };
 
@@ -4346,6 +3815,57 @@ function IntakePage({
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(7, isCompactLayout) }}>
+          <Card
+            title="Customer / Vehicle History Lookup"
+            subtitle="Search by plate, conduction, customer, company, phone, or email, then load prior details into intake"
+            right={<span style={styles.statusInfo}>{vehicleHistoryMatches.length + customerHistoryMatches.length} match(es)</span>}
+          >
+            <div style={styles.formGroup}>
+              <label style={styles.label}>History Search</label>
+              <input
+                style={styles.input}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by plate, conduction, name, company, phone, or email"
+              />
+            </div>
+
+            {!search.trim() ? (
+              <div style={styles.formHint}>Start typing to pull customer and vehicle history into the intake form.</div>
+            ) : (
+              <div style={styles.mobileCardList}>
+                {[...vehicleHistoryMatches, ...customerHistoryMatches.filter((row) => !vehicleHistoryMatches.some((match) => match.id === row.id))]
+                  .slice(0, 8)
+                  .map((row) => (
+                    <div key={row.id} style={styles.mobileDataCard}>
+                      <div style={styles.mobileDataCardHeader}>
+                        <strong>{row.intakeNumber}</strong>
+                        <StatusBadge status={row.status} />
+                      </div>
+                      <div style={styles.mobileDataPrimary}>{row.plateNumber || row.conductionNumber || "-"}</div>
+                      <div style={styles.mobileDataSecondary}>{row.companyName || row.customerName || "-"}</div>
+                      <div style={styles.mobileDataSecondary}>{[row.make, row.model, row.year].filter(Boolean).join(" ") || "-"}</div>
+                      <div style={styles.mobileMetaRow}>
+                        <span>Phone / Email</span>
+                        <strong>{row.phone || row.email || "-"}</strong>
+                      </div>
+                      <div style={styles.mobileMetaRow}>
+                        <span>Latest Concern</span>
+                        <strong>{row.concern || "-"}</strong>
+                      </div>
+                      <div style={styles.inlineActions}>
+                        <button type="button" style={styles.smallButton} onClick={() => loadHistoryIntoForm(row)}>
+                          Load Into Intake
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
           <Card
             title="Intake Registry"
             subtitle="Newest to oldest, searchable by plate, conduction, customer, company, or concern"
@@ -4684,8 +4204,8 @@ function InspectionPage({
   );
 
   const selectedIntake = useMemo(
-    () => eligibleIntakes.find((row) => row.id === selectedIntakeId) ?? null,
-    [eligibleIntakes, selectedIntakeId]
+    () => intakeRecords.find((row) => row.id === selectedIntakeId) ?? null,
+    [intakeRecords, selectedIntakeId]
   );
 
   const selectedInspection = useMemo(
@@ -4694,13 +4214,10 @@ function InspectionPage({
   );
 
   useEffect(() => {
-    if (selectedIntakeId && !eligibleIntakes.some((row) => row.id === selectedIntakeId)) {
+    if (selectedIntakeId && !intakeRecords.some((row) => row.id === selectedIntakeId)) {
       setSelectedIntakeId("");
     }
-    if (eligibleIntakes.length === 0) {
-      setSelectedIntakeId("");
-    }
-  }, [eligibleIntakes, selectedIntakeId]);
+  }, [intakeRecords, selectedIntakeId]);
 
   useEffect(() => {
     if (selectedInspection) {
@@ -4911,6 +4428,61 @@ function InspectionPage({
         .includes(term)
     );
   }, [inspectionRecords, search]);
+
+  const inspectionHistoryMatches = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return [];
+    return inspectionRecords
+      .filter((row) =>
+        [
+          row.inspectionNumber,
+          row.intakeNumber,
+          row.plateNumber,
+          row.conductionNumber,
+          row.accountLabel,
+          row.make,
+          row.model,
+          row.concern,
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(term)
+      )
+      .slice(0, 10);
+  }, [inspectionRecords, search]);
+
+  const relatedInspectionHistory = useMemo(() => {
+    if (!selectedIntake) return [];
+    const keyPlate = (selectedIntake.plateNumber || selectedIntake.conductionNumber || "").trim().toLowerCase();
+    const keyCustomer = (selectedIntake.companyName || selectedIntake.customerName || "").trim().toLowerCase();
+    return inspectionRecords
+      .filter((row) =>
+        row.id !== selectedInspection?.id &&
+        (
+          (!!keyPlate && [row.plateNumber, row.conductionNumber].join(" ").toLowerCase().includes(keyPlate)) ||
+          (!!keyCustomer && row.accountLabel.toLowerCase().includes(keyCustomer))
+        )
+      )
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, 8);
+  }, [inspectionRecords, selectedIntake, selectedInspection]);
+
+  const reopenInspection = () => {
+    if (!selectedInspection) {
+      setError("Select an existing inspection first.");
+      return;
+    }
+    const now = new Date().toISOString();
+    setInspectionRecords((prev) =>
+      prev.map((row) =>
+        row.id === selectedInspection.id
+          ? { ...row, status: "In Progress", updatedAt: now, reopenedAt: now, reopenedBy: currentUser.fullName, lastUpdatedBy: currentUser.fullName }
+          : row
+      )
+    );
+    setForm((prev) => ({ ...prev, status: "In Progress" }));
+    setError("");
+  };
 
   const autoRecommendations = useMemo(() => {
     const detailed = buildDetailedUnderHoodRecommendations(form);
@@ -5287,6 +4859,10 @@ function InspectionPage({
       intakeNotes: form.intakeNotes.trim(),
       leakNotes: form.leakNotes.trim(),
       evidenceItems: form.evidenceItems,
+      lastUpdatedBy: currentUser.fullName,
+      reopenedAt: selectedInspection?.reopenedAt ?? "",
+      reopenedBy: selectedInspection?.reopenedBy ?? "",
+      linkedRoIds: selectedInspection?.linkedRoIds ?? [],
     };
 
     setInspectionRecords((prev) => {
@@ -5506,7 +5082,7 @@ function InspectionPage({
                       >
                         <div style={styles.queueCardHeader}>
                           <strong>{row.intakeNumber}</strong>
-                          {hasInspection ? <span style={styles.statusNeutral}>Started</span> : <span style={styles.statusInfo}>New</span>}
+                          {hasInspection ? <span style={(inspectionRecords.find((item) => item.intakeId === row.id)?.status === "Completed") ? styles.statusOk : styles.statusWarning}>{inspectionRecords.find((item) => item.intakeId === row.id)?.status === "Completed" ? "Completed" : "In Progress"}</span> : <span style={styles.statusInfo}>New</span>}
                         </div>
                         <div style={styles.queueLine}>{row.plateNumber || row.conductionNumber || "-"}</div>
                         <div style={styles.queueLineMuted}>{row.companyName || row.customerName || "-"}</div>
@@ -5520,11 +5096,60 @@ function InspectionPage({
           </div>
         ) : null}
 
-        <div style={{ ...styles.gridItem, gridColumn: !selectedIntake ? getResponsiveSpan(8, isCompactLayout) : "span 12" }}>
+        {!selectedIntake ? (
+          <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(8, isCompactLayout) }}>
+            <Card
+              title="Inspection Edit + History Lookup"
+              subtitle="Search any prior inspection by plate, customer, company, or inspection number and reopen it for editing"
+              right={<span style={styles.statusInfo}>{inspectionHistoryMatches.length} match(es)</span>}
+            >
+              <div style={styles.formGroup}>
+                <label style={styles.label}>History Search</label>
+                <input
+                  style={styles.input}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by plate, customer, company, inspection no., make, or concern"
+                />
+              </div>
+
+              {!search.trim() ? (
+                <div style={styles.formHint}>Select a vehicle from the queue or search older inspection records to reopen and edit them.</div>
+              ) : inspectionHistoryMatches.length === 0 ? (
+                <div style={styles.emptyState}>No inspection history found for this search.</div>
+              ) : (
+                <div style={styles.mobileCardList}>
+                  {inspectionHistoryMatches.map((row) => (
+                    <div key={row.id} style={styles.mobileDataCard}>
+                      <div style={styles.mobileDataCardHeader}>
+                        <strong>{row.inspectionNumber}</strong>
+                        <InspectionStatusBadge status={row.status} />
+                      </div>
+                      <div style={styles.mobileDataPrimary}>{row.plateNumber || row.conductionNumber || "-"}</div>
+                      <div style={styles.mobileDataSecondary}>{row.accountLabel}</div>
+                      <div style={styles.mobileDataSecondary}>{[row.make, row.model, row.year].filter(Boolean).join(" ") || "-"}</div>
+                      <div style={styles.mobileMetaRow}>
+                        <span>Updated</span>
+                        <strong>{formatDateTime(row.updatedAt)}</strong>
+                      </div>
+                      <div style={styles.inlineActions}>
+                        <button type="button" style={styles.smallButton} onClick={() => setSelectedIntakeId(row.intakeId)}>
+                          Edit Inspection
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </div>
+        ) : null}
+
+        <div style={{ ...styles.gridItem, gridColumn: !selectedIntake ? getResponsiveSpan(12, isCompactLayout) : "span 12" }}>
           <Card
             title="Inspection Form"
             subtitle="Safety first, tires second, under the hood always included, brakes triggered"
-            right={selectedIntake ? (<div style={styles.inlineActions}><button type="button" style={styles.secondaryButton} onClick={() => { setSelectedIntakeId(""); setError(""); }}>Change Vehicle</button>{selectedInspection ? <InspectionStatusBadge status={selectedInspection.status} /> : <span style={styles.statusNeutral}>Not started</span>}</div>) : (selectedInspection ? <InspectionStatusBadge status={selectedInspection.status} /> : <span style={styles.statusNeutral}>Not started</span>)}
+            right={selectedIntake ? (<div style={styles.inlineActions}><button type="button" style={styles.secondaryButton} onClick={() => { setSelectedIntakeId(""); setError(""); }}>Change Vehicle</button>{selectedInspection ? <button type="button" style={styles.smallButtonMuted} onClick={reopenInspection}>Reopen</button> : null}{selectedInspection ? <InspectionStatusBadge status={selectedInspection.status} /> : <span style={styles.statusNeutral}>Draft Seeded</span>}</div>) : (selectedInspection ? <InspectionStatusBadge status={selectedInspection.status} /> : <span style={styles.statusNeutral}>Draft Seeded</span>)}
           >
             {!selectedIntake ? (
               <div style={styles.emptyState}>Select an intake from the queue to start inspection.</div>
@@ -5620,14 +5245,37 @@ function InspectionPage({
                         )}
                       </div>
 
+                      {selectedInspection ? (
+                        <div style={styles.sectionCardMuted}>
+                          <div style={styles.sectionTitle}>Edit Mode</div>
+                          <div style={styles.formHint}>
+                            Editing {selectedInspection.inspectionNumber} • Created {formatDateTime(selectedInspection.createdAt)} • Last updated {formatDateTime(selectedInspection.updatedAt)}{selectedInspection.lastUpdatedBy ? ` by ${selectedInspection.lastUpdatedBy}` : ""}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {relatedInspectionHistory.length ? (
+                        <div style={styles.sectionCardMuted}>
+                          <div style={styles.sectionTitle}>Related Vehicle / Customer History</div>
+                          <div style={styles.quickAccessList}>
+                            {relatedInspectionHistory.map((row) => (
+                              <div key={row.id} style={styles.quickAccessRow}>
+                                <span>{row.inspectionNumber} • {row.plateNumber || row.conductionNumber || "-"}</span>
+                                <strong>{formatDateTime(row.updatedAt)}</strong>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
                       {error ? <div style={styles.errorBox}>{error}</div> : null}
 
                       <div style={isCompactLayout ? styles.stickyActionBar : styles.inlineActionsColumn}>
                         <button type="button" style={{ ...styles.primaryButton, width: "100%" }} onClick={() => saveInspection()}>
-                          Save Inspection
+                          Save Draft / Update
                         </button>
                         <button type="button" style={{ ...styles.smallButtonSuccess, width: "100%" }} onClick={() => saveInspection("Completed")}>
-                          Complete Inspection
+                          Save as Completed
                         </button>
                         <button type="button" style={{ ...styles.secondaryButton, width: "100%" }} onClick={() => setForm(getDefaultInspectionForm())}>
                           Reset Form
@@ -6810,28 +6458,6 @@ function RepairOrdersPage({
     );
   }, [search, sortedRepairOrders]);
 
-  const roSummary = useMemo(
-    () => ({
-      total: sortedRepairOrders.length,
-      waitingApproval: sortedRepairOrders.filter((row) => row.status === "Waiting Approval").length,
-      inProgress: sortedRepairOrders.filter((row) => row.status === "In Progress").length,
-      readyRelease: sortedRepairOrders.filter((row) => row.status === "Ready Release").length,
-    }),
-    [sortedRepairOrders]
-  );
-
-  const selectedROEstimateTotal = selectedRO
-    ? selectedRO.workLines.reduce((sum, line) => sum + parseMoneyInput(line.totalEstimate), 0)
-    : 0;
-
-  const selectedROApprovedCount = selectedRO
-    ? selectedRO.workLines.filter((line) => line.approvalDecision === "Approved").length
-    : 0;
-
-  const selectedROPendingCount = selectedRO
-    ? selectedRO.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length
-    : 0;
-
   useEffect(() => {
     setForm((prev) => ({
       ...prev,
@@ -7741,23 +7367,7 @@ function RepairOrdersPage({
                     <div style={styles.cardTitle}>{selectedRO.roNumber}</div>
                     <div style={styles.cardSubtitle}>Linked intake is optional. Inspection is optional.</div>
                   </div>
-                  <div style={styles.inlineActions}>
-                    <button
-                      type="button"
-                      style={styles.smallButtonMuted}
-                      onClick={() => printTextDocument(`Repair Order ${selectedRO.roNumber}`, buildRepairOrderExportText(selectedRO, users))}
-                    >
-                      Print RO
-                    </button>
-                    <button
-                      type="button"
-                      style={styles.smallButton}
-                      onClick={() => downloadTextFile(`${selectedRO.roNumber}_repair_order.txt`, buildRepairOrderExportText(selectedRO, users))}
-                    >
-                      Export RO
-                    </button>
-                    <ROStatusBadge status={selectedRO.status} />
-                  </div>
+                  <ROStatusBadge status={selectedRO.status} />
                 </div>
 
                 <div style={styles.summaryPanel}>
@@ -7768,10 +7378,6 @@ function RepairOrdersPage({
                     <div><strong>Vehicle:</strong> {[selectedRO.make, selectedRO.model, selectedRO.year].filter(Boolean).join(" ") || "-"}</div>
                     <div><strong>Intake No.:</strong> {selectedRO.intakeNumber || "Manual"}</div>
                     <div><strong>Inspection No.:</strong> {selectedRO.inspectionNumber || "None"}</div>
-                    <div><strong>Total Estimate:</strong> {formatCurrency(selectedROEstimateTotal)}</div>
-                    <div><strong>Approved Lines:</strong> {selectedROApprovedCount}</div>
-                    <div><strong>Pending Lines:</strong> {selectedROPendingCount}</div>
-                    <div><strong>Primary Tech:</strong> {selectedRO.primaryTechnicianId ? users.find((user) => user.id === selectedRO.primaryTechnicianId)?.fullName || "Assigned" : "Unassigned"}</div>
                   </div>
                   <div style={styles.concernBanner}>
                     <strong>Concern:</strong> {selectedRO.customerConcern}
@@ -8040,9 +7646,9 @@ function RepairOrdersPage({
                               <div style={styles.concernCard}>{getCustomerFriendlyLineDescription(line)}</div>
                               {line.notes ? <div style={styles.formHint}>Tech notes: {line.notes}</div> : null}
                               <div style={styles.inlineActions}>
-                                <button type="button" style={styles.smallButtonSuccess} onClick={() => setLineDecision("Approved", line.id)}>Approve Work</button>
-                                <button type="button" style={styles.smallButtonMuted} onClick={() => setLineDecision("Deferred", line.id)}>Decide Later</button>
-                                <button type="button" style={styles.smallButtonDanger} onClick={() => setLineDecision("Declined", line.id)}>Decline Work</button>
+                                <button type="button" style={styles.smallButtonSuccess} onClick={() => setLineDecision("Approved", line.id)}>Approve</button>
+                                <button type="button" style={styles.smallButtonMuted} onClick={() => setLineDecision("Deferred", line.id)}>Defer</button>
+                                <button type="button" style={styles.smallButtonDanger} onClick={() => setLineDecision("Declined", line.id)}>Decline</button>
                               </div>
                             </div>
                           );
@@ -8085,9 +7691,9 @@ function RepairOrdersPage({
                             {approvedAt ? <div style={styles.formHint}>Decision Time: {formatDateTime(approvedAt)}</div> : null}
                             {line.notes ? <div style={styles.concernCard}>{line.notes}</div> : null}
                             <div style={styles.inlineActions}>
-                              <button type="button" style={styles.smallButtonSuccess} onClick={() => setLineDecision("Approved", line.id)}>Approve Work</button>
-                              <button type="button" style={styles.smallButtonMuted} onClick={() => setLineDecision("Deferred", line.id)}>Decide Later</button>
-                              <button type="button" style={styles.smallButtonDanger} onClick={() => setLineDecision("Declined", line.id)}>Decline Work</button>
+                              <button type="button" style={styles.smallButtonSuccess} onClick={() => setLineDecision("Approved", line.id)}>Approve</button>
+                              <button type="button" style={styles.smallButtonMuted} onClick={() => setLineDecision("Deferred", line.id)}>Defer</button>
+                              <button type="button" style={styles.smallButtonDanger} onClick={() => setLineDecision("Declined", line.id)}>Decline</button>
                             </div>
                           </div>
                         );
@@ -8315,41 +7921,6 @@ function QualityControlPage({
     [queue, selectedRoId]
   );
 
-  const selectedApprovedLines = useMemo(
-    () => (selectedRO ? selectedRO.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Approved") : []),
-    [selectedRO]
-  );
-
-  const selectedCompletedApprovedCount = useMemo(
-    () => selectedApprovedLines.filter((line) => line.status === "Completed").length,
-    [selectedApprovedLines]
-  );
-
-  const selectedOutstandingApprovedCount = Math.max(selectedApprovedLines.length - selectedCompletedApprovedCount, 0);
-
-  const latestQcForSelected = useMemo(
-    () =>
-      selectedRO
-        ? [...qcRecords]
-            .filter((row) => row.roId === selectedRO.id)
-            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null
-        : null,
-    [qcRecords, selectedRO]
-  );
-
-  useEffect(() => {
-    if (!selectedRO) return;
-    setChecks({
-      allApprovedWorkCompleted: selectedOutstandingApprovedCount === 0,
-      noLeaksOrWarningLights: true,
-      roadTestDone: true,
-      cleanlinessCheck: true,
-      noNewDamage: true,
-      toolsRemoved: true,
-    });
-    setNotes("");
-    setError("");
-  }, [selectedRO?.id, selectedOutstandingApprovedCount]);
 
   const history = useMemo(
     () =>
@@ -8363,10 +7934,6 @@ function QualityControlPage({
     if (!selectedRO || !canPerformQC) return;
     if (result === "Failed" && !notes.trim()) {
       setError("Failure notes are required when QC fails.");
-      return;
-    }
-    if (result === "Passed" && (!checks.allApprovedWorkCompleted || !checks.noLeaksOrWarningLights || !checks.roadTestDone || !checks.cleanlinessCheck || !checks.noNewDamage || !checks.toolsRemoved)) {
-      setError("All QC checklist items must pass before the job can move to Ready Release.");
       return;
     }
 
@@ -8474,31 +8041,7 @@ function QualityControlPage({
           <Card
             title="QC Form"
             subtitle="Chief Technician / Senior Mechanic gate before release"
-            right={
-              selectedRO ? (
-                <div style={styles.inlineActions}>
-                  <button
-                    type="button"
-                    style={styles.smallButtonMuted}
-                    onClick={() => printTextDocument(`QC ${selectedRO.roNumber}`, buildQcExportText(selectedRO, latestQcForSelected))}
-                  >
-                    Print QC
-                  </button>
-                  <button
-                    type="button"
-                    style={styles.smallButton}
-                    onClick={() => downloadTextFile(`${selectedRO.roNumber}_qc.txt`, buildQcExportText(selectedRO, latestQcForSelected))}
-                  >
-                    Export QC
-                  </button>
-                  {canPerformQC ? <span style={styles.statusOk}>QC Allowed</span> : <span style={styles.statusLocked}>QC Locked</span>}
-                </div>
-              ) : canPerformQC ? (
-                <span style={styles.statusOk}>QC Allowed</span>
-              ) : (
-                <span style={styles.statusLocked}>QC Locked</span>
-              )
-            }
+            right={canPerformQC ? <span style={styles.statusOk}>QC Allowed</span> : <span style={styles.statusLocked}>QC Locked</span>}
           >
             {!selectedRO ? (
               <div style={styles.emptyState}>Select a repair order from the QC queue.</div>
@@ -8518,33 +8061,6 @@ function QualityControlPage({
                     <div style={styles.summaryValue}>{selectedRO.accountLabel}</div>
                   </div>
                 </div>
-
-                <div style={isCompactLayout ? styles.formStack : styles.formGrid3}>
-                  <div style={styles.summaryTile}>
-                    <div style={styles.summaryLabel}>Approved Lines</div>
-                    <div style={styles.summaryValue}>{selectedApprovedLines.length}</div>
-                  </div>
-                  <div style={styles.summaryTile}>
-                    <div style={styles.summaryLabel}>Completed Approved</div>
-                    <div style={styles.summaryValue}>{selectedCompletedApprovedCount}</div>
-                  </div>
-                  <div style={styles.summaryTile}>
-                    <div style={styles.summaryLabel}>Outstanding</div>
-                    <div style={styles.summaryValue}>{selectedOutstandingApprovedCount}</div>
-                  </div>
-                </div>
-
-                {latestQcForSelected ? (
-                  <div style={styles.quickAccessRow}>
-                    <span>Latest QC Result</span>
-                    <strong>{latestQcForSelected.qcNumber} • {latestQcForSelected.result} • {formatDateTime(latestQcForSelected.createdAt)}</strong>
-                  </div>
-                ) : (
-                  <div style={styles.quickAccessRow}>
-                    <span>Latest QC Result</span>
-                    <strong>No prior QC record yet</strong>
-                  </div>
-                )}
 
                 <div style={styles.formStack}>
                   {checklistItems.map((item) => (
@@ -8717,26 +8233,6 @@ function ReleasePage({
     [queue, selectedRoId]
   );
 
-  const latestQcForSelected = useMemo(
-    () =>
-      selectedRO
-        ? [...qcRecords]
-            .filter((row) => row.roId === selectedRO.id)
-            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null
-        : null,
-    [qcRecords, selectedRO]
-  );
-
-  const latestReleaseForSelected = useMemo(
-    () =>
-      selectedRO
-        ? [...releaseRecords]
-            .filter((row) => row.roId === selectedRO.id)
-            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null
-        : null,
-    [releaseRecords, selectedRO]
-  );
-
   const selectedInvoice = useMemo(
     () => (selectedRO ? invoiceRecords.find((row) => row.roId === selectedRO.id) ?? null : null),
     [invoiceRecords, selectedRO]
@@ -8786,37 +8282,7 @@ function ReleasePage({
 
   const finalTotalAmount = calculateInvoiceTotal(finalServiceAmount, finalPartsAmount, discountAmount).toFixed(2);
   const effectivePaymentStatus = getPaymentStatusFromAmounts(finalTotalAmount, totalPaidAmount);
-  const outstandingBalance = Math.max(parseMoneyInput(finalTotalAmount) - totalPaidAmount, 0);
-  const latestQcPassed = latestQcForSelected?.result === "Passed";
 
-  const releaseSummaryStats = useMemo(
-    () => ({
-      visible: queue.length,
-      readyRelease: queue.filter((row) => row.status === "Ready Release").length,
-      released: queue.filter((row) => row.status === "Released").length,
-      unpaid: queue.filter((row) => {
-        const invoice = invoiceRecords.find((inv) => inv.roId === row.id);
-        return invoice ? invoice.paymentStatus === "Unpaid" && invoice.status !== "Voided" : true;
-      }).length,
-      partial: queue.filter((row) => {
-        const invoice = invoiceRecords.find((inv) => inv.roId === row.id);
-        return invoice ? invoice.paymentStatus === "Partial" && invoice.status !== "Voided" : false;
-      }).length,
-    }),
-    [queue, invoiceRecords]
-  );
-
-  const applySuggestedInvoiceTotals = () => {
-    if (!selectedRO) return;
-    const service = selectedRO.workLines.reduce((sum, line) => sum + parseMoneyInput(line.serviceEstimate), 0);
-    const parts = selectedRO.workLines.reduce((sum, line) => sum + parseMoneyInput(line.partsEstimate), 0);
-    setFinalServiceAmount(service ? service.toFixed(2) : "0.00");
-    setFinalPartsAmount(parts ? parts.toFixed(2) : "0.00");
-  };
-
-  const fillOutstandingBalance = () => {
-    setPaymentAmount(outstandingBalance > 0 ? outstandingBalance.toFixed(2) : "");
-  };
 
   const upsertInvoice = (nextStatus?: InvoiceStatus) => {
     if (!selectedRO) return null;
@@ -8898,8 +8364,8 @@ function ReleasePage({
     if (!selectedRO) return;
     const invoice = upsertInvoice("Finalized");
     if (!invoice) return;
-    if (!latestQcPassed) {
-      setError("The latest QC result must be Passed before release.");
+    if (!passedQcRoIds.has(selectedRO.id)) {
+      setError("A passed QC record is required before release.");
       return;
     }
     const canReleaseForPayment = effectivePaymentStatus === "Paid" || chargeAccountApproved;
@@ -8938,71 +8404,16 @@ function ReleasePage({
   };
 
   const closeOrder = (roId: string) => {
-    const row = repairOrders.find((item) => item.id === roId);
-    if (!row) return;
-    if (row.status !== "Released") {
-      setError("Only released jobs can be closed.");
-      return;
-    }
-    if (outstandingBalance > 0 && !chargeAccountApproved) {
-      setError("Outstanding balance must be cleared or charge account must be approved before closing.");
-      return;
-    }
     setRepairOrders((prev) =>
-      prev.map((item) =>
-        item.id === roId ? { ...item, status: "Closed", updatedAt: new Date().toISOString() } : item
+      prev.map((row) =>
+        row.id === roId ? { ...row, status: "Closed", updatedAt: new Date().toISOString() } : row
       )
     );
-    setError("");
   };
 
   return (
     <div style={styles.pageContent}>
       <div style={styles.grid}>
-        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <Card
-            title="Invoice + Payment Control Center"
-            subtitle="Finalize billing, collect payments, and release only when QC and payment gates are truly satisfied"
-            right={<span style={styles.statusInfo}>{releaseSummaryStats.visible} visible jobs</span>}
-          >
-            <div style={styles.heroText}>
-              This screen now keeps invoice totals, payment status, open balance, QC gate, charge-account approval, and release readiness in one place so front office handover is cleaner and harder to miss.
-            </div>
-          </Card>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>Ready Release</div>
-            <div style={styles.statValue}>{releaseSummaryStats.readyRelease}</div>
-            <div style={styles.statNote}>Waiting to complete final handover</div>
-          </div>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>Released</div>
-            <div style={styles.statValue}>{releaseSummaryStats.released}</div>
-            <div style={styles.statNote}>Already handed over to customer</div>
-          </div>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>Unpaid</div>
-            <div style={styles.statValue}>{releaseSummaryStats.unpaid}</div>
-            <div style={styles.statNote}>Jobs still blocked by payment</div>
-          </div>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>Partial</div>
-            <div style={styles.statValue}>{releaseSummaryStats.partial}</div>
-            <div style={styles.statNote}>Jobs with remaining balance</div>
-          </div>
-        </div>
-
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(4, isCompactLayout) }}>
           <Card
             title="Release Queue"
@@ -9049,40 +8460,7 @@ function ReleasePage({
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(8, isCompactLayout) }}>
-          <Card
-            title="Release Form"
-            subtitle="Final gate before vehicle handover"
-            right={
-              selectedRO ? (
-                <div style={styles.inlineActions}>
-                  <button
-                    type="button"
-                    style={styles.smallButtonMuted}
-                    onClick={() =>
-                      printTextDocument(
-                        `Release ${selectedRO.roNumber}`,
-                        buildReleaseExportText(selectedRO, selectedInvoice, selectedPayments, latestReleaseForSelected, latestQcForSelected, finalTotalAmount)
-                      )
-                    }
-                  >
-                    Print Release
-                  </button>
-                  <button
-                    type="button"
-                    style={styles.smallButton}
-                    onClick={() =>
-                      downloadTextFile(
-                        `${selectedRO.roNumber}_release.txt`,
-                        buildReleaseExportText(selectedRO, selectedInvoice, selectedPayments, latestReleaseForSelected, latestQcForSelected, finalTotalAmount)
-                      )
-                    }
-                  >
-                    Export Release
-                  </button>
-                </div>
-              ) : undefined
-            }
-          >
+          <Card title="Release Form" subtitle="Final gate before vehicle handover">
             {!selectedRO ? (
               <div style={styles.emptyState}>Select a repair order from the release queue.</div>
             ) : (
@@ -9117,12 +8495,6 @@ function ReleasePage({
                 <div style={styles.summaryBar}>
                   <div>
                     <strong>Total Amount:</strong> {formatCurrency(parseMoneyInput(finalTotalAmount))}
-                  </div>
-                  <div>
-                    <strong>Paid:</strong> {formatCurrency(totalPaidAmount)}
-                  </div>
-                  <div>
-                    <strong>Balance:</strong> {formatCurrency(outstandingBalance)}
                   </div>
                   <div>
                     <strong>Payment:</strong> <span style={getPaymentStatusStyle(effectivePaymentStatus)}>{effectivePaymentStatus}</span>
@@ -9170,7 +8542,6 @@ function ReleasePage({
                         </div>
 
                         <div style={styles.inlineActions}>
-                          <button type="button" style={styles.secondaryButton} onClick={applySuggestedInvoiceTotals}>Use RO Suggested Totals</button>
                           <button type="button" style={styles.secondaryButton} onClick={() => upsertInvoice("Draft")}>Save Draft Invoice</button>
                           <button type="button" style={styles.primaryButton} onClick={() => upsertInvoice("Finalized")}>Finalize Invoice</button>
                         </div>
@@ -9183,10 +8554,6 @@ function ReleasePage({
                           <div style={styles.quickAccessRow}>
                             <span>Status</span>
                             <span style={getInvoiceStatusStyle(selectedInvoice?.status || invoiceStatus)}>{selectedInvoice?.status || invoiceStatus}</span>
-                          </div>
-                          <div style={styles.quickAccessRow}>
-                            <span>Computed Total</span>
-                            <strong>{formatCurrency(parseMoneyInput(finalTotalAmount))}</strong>
                           </div>
                           <div style={styles.quickAccessRow}>
                             <span>Open Balance</span>
@@ -9228,7 +8595,6 @@ function ReleasePage({
                         </div>
 
                         <div style={styles.inlineActions}>
-                          <button type="button" style={styles.secondaryButton} onClick={fillOutstandingBalance}>Fill Outstanding Balance</button>
                           <button type="button" style={styles.primaryButton} onClick={addPayment}>Add Payment</button>
                         </div>
 
@@ -9243,7 +8609,7 @@ function ReleasePage({
                           </div>
                           <div style={styles.quickAccessRow}>
                             <span>Release Payment Gate</span>
-                            <strong>{effectivePaymentStatus === "Paid" || chargeAccountApproved ? "Cleared" : `Blocked • ${formatCurrency(outstandingBalance)} due`}</strong>
+                            <strong>{effectivePaymentStatus === "Paid" || chargeAccountApproved ? "Cleared" : "Blocked"}</strong>
                           </div>
                         </div>
                       </div>
@@ -9372,387 +8738,6 @@ function ReleasePage({
   );
 }
 
-
-
-function BackjobPage({
-  currentUser,
-  users,
-  repairOrders,
-  invoiceRecords,
-  backjobRecords,
-  setBackjobRecords,
-  isCompactLayout,
-}: {
-  currentUser: SessionUser;
-  users: UserAccount[];
-  repairOrders: RepairOrderRecord[];
-  invoiceRecords: InvoiceRecord[];
-  backjobRecords: BackjobRecord[];
-  setBackjobRecords: React.Dispatch<React.SetStateAction<BackjobRecord[]>>;
-  isCompactLayout: boolean;
-}) {
-  const [selectedRoId, setSelectedRoId] = useState("");
-  const [search, setSearch] = useState("");
-  const [error, setError] = useState("");
-  const [complaint, setComplaint] = useState("");
-  const [findings, setFindings] = useState("");
-  const [rootCause, setRootCause] = useState("");
-  const [responsibility, setResponsibility] = useState<BackjobOutcome>("Internal");
-  const [actionTaken, setActionTaken] = useState("");
-  const [resolutionNotes, setResolutionNotes] = useState("");
-  const [status, setStatus] = useState<"Open" | "In Progress" | "Monitoring" | "Closed">("Open");
-  const [comebackPrimaryTechnicianId, setComebackPrimaryTechnicianId] = useState("");
-  const [supportingTechnicianIds, setSupportingTechnicianIds] = useState<string[]>([]);
-  const [comebackInvoiceNumber, setComebackInvoiceNumber] = useState("");
-
-  const eligibleRos = useMemo(
-    () => repairOrders.filter((row) => ["Released", "Closed", "Ready Release", "In Progress", "Quality Check"].includes(row.status)),
-    [repairOrders]
-  );
-
-  const selectedRO = useMemo(
-    () => eligibleRos.find((row) => row.id === selectedRoId) ?? null,
-    [eligibleRos, selectedRoId]
-  );
-
-  const selectedOriginalInvoice = useMemo(
-    () => (selectedRO ? invoiceRecords.find((row) => row.roId === selectedRO.id) ?? null : null),
-    [invoiceRecords, selectedRO]
-  );
-
-  useEffect(() => {
-    if (!selectedRO) return;
-    setComebackPrimaryTechnicianId((prev) => prev || selectedRO.primaryTechnicianId || "");
-    setSupportingTechnicianIds((prev) => (prev.length ? prev : selectedRO.supportTechnicianIds || []));
-  }, [selectedRO]);
-
-  const techNameById = useMemo(() => new Map(users.map((user) => [user.id, user.fullName])), [users]);
-
-  const summary = useMemo(
-    () => ({
-      total: backjobRecords.length,
-      open: backjobRecords.filter((row) => row.status === "Open").length,
-      inProgress: backjobRecords.filter((row) => row.status === "In Progress").length,
-      monitoring: backjobRecords.filter((row) => row.status === "Monitoring").length,
-      closed: backjobRecords.filter((row) => row.status === "Closed").length,
-      warranty: backjobRecords.filter((row) => row.responsibility === "Warranty").length,
-    }),
-    [backjobRecords]
-  );
-
-  const visibleRecords = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return backjobRecords;
-    return backjobRecords.filter((row) =>
-      [
-        row.backjobNumber,
-        row.linkedRoNumber,
-        row.plateNumber,
-        row.customerLabel,
-        row.complaint,
-        row.rootCause,
-        row.findings,
-        row.actionTaken,
-        row.responsibility,
-        row.status,
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(term)
-    );
-  }, [backjobRecords, search]);
-
-  const resetForm = () => {
-    setSelectedRoId("");
-    setComplaint("");
-    setFindings("");
-    setRootCause("");
-    setResponsibility("Internal");
-    setActionTaken("");
-    setResolutionNotes("");
-    setStatus("Open");
-    setComebackPrimaryTechnicianId("");
-    setSupportingTechnicianIds([]);
-    setComebackInvoiceNumber("");
-    setError("");
-  };
-
-  const saveBackjob = () => {
-    if (!selectedRO) {
-      setError("Select a linked repair order first.");
-      return;
-    }
-    if (!complaint.trim()) {
-      setError("Complaint is required.");
-      return;
-    }
-    if (!rootCause.trim()) {
-      setError("Root cause is required.");
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const record: BackjobRecord = {
-      id: uid("bj"),
-      backjobNumber: nextDailyNumber("BJ"),
-      linkedRoId: selectedRO.id,
-      linkedRoNumber: selectedRO.roNumber,
-      createdAt: now,
-      updatedAt: now,
-      plateNumber: selectedRO.plateNumber || selectedRO.conductionNumber || "",
-      customerLabel: selectedRO.accountLabel,
-      originalInvoiceNumber: selectedOriginalInvoice?.invoiceNumber || "",
-      comebackInvoiceNumber: comebackInvoiceNumber.trim(),
-      originalPrimaryTechnicianId: selectedRO.primaryTechnicianId || "",
-      comebackPrimaryTechnicianId,
-      supportingTechnicianIds,
-      complaint: complaint.trim(),
-      findings: findings.trim(),
-      rootCause: rootCause.trim(),
-      responsibility,
-      actionTaken: actionTaken.trim(),
-      resolutionNotes: resolutionNotes.trim(),
-      status,
-      createdBy: currentUser.fullName,
-    };
-
-    setBackjobRecords((prev) => [record, ...prev]);
-    resetForm();
-  };
-
-  const updateBackjobStatus = (id: string, nextStatus: "Open" | "In Progress" | "Monitoring" | "Closed") => {
-    setBackjobRecords((prev) =>
-      prev.map((row) =>
-        row.id === id ? { ...row, status: nextStatus, updatedAt: new Date().toISOString() } : row
-      )
-    );
-  };
-
-  const technicians = users.filter((user) =>
-    ["Chief Technician", "Senior Mechanic", "General Mechanic", "OJT"].includes(user.role)
-  );
-
-  return (
-    <div style={styles.pageContent}>
-      <div style={styles.grid}>
-        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <Card
-            title="Backjob / Comeback Control Center"
-            subtitle="Track returned jobs, root cause, responsibility, technician linkage, and comeback resolution in one place"
-            right={<span style={styles.statusInfo}>{summary.total} tracked comebacks</span>}
-          >
-            <div style={styles.heroText}>
-              Use this area for customer returns, warranty comebacks, internal backjobs, and follow-up monitoring so the original RO, invoice, and technician accountability stay visible.
-            </div>
-          </Card>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
-          <div style={styles.statCard}><div style={styles.statLabel}>Open</div><div style={styles.statValue}>{summary.open}</div><div style={styles.statNote}>New comeback cases</div></div>
-        </div>
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
-          <div style={styles.statCard}><div style={styles.statLabel}>In Progress</div><div style={styles.statValue}>{summary.inProgress}</div><div style={styles.statNote}>Actively being resolved</div></div>
-        </div>
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
-          <div style={styles.statCard}><div style={styles.statLabel}>Monitoring</div><div style={styles.statValue}>{summary.monitoring}</div><div style={styles.statNote}>Watching after repair</div></div>
-        </div>
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
-          <div style={styles.statCard}><div style={styles.statLabel}>Closed</div><div style={styles.statValue}>{summary.closed}</div><div style={styles.statNote}>Resolved cases</div></div>
-        </div>
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
-          <div style={styles.statCard}><div style={styles.statLabel}>Warranty</div><div style={styles.statValue}>{summary.warranty}</div><div style={styles.statNote}>Warranty-tagged comebacks</div></div>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(5, isCompactLayout) }}>
-          <Card title="New Backjob Record" subtitle="Link a comeback to the original RO and keep the cause and resolution visible">
-            <div style={styles.formStack}>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Linked Repair Order</label>
-                <select style={styles.select} value={selectedRoId} onChange={(e) => setSelectedRoId(e.target.value)}>
-                  <option value="">Select released or active RO</option>
-                  {eligibleRos.map((row) => (
-                    <option key={row.id} value={row.id}>
-                      {row.roNumber} • {row.plateNumber || row.conductionNumber || "-"} • {row.accountLabel}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {selectedRO ? (
-                <div style={styles.sectionCardMuted}>
-                  <div style={styles.quickAccessList}>
-                    <div style={styles.quickAccessRow}><span>Customer</span><strong>{selectedRO.accountLabel}</strong></div>
-                    <div style={styles.quickAccessRow}><span>Plate</span><strong>{selectedRO.plateNumber || selectedRO.conductionNumber || "-"}</strong></div>
-                    <div style={styles.quickAccessRow}><span>Original Invoice</span><strong>{selectedOriginalInvoice?.invoiceNumber || "None yet"}</strong></div>
-                    <div style={styles.quickAccessRow}><span>Original Primary Tech</span><strong>{techNameById.get(selectedRO.primaryTechnicianId) || "-"}</strong></div>
-                  </div>
-                </div>
-              ) : null}
-
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Complaint</label>
-                <textarea style={styles.textarea} value={complaint} onChange={(e) => setComplaint(e.target.value)} placeholder="Customer comeback complaint or follow-up concern" />
-              </div>
-
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Findings</label>
-                <textarea style={styles.textarea} value={findings} onChange={(e) => setFindings(e.target.value)} placeholder="Inspection findings for the comeback" />
-              </div>
-
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Root Cause</label>
-                <textarea style={styles.textarea} value={rootCause} onChange={(e) => setRootCause(e.target.value)} placeholder="Underlying cause of the return or repeat issue" />
-              </div>
-
-              <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Responsibility</label>
-                  <select style={styles.select} value={responsibility} onChange={(e) => setResponsibility(e.target.value as BackjobOutcome)}>
-                    <option value="Customer Pay">Customer Pay</option>
-                    <option value="Internal">Internal</option>
-                    <option value="Warranty">Warranty</option>
-                    <option value="Goodwill">Goodwill</option>
-                  </select>
-                </div>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Case Status</label>
-                  <select style={styles.select} value={status} onChange={(e) => setStatus(e.target.value as "Open" | "In Progress" | "Monitoring" | "Closed")}>
-                    <option value="Open">Open</option>
-                    <option value="In Progress">In Progress</option>
-                    <option value="Monitoring">Monitoring</option>
-                    <option value="Closed">Closed</option>
-                  </select>
-                </div>
-              </div>
-
-              <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Comeback Primary Technician</label>
-                  <select style={styles.select} value={comebackPrimaryTechnicianId} onChange={(e) => setComebackPrimaryTechnicianId(e.target.value)}>
-                    <option value="">Select technician</option>
-                    {technicians.map((user) => (
-                      <option key={user.id} value={user.id}>{user.fullName} • {user.role}</option>
-                    ))}
-                  </select>
-                </div>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Comeback Invoice Number</label>
-                  <input style={styles.input} value={comebackInvoiceNumber} onChange={(e) => setComebackInvoiceNumber(e.target.value)} placeholder="Optional invoice for comeback work" />
-                </div>
-              </div>
-
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Action Taken</label>
-                <textarea style={styles.textarea} value={actionTaken} onChange={(e) => setActionTaken(e.target.value)} placeholder="Repair or corrective action performed during comeback" />
-              </div>
-
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Resolution Notes</label>
-                <textarea style={styles.textarea} value={resolutionNotes} onChange={(e) => setResolutionNotes(e.target.value)} placeholder="Final notes, customer communication, monitoring note, or closure summary" />
-              </div>
-
-              {error ? <div style={styles.errorBox}>{error}</div> : null}
-
-              <div style={styles.inlineActions}>
-                <button type="button" style={styles.primaryButton} onClick={saveBackjob}>Save Backjob</button>
-                <button type="button" style={styles.secondaryButton} onClick={resetForm}>Reset</button>
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(7, isCompactLayout) }}>
-          <Card
-            title="Backjob Registry"
-            subtitle="Search returned jobs by backjob number, RO, plate, complaint, cause, or status"
-            right={<span style={styles.statusNeutral}>{visibleRecords.length} shown</span>}
-          >
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Search</label>
-              <input style={styles.input} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search backjob no., RO, plate, complaint, root cause, responsibility" />
-            </div>
-
-            {visibleRecords.length === 0 ? (
-              <div style={styles.emptyState}>No backjob records yet.</div>
-            ) : isCompactLayout ? (
-              <div style={styles.mobileCardList}>
-                {visibleRecords.map((row) => (
-                  <div key={row.id} style={styles.mobileDataCard}>
-                    <div style={styles.mobileDataCardHeader}>
-                      <strong>{row.backjobNumber}</strong>
-                      <span style={styles.statusInfo}>{row.status}</span>
-                    </div>
-                    <div style={styles.mobileDataPrimary}>{row.linkedRoNumber} • {row.plateNumber || "-"}</div>
-                    <div style={styles.mobileDataSecondary}>{row.customerLabel}</div>
-                    <div style={styles.concernCard}>{row.complaint}</div>
-                    <div style={styles.formHint}>Root cause: {row.rootCause || "-"}</div>
-                    <div style={styles.formHint}>Responsibility: {row.responsibility}</div>
-                    <div style={styles.mobileActionStack}>
-                      <button type="button" style={styles.smallButton} onClick={() => updateBackjobStatus(row.id, "In Progress")}>Set In Progress</button>
-                      <button type="button" style={styles.smallButtonMuted} onClick={() => updateBackjobStatus(row.id, "Monitoring")}>Monitoring</button>
-                      <button type="button" style={styles.smallButtonSuccess} onClick={() => updateBackjobStatus(row.id, "Closed")}>Close</button>
-                      <button type="button" style={styles.smallButtonMuted} onClick={() => printTextDocument(`Backjob ${row.backjobNumber}`, buildBackjobExportText(row, users))}>Print</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={styles.tableWrap}>
-                <table style={styles.table}>
-                  <thead>
-                    <tr>
-                      <th style={styles.th}>Backjob No.</th>
-                      <th style={styles.th}>Linked RO / Plate</th>
-                      <th style={styles.th}>Customer</th>
-                      <th style={styles.th}>Complaint / Root Cause</th>
-                      <th style={styles.th}>Responsibility</th>
-                      <th style={styles.th}>Tech Link</th>
-                      <th style={styles.th}>Status</th>
-                      <th style={styles.th}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleRecords.map((row) => (
-                      <tr key={row.id}>
-                        <td style={styles.td}>
-                          <div style={styles.tablePrimary}>{row.backjobNumber}</div>
-                          <div style={styles.tableSecondary}>{formatDateTime(row.createdAt)}</div>
-                        </td>
-                        <td style={styles.td}>
-                          <div style={styles.tablePrimary}>{row.linkedRoNumber}</div>
-                          <div style={styles.tableSecondary}>{row.plateNumber || "-"}</div>
-                        </td>
-                        <td style={styles.td}>{row.customerLabel}</td>
-                        <td style={styles.td}>
-                          <div style={styles.concernCell}>{row.complaint}</div>
-                          <div style={styles.tableSecondary}>Cause: {row.rootCause || "-"}</div>
-                        </td>
-                        <td style={styles.td}><span style={styles.statusWarning}>{row.responsibility}</span></td>
-                        <td style={styles.td}>
-                          <div style={styles.tablePrimary}>{techNameById.get(row.comebackPrimaryTechnicianId) || techNameById.get(row.originalPrimaryTechnicianId) || "-"}</div>
-                          <div style={styles.tableSecondary}>Orig Inv: {row.originalInvoiceNumber || "-"} • Comeback Inv: {row.comebackInvoiceNumber || "-"}</div>
-                        </td>
-                        <td style={styles.td}><span style={styles.statusInfo}>{row.status}</span></td>
-                        <td style={styles.td}>
-                          <div style={styles.inlineActionsColumn}>
-                            <button type="button" style={styles.smallButton} onClick={() => updateBackjobStatus(row.id, "In Progress")}>In Progress</button>
-                            <button type="button" style={styles.smallButtonMuted} onClick={() => updateBackjobStatus(row.id, "Monitoring")}>Monitoring</button>
-                            <button type="button" style={styles.smallButtonSuccess} onClick={() => updateBackjobStatus(row.id, "Closed")}>Close</button>
-                            <button type="button" style={styles.smallButtonMuted} onClick={() => downloadTextFile(`${row.backjobNumber}_backjob.txt`, buildBackjobExportText(row, users))}>Export</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function UsersPage({
   currentUser,
@@ -10317,149 +9302,18 @@ function ShopFloorPage({
     [sortedRepairOrders]
   );
 
-
-  const myActiveJobsCount = sortedRepairOrders.filter(
-    (row) =>
-      ["Approved / Ready to Work", "In Progress", "Waiting Parts", "Quality Check"].includes(row.status) &&
-      (row.primaryTechnicianId === currentUser.id || row.supportTechnicianIds.includes(currentUser.id))
-  ).length;
-
-  const selectedROEstimateTotal = selectedRO
-    ? selectedRO.workLines.reduce((sum, line) => sum + parseMoneyInput(line.totalEstimate), 0)
-    : 0;
-
-  const selectedROCompletedLines = selectedRO
-    ? selectedRO.workLines.filter((line) => line.status === "Completed").length
-    : 0;
-
-  const technicianBoard = useMemo(() => {
-    const techUsers = users.filter(
-      (user) =>
-        user.active &&
-        ["Chief Technician", "Senior Mechanic", "General Mechanic", "OJT"].includes(user.role)
-    );
-
-    return techUsers
-      .map((user) => {
-        const assignedJobs = sortedRepairOrders.filter(
-          (row) => row.primaryTechnicianId === user.id || row.supportTechnicianIds.includes(user.id)
-        );
-        const liveLogs = workLogs.filter((log) => log.technicianId === user.id && !log.endedAt);
-        const bookedMinutes = workLogs
-          .filter((log) => log.technicianId === user.id)
-          .reduce((sum, log) => sum + getWorkLogMinutes(log), 0);
-        const completedJobs = assignedJobs.filter((row) =>
-          ["Ready Release", "Released", "Closed"].includes(row.status)
-        ).length;
-        const laborProduced = assignedJobs.reduce(
-          (sum, ro) =>
-            sum +
-            ro.workLines.reduce(
-              (lineSum, line) => lineSum + parseMoneyInput(line.serviceEstimate),
-              0
-            ),
-          0
-        );
-        const efficiency = bookedMinutes > 0 ? Math.round((laborProduced / bookedMinutes) * 60) : 0;
-
-        return {
-          user,
-          assignedJobs,
-          liveLogs,
-          bookedMinutes,
-          completedJobs,
-          laborProduced,
-          efficiency,
-        };
-      })
-      .sort(
-        (a, b) =>
-          b.liveLogs.length - a.liveLogs.length ||
-          b.assignedJobs.length - a.assignedJobs.length ||
-          b.bookedMinutes - a.bookedMinutes
-      );
-  }, [sortedRepairOrders, users, workLogs]);
-
-  const myLiveLogs = useMemo(
-    () => workLogs.filter((log) => log.technicianId === currentUser.id && !log.endedAt),
-    [currentUser.id, workLogs]
-  );
-
-  const updateWorkLineStatus = (workLineId: string, status: WorkLineStatus) => {
-    if (!selectedRO) return;
-    const now = new Date().toISOString();
-
-    setRepairOrders((prev) =>
-      prev.map((row) => {
-        if (row.id !== selectedRO.id) return row;
-
-        const nextWorkLines = row.workLines.map((line) =>
-          line.id === workLineId ? { ...line, status, completedAt: status === "Completed" ? now : line.completedAt } : line
-        );
-
-        const allCompleted = nextWorkLines.length > 0 && nextWorkLines.every((line) => line.status === "Completed");
-        const hasWaitingParts = nextWorkLines.some((line) => line.status === "Waiting Parts");
-        const hasInProgress = nextWorkLines.some((line) => line.status === "In Progress");
-
-        let nextStatus = row.status;
-        if (allCompleted && !["Released", "Closed"].includes(row.status)) {
-          nextStatus = "Quality Check";
-        } else if (hasWaitingParts && row.status !== "Quality Check") {
-          nextStatus = "Waiting Parts";
-        } else if (hasInProgress && !["Quality Check", "Ready Release", "Released", "Closed"].includes(row.status)) {
-          nextStatus = "In Progress";
-        }
-
-        return {
-          ...row,
-          workLines: nextWorkLines,
-          status: nextStatus,
-          updatedAt: now,
-          workStartedAt: row.workStartedAt || now,
-        };
-      })
-    );
-  };
-
-  const stopActiveLogsForLine = (workLineId: string) => {
-    setWorkLogs((prev) =>
-      prev.map((row) => {
-        if (row.workLineId !== workLineId || !selectedRO || row.roId !== selectedRO.id || row.endedAt) return row;
-        const endedAt = new Date().toISOString();
-        const totalMinutes = Math.max(
-          0,
-          Math.floor((new Date(endedAt).getTime() - new Date(row.startedAt).getTime()) / 60000)
-        );
-        return { ...row, endedAt, totalMinutes };
-      })
-    );
-  };
-
-  const markWorkLineComplete = (workLineId: string) => {
-    stopActiveLogsForLine(workLineId);
-    updateWorkLineStatus(workLineId, "Completed");
-  };
-
   return (
     <div style={styles.pageContent}>
       <div style={styles.grid}>
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
           <Card
             title="Shop Floor Job Feed"
-            subtitle="Newest to oldest operational board with technician assignment, live timers, and no fixed bay layout"
-            right={
-              <div style={styles.inlineActions}>
-                <span style={styles.statusInfo}>{visibleRepairOrders.length} visible jobs</span>
-                <span style={canManageShopFloor ? styles.statusOk : styles.statusNeutral}>
-                  {canManageShopFloor ? "Manage Allowed" : "View Only"}
-                </span>
-              </div>
-            }
+            subtitle="All repair orders shown newest to oldest, including draft and waiting approval jobs"
+            right={<span style={styles.statusInfo}>{visibleRepairOrders.length} visible jobs</span>}
           >
             <div style={styles.heroText}>
               This board uses repair orders as the live job source. It does not use fixed bays. Jobs stay visible from
-              draft through closed so management and staff can see the full queue, reassign technicians quickly, and
-              move vehicles cleanly from approval to release.
+              draft through closed so management and staff can see the full queue in one place.
             </div>
           </Card>
         </div>
@@ -10491,68 +9345,6 @@ function ShopFloorPage({
             <div style={styles.statValue}>{statusCounts.qc + statusCounts.readyRelease}</div>
             <div style={styles.statNote}>Near-completion vehicles</div>
           </div>
-        </div>
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>My Active Jobs</div>
-            <div style={styles.statValue}>{myActiveJobsCount}</div>
-            <div style={styles.statNote}>Jobs assigned to {currentUser.fullName.split(" ")[0]}</div>
-          </div>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <Card
-            title="Technician Board"
-            subtitle="Live workload, active timers, booked hours, and efficiency base for each technician"
-            right={<span style={styles.statusInfo}>{technicianBoard.length} technicians tracked</span>}
-          >
-            {technicianBoard.length === 0 ? (
-              <div style={styles.emptyState}>No active technicians found.</div>
-            ) : (
-              <div style={styles.mobileCardList}>
-                {technicianBoard.map(({ user, assignedJobs, liveLogs, bookedMinutes, completedJobs, laborProduced, efficiency }) => (
-                  <div key={user.id} style={styles.mobileDataCard}>
-                    <div style={styles.mobileDataCardHeader}>
-                      <strong>{user.fullName}</strong>
-                      <RoleBadge role={user.role} />
-                    </div>
-                    <div style={styles.mobileMetaRow}>
-                      <span>Assigned Jobs</span>
-                      <strong>{assignedJobs.length}</strong>
-                    </div>
-                    <div style={styles.mobileMetaRow}>
-                      <span>Live Timers</span>
-                      <strong>{liveLogs.length}</strong>
-                    </div>
-                    <div style={styles.mobileMetaRow}>
-                      <span>Booked Time</span>
-                      <strong>{formatMinutesAsHours(bookedMinutes)}</strong>
-                    </div>
-                    <div style={styles.mobileMetaRow}>
-                      <span>Completed Jobs</span>
-                      <strong>{completedJobs}</strong>
-                    </div>
-                    <div style={styles.mobileMetaRow}>
-                      <span>Labor Produced</span>
-                      <strong>{formatCurrency(laborProduced)}</strong>
-                    </div>
-                    <div style={styles.mobileMetaRow}>
-                      <span>Efficiency</span>
-                      <strong>{efficiency}%</strong>
-                    </div>
-                    <div style={styles.formHint}>
-                      {assignedJobs.length
-                        ? assignedJobs
-                            .slice(0, 3)
-                            .map((job) => `${job.roNumber} • ${job.status}`)
-                            .join(" • ")
-                        : "No assigned jobs."}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(4, isCompactLayout) }}>
@@ -10660,7 +9452,13 @@ function ShopFloorPage({
           <Card
             title="Job Detail"
             subtitle="Live status, technician assignment, and work summary"
-            right={selectedRO ? <ROStatusBadge status={selectedRO.status} /> : undefined}
+            right={
+              selectedRO ? (
+                <span style={canManageShopFloor ? styles.statusOk : styles.statusNeutral}>
+                  {canManageShopFloor ? "Manage Allowed" : "View Only"}
+                </span>
+              ) : undefined
+            }
           >
             {!selectedRO ? (
               <div style={styles.emptyState}>No repair orders are available yet.</div>
@@ -10693,22 +9491,6 @@ function ShopFloorPage({
                     <div>
                       <strong>Elapsed</strong>
                       <div>{formatElapsedTime(selectedRO.workStartedAt)}</div>
-                    </div>
-                    <div>
-                      <strong>Primary Tech</strong>
-                      <div>{selectedRO.primaryTechnicianId ? getUserName(selectedRO.primaryTechnicianId) : "Unassigned"}</div>
-                    </div>
-                    <div>
-                      <strong>Support Team</strong>
-                      <div>{selectedRO.supportTechnicianIds.length ? selectedRO.supportTechnicianIds.map(getUserName).join(", ") : "None"}</div>
-                    </div>
-                    <div>
-                      <strong>Completed Lines</strong>
-                      <div>{selectedROCompletedLines} / {selectedRO.workLines.length}</div>
-                    </div>
-                    <div>
-                      <strong>Total Estimate</strong>
-                      <div>{formatCurrency(selectedROEstimateTotal)}</div>
                     </div>
                   </div>
 
@@ -10923,110 +9705,33 @@ function ShopFloorPage({
                   ) : null}
                 </div>
 
-                {myLiveLogs.length ? (
-                  <div style={styles.sectionCard}>
-                    <div style={styles.mobileDataCardHeader}>
-                      <div>
-                        <div style={styles.sectionTitle}>My Live Timers</div>
-                        <div style={styles.formHint}>Quick stop controls for the signed-in technician.</div>
-                      </div>
-                      <span style={styles.statusWarning}>{myLiveLogs.length} running</span>
-                    </div>
-                    <div style={styles.mobileCardList}>
-                      {myLiveLogs.map((log) => {
-                        const ro = repairOrders.find((row) => row.id === log.roId);
-                        const line = ro?.workLines.find((row) => row.id === log.workLineId);
-                        return (
-                          <div key={log.id} style={styles.mobileDataCard}>
-                            <div style={styles.mobileDataCardHeader}>
-                              <strong>{line?.title || "Work Line"}</strong>
-                              <span style={styles.statusInfo}>{formatElapsedTime(log.startedAt)}</span>
-                            </div>
-                            <div style={styles.mobileDataSecondary}>
-                              {ro?.roNumber || "-"} • {ro?.plateNumber || ro?.conductionNumber || "-"}
-                            </div>
-                            <div style={styles.inlineActions}>
-                              <button type="button" style={styles.smallButtonDanger} onClick={() => stopWorkLog(log.id)}>
-                                Stop My Timer
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : null}
-
                 <div style={styles.sectionCard}>
                   <div style={styles.sectionTitle}>Work Summary</div>
                   <div style={styles.mobileCardList}>
-                    {selectedRO.workLines.map((line) => {
-                      const activeLineLogs = roWorkLogs.filter((log) => log.workLineId === line.id && !log.endedAt);
-                      const lineAssignedTechId = line.assignedTechnicianId || selectedRO.primaryTechnicianId || currentUser.id;
-                      return (
-                        <div key={line.id} style={styles.mobileDataCard}>
-                          <div style={styles.mobileDataCardHeader}>
-                            <strong>{line.title || "Untitled Work Line"}</strong>
-                            <span style={getWorkLineStatusStyle(line.status)}>{line.status}</span>
-                          </div>
-                          <div style={styles.mobileDataSecondary}>
-                            {line.category} • Priority {line.priority}
-                          </div>
-                          <div style={styles.mobileMetaRow}>
-                            <span>Assigned Tech</span>
-                            <strong>{lineAssignedTechId ? getUserName(lineAssignedTechId) : "Unassigned"}</strong>
-                          </div>
-                          <div style={styles.mobileMetaRow}>
-                            <span>Logged Time</span>
-                            <strong>{formatMinutesAsHours(lineMinutesMap.get(line.id) ?? 0)}</strong>
-                          </div>
-                          <div style={styles.mobileMetaRow}>
-                            <span>Service Estimate</span>
-                            <strong>{formatCurrency(parseMoneyInput(line.serviceEstimate))}</strong>
-                          </div>
-                          <div style={styles.mobileMetaRow}>
-                            <span>Parts Estimate</span>
-                            <strong>{formatCurrency(parseMoneyInput(line.partsEstimate))}</strong>
-                          </div>
-                          <div style={styles.mobileMetaRow}>
-                            <span>Total Estimate</span>
-                            <strong>{formatCurrency(parseMoneyInput(line.totalEstimate))}</strong>
-                          </div>
-                          {line.notes ? <div style={styles.formHint}>{line.notes}</div> : null}
-                          {activeLineLogs.length ? (
-                            <div style={styles.formHint}>
-                              Live timer: {activeLineLogs.map((log) => `${getUserName(log.technicianId)} (${formatElapsedTime(log.startedAt)})`).join(" • ")}
-                            </div>
-                          ) : null}
-                          <div style={styles.inlineActions}>
-                            <button
-                              type="button"
-                              style={styles.smallButton}
-                              onClick={() => {
-                                updateWorkLineStatus(line.id, "In Progress");
-                                startWorkLog(line.id, lineAssignedTechId);
-                              }}
-                            >
-                              Start Line
-                            </button>
-                            <button
-                              type="button"
-                              style={styles.smallButtonMuted}
-                              onClick={() => updateWorkLineStatus(line.id, "Waiting Parts")}
-                            >
-                              Waiting Parts
-                            </button>
-                            <button
-                              type="button"
-                              style={styles.smallButtonSuccess}
-                              onClick={() => markWorkLineComplete(line.id)}
-                            >
-                              Mark Complete
-                            </button>
-                          </div>
+                    {selectedRO.workLines.map((line) => (
+                      <div key={line.id} style={styles.mobileDataCard}>
+                        <div style={styles.mobileDataCardHeader}>
+                          <strong>{line.title || "Untitled Work Line"}</strong>
+                          <span style={getWorkLineStatusStyle(line.status)}>{line.status}</span>
                         </div>
-                      );
-                    })}
+                        <div style={styles.mobileDataSecondary}>
+                          {line.category} • Priority {line.priority}
+                        </div>
+                        <div style={styles.mobileMetaRow}>
+                          <span>Service Estimate</span>
+                          <strong>{formatCurrency(parseMoneyInput(line.serviceEstimate))}</strong>
+                        </div>
+                        <div style={styles.mobileMetaRow}>
+                          <span>Parts Estimate</span>
+                          <strong>{formatCurrency(parseMoneyInput(line.partsEstimate))}</strong>
+                        </div>
+                        <div style={styles.mobileMetaRow}>
+                          <span>Total Estimate</span>
+                          <strong>{formatCurrency(parseMoneyInput(line.totalEstimate))}</strong>
+                        </div>
+                        {line.notes ? <div style={styles.formHint}>{line.notes}</div> : null}
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -11265,27 +9970,6 @@ function PartsPage({
   const customerPrice = selectedRequest ? parseMoneyInput(selectedRequest.customerSellingPrice) : 0;
   const estimatedMargin = customerPrice - internalCost;
 
-  const requestSummary = useMemo(
-    () => ({
-      total: visibleRequests.length,
-      waitingBids: visibleRequests.filter((row) => ["Sent to Suppliers", "Waiting for Bids", "Bidding"].includes(row.status)).length,
-      supplierSelected: visibleRequests.filter((row) => row.status === "Supplier Selected").length,
-      inTransit: visibleRequests.filter((row) => ["Ordered", "Shipped"].includes(row.status)).length,
-      arrived: visibleRequests.filter((row) => ["Arrived", "Parts Arrived"].includes(row.status)).length,
-      closed: visibleRequests.filter((row) => row.status === "Closed").length,
-    }),
-    [visibleRequests]
-  );
-
-  const totalSelectedBidsValue = useMemo(
-    () =>
-      visibleRequests.reduce((sum, row) => {
-        const selected = row.bids.find((bid) => bid.id === row.selectedBidId);
-        return sum + parseMoneyInput(selected?.totalCost ?? "0");
-      }, 0),
-    [visibleRequests]
-  );
-
   const setRequestStatus = (request: PartsRequestRecord, status: PartsRequestStatus) => {
     updateRequest(request.id, { status });
     if (status === "Arrived" || status === "Parts Arrived") {
@@ -11299,66 +9983,6 @@ function PartsPage({
   return (
     <div style={styles.pageContent}>
       <div style={styles.grid}>
-        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <Card
-            title="Parts + Supplier Bidding Control Center"
-            subtitle="Track requests from draft to arrival with selected supplier cost visibility and cleaner purchasing actions"
-            right={<span style={styles.statusInfo}>{requestSummary.total} visible requests</span>}
-          >
-            <div style={styles.heroText}>
-              Parts requests stay linked to the repair order, selected supplier bids stay internal, customer selling price remains visible for margin review, and arrival automatically helps move the linked job back into active work.
-            </div>
-          </Card>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>Waiting Bids</div>
-            <div style={styles.statValue}>{requestSummary.waitingBids}</div>
-            <div style={styles.statNote}>Sent or waiting for supplier pricing</div>
-          </div>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>Supplier Selected</div>
-            <div style={styles.statValue}>{requestSummary.supplierSelected}</div>
-            <div style={styles.statNote}>Ready for purchasing decision</div>
-          </div>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>In Transit</div>
-            <div style={styles.statValue}>{requestSummary.inTransit}</div>
-            <div style={styles.statNote}>Ordered or already shipped</div>
-          </div>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>Arrived</div>
-            <div style={styles.statValue}>{requestSummary.arrived}</div>
-            <div style={styles.statNote}>Parts back in the shop</div>
-          </div>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>Closed</div>
-            <div style={styles.statValue}>{requestSummary.closed}</div>
-            <div style={styles.statNote}>Completed purchasing requests</div>
-          </div>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statLabel}>Selected Bid Value</div>
-            <div style={styles.statValueSmall}>{formatCurrency(totalSelectedBidsValue)}</div>
-            <div style={styles.statNote}>Internal supplier cost total</div>
-          </div>
-        </div>
-
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(5, isCompactLayout) }}>
           <Card title="Create Parts Request" subtitle="Linked to an existing RO with supplier bidding support">
             <form onSubmit={createRequest} style={styles.formStack}>
@@ -11528,7 +10152,7 @@ function PartsPage({
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
           <Card
             title={selectedRequest ? `Request Details — ${selectedRequest.requestNumber}` : "Request Details"}
-            subtitle="Selected supplier cost stays internal while selling price, margin view, and request progression remain easier to manage"
+            subtitle="Internal supplier cost stays in this module; customer selling price can be tracked separately"
           >
             {!selectedRequest ? (
               <div style={styles.emptyState}>Select a parts request to manage bidding and status.</div>
@@ -11609,20 +10233,9 @@ function PartsPage({
                           type="button"
                           style={{ ...styles.secondaryButton, ...(selectedRequest.selectedBidId ? {} : styles.buttonDisabled) }}
                           disabled={!selectedRequest.selectedBidId}
-                          onClick={() => setRequestStatus(selectedRequest, "Supplier Selected")}
-                        >
-                          Confirm Supplier
-                        </button>
-                        <button
-                          type="button"
-                          style={{ ...styles.secondaryButton, ...(selectedRequest.selectedBidId ? {} : styles.buttonDisabled) }}
-                          disabled={!selectedRequest.selectedBidId}
                           onClick={() => setRequestStatus(selectedRequest, "Ordered")}
                         >
                           Mark Ordered
-                        </button>
-                        <button type="button" style={styles.secondaryButton} onClick={() => setRequestStatus(selectedRequest, "Shipped")}>
-                          Mark Shipped
                         </button>
                         <button type="button" style={styles.primaryButton} onClick={() => setRequestStatus(selectedRequest, "Parts Arrived")}>
                           Mark Parts Arrived
@@ -11962,7 +10575,7 @@ export default function App() {
   );
 
   const [backjobRecords, setBackjobRecords] = useState<BackjobRecord[]>(() =>
-    readLocalStorage<BackjobRecord[]>(STORAGE_KEYS.backjobRecords, []).map(migrateBackjobRecord)
+    readLocalStorage<BackjobRecord[]>(STORAGE_KEYS.backjobRecords, [])
   );
 
   const [invoiceRecords, setInvoiceRecords] = useState<InvoiceRecord[]>(() =>
@@ -11984,7 +10597,6 @@ export default function App() {
   const [customerSession, setCustomerSession] = useState<CustomerAccount | null>(() =>
     readLocalStorage<CustomerAccount | null>(STORAGE_KEYS.customerSession, null)
   );
-  const [supplierSession, setSupplierSession] = useState<SupplierSession | null>(null);
 
   const [approvalLinkTokens, setApprovalLinkTokens] = useState<ApprovalLinkToken[]>(() =>
     readLocalStorage<ApprovalLinkToken[]>(STORAGE_KEYS.approvalLinkTokens, [])
@@ -12002,12 +10614,8 @@ export default function App() {
     identifier: "",
     password: "",
   });
-  const [supplierLoginForm, setSupplierLoginForm] = useState<SupplierLoginForm>({
-    supplierName: "",
-  });
 
   const [customerLoginError, setCustomerLoginError] = useState("");
-  const [supplierLoginError, setSupplierLoginError] = useState("");
 
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(() =>
     readLocalStorage<SessionUser | null>(STORAGE_KEYS.session, null)
@@ -12207,18 +10815,7 @@ export default function App() {
   }, [currentView]);
 
   const completeStaffLogin = (found: UserAccount) => {
-    setCurrentUser({
-      id: found.id,
-      username: found.username,
-      fullName: found.fullName,
-      role: found.role,
-      active: found.active,
-      createdAt: found.createdAt,
-    });
-    setCurrentView(getDefaultViewForRole(found.role, roleDefinitions));
-    setLoginForm({ username: "", password: "" });
-    setLoginError("");
-    setCustomerSession(null);
+    completeStaffLogin(found);
   };
 
   const loadSimulatedData = () => {
@@ -12820,23 +11417,6 @@ export default function App() {
     setCustomerLoginError("");
   };
 
-  const handleSupplierLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    const supplierName = supplierLoginForm.supplierName.trim();
-    if (!supplierName) {
-      setSupplierLoginError("Please enter your supplier name.");
-      return;
-    }
-    setSupplierSession({ supplierName });
-    setSupplierLoginForm({ supplierName: "" });
-    setSupplierLoginError("");
-  };
-
-  const handleSupplierLogout = () => {
-    setSupplierSession(null);
-    setSupplierLoginError("");
-  };
-
   const generateSmsApprovalLink = (ro: RepairOrderRecord) => {
     const customer = customerAccounts.find((account) => account.linkedRoIds.includes(ro.id)) ||
       customerAccounts.find((account) => sanitizePhone(account.phone) && sanitizePhone(account.phone) === sanitizePhone(ro.phone || "")) ||
@@ -12975,6 +11555,8 @@ export default function App() {
             currentUser={currentUser}
             intakeRecords={intakeRecords}
             setIntakeRecords={setIntakeRecords}
+            inspectionRecords={inspectionRecords}
+            setInspectionRecords={setInspectionRecords}
             isCompactLayout={isMobile}
           />
         );
@@ -13087,18 +11669,6 @@ export default function App() {
             isCompactLayout={isMobile}
           />
         );
-      case "backjobs":
-        return (
-          <BackjobPage
-            currentUser={currentUser}
-            users={users}
-            repairOrders={repairOrders}
-            invoiceRecords={invoiceRecords}
-            backjobRecords={backjobRecords}
-            setBackjobRecords={setBackjobRecords}
-            isCompactLayout={isMobile}
-          />
-        );
       default:
         return (
           <DashboardPage
@@ -13134,18 +11704,6 @@ export default function App() {
     );
   }
 
-  if (supplierSession) {
-    return (
-      <SupplierPortalPage
-        supplier={supplierSession}
-        partsRequests={partsRequests}
-        setPartsRequests={setPartsRequests}
-        onLogout={handleSupplierLogout}
-        isCompactLayout={isMobile}
-      />
-    );
-  }
-
   if (!currentUser) {
     return (
       <>
@@ -13161,10 +11719,6 @@ export default function App() {
           setCustomerForm={setCustomerLoginForm}
           customerError={customerLoginError}
           onCustomerSubmit={handleCustomerLogin}
-          supplierForm={supplierLoginForm}
-          setSupplierForm={setSupplierLoginForm}
-          supplierError={supplierLoginError}
-          onSupplierSubmit={handleSupplierLogin}
           onQuickStaffLogin={quickStaffLogin}
           onLoadDemoData={loadSimulatedData}
         />
@@ -13515,7 +12069,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   mainContent: {
-    padding: 18,
+    padding: 14,
     minWidth: 0,
   },
 
@@ -13552,17 +12106,15 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   cardTitle: {
-    fontSize: 19,
+    fontSize: 18,
     fontWeight: 800,
-    color: "#0f172a",
-    lineHeight: 1.3,
+    color: "#111827",
   },
 
   cardSubtitle: {
     marginTop: 4,
     fontSize: 13,
     color: "#64748b",
-    lineHeight: 1.5,
   },
 
   roleBadge: {
@@ -13583,11 +12135,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   statCard: {
-    background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
-    border: "1px solid rgba(148, 163, 184, 0.18)",
+    background: "#fff",
+    border: "1px solid #e5e7eb",
     borderRadius: 18,
     padding: 18,
-    boxShadow: "0 6px 18px rgba(15, 23, 42, 0.06)",
+    boxShadow: "0 2px 12px rgba(15, 23, 42, 0.05)",
     height: "100%",
   },
 
@@ -13613,13 +12165,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   roleTile: {
-    border: "1px solid rgba(148, 163, 184, 0.18)",
-    borderRadius: 16,
+    border: "1px solid #e5e7eb",
+    borderRadius: 14,
     padding: 14,
     display: "flex",
     flexDirection: "column",
     gap: 10,
-    background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+    background: "#f8fafc",
     color: "#334155",
     alignItems: "flex-start",
   },
@@ -13637,9 +12189,8 @@ const styles: Record<string, React.CSSProperties> = {
   quickAccessRow: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",
     gap: 10,
-    border: "1px solid rgba(148, 163, 184, 0.18)",
+    border: "1px solid #e5e7eb",
     borderRadius: 12,
     padding: "10px 12px",
     background: "#f8fafc",
@@ -13656,9 +12207,6 @@ const styles: Record<string, React.CSSProperties> = {
   tableWrap: {
     width: "100%",
     overflowX: "auto",
-    border: "1px solid rgba(148, 163, 184, 0.18)",
-    borderRadius: 16,
-    background: "#ffffff",
   },
 
   table: {
@@ -13668,23 +12216,21 @@ const styles: Record<string, React.CSSProperties> = {
 
   th: {
     textAlign: "left",
-    padding: "13px 12px",
-    borderBottom: "1px solid rgba(226, 232, 240, 0.95)",
+    padding: "12px 10px",
+    borderBottom: "1px solid #e5e7eb",
     background: "#f8fafc",
     color: "#475569",
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: 800,
-    letterSpacing: 0.2,
     whiteSpace: "nowrap",
   },
 
   td: {
-    padding: "13px 12px",
-    borderBottom: "1px solid rgba(226, 232, 240, 0.9)",
+    padding: "12px 10px",
+    borderBottom: "1px solid #e5e7eb",
     color: "#111827",
-    fontSize: 13,
+    fontSize: 14,
     verticalAlign: "top",
-    lineHeight: 1.5,
   },
 
   moduleText: {
@@ -13768,12 +12314,12 @@ const styles: Record<string, React.CSSProperties> = {
 
   loginPanel: {
     width: "100%",
-    maxWidth: 520,
-    background: "rgba(255,255,255,0.97)",
+    maxWidth: 500,
+    background: "rgba(255,255,255,0.96)",
     borderRadius: 24,
-    padding: 26,
-    border: "1px solid rgba(255,255,255,0.72)",
-    boxShadow: "0 24px 70px rgba(2, 8, 23, 0.24)",
+    padding: 24,
+    border: "1px solid rgba(255,255,255,0.6)",
+    boxShadow: "0 20px 60px rgba(2, 8, 23, 0.25)",
   },
 
   loginBrand: {
@@ -13865,36 +12411,33 @@ const styles: Record<string, React.CSSProperties> = {
 
   input: {
     width: "100%",
-    border: "1px solid rgba(148, 163, 184, 0.35)",
+    border: "1px solid rgba(37, 99, 235, 0.22)",
     borderRadius: 12,
     padding: "12px 14px",
     background: "#ffffff",
     outline: "none",
     color: "#0f172a",
-    minHeight: 44,
   },
 
   select: {
     width: "100%",
-    border: "1px solid rgba(148, 163, 184, 0.35)",
+    border: "1px solid rgba(37, 99, 235, 0.22)",
     borderRadius: 12,
     padding: "12px 14px",
     background: "#ffffff",
     outline: "none",
     color: "#0f172a",
-    minHeight: 44,
   },
 
   textarea: {
     width: "100%",
-    minHeight: 96,
-    border: "1px solid rgba(148, 163, 184, 0.35)",
+    minHeight: 92,
+    border: "1px solid rgba(37, 99, 235, 0.22)",
     borderRadius: 12,
     padding: "12px 14px",
     background: "#ffffff",
     outline: "none",
     color: "#0f172a",
-    lineHeight: 1.5,
   },
 
   checkboxRow: {
@@ -13903,6 +12446,12 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     color: "#334155",
     fontSize: 14,
+  },
+
+  formHint: {
+    fontSize: 13,
+    color: "#64748b",
+    lineHeight: 1.5,
   },
 
   errorBox: {
@@ -13918,15 +12467,14 @@ const styles: Record<string, React.CSSProperties> = {
     border: "none",
     borderRadius: 12,
     padding: "13px 16px",
-    background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+    background: "#2563eb",
     color: "#fff",
     fontWeight: 800,
     cursor: "pointer",
-    boxShadow: "0 10px 24px rgba(37, 99, 235, 0.22)",
   },
 
   secondaryButton: {
-    border: "1px solid rgba(148, 163, 184, 0.3)",
+    border: "1px solid rgba(29,78,216,0.25)",
     borderRadius: 12,
     padding: "13px 16px",
     background: "#ffffff",
@@ -13957,576 +12505,4 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
   },
 
-  buttonDisabled: {
-    opacity: 0.55,
-    cursor: "not-allowed",
-  },
-
-  inlineActions: {
-    display: "flex",
-    gap: 10,
-    flexWrap: "wrap",
-    alignItems: "center",
-  },
-
-  inlineActionsColumn: {
-    display: "grid",
-    gap: 8,
-  },
-
-  demoBox: {
-    marginTop: 20,
-    paddingTop: 16,
-    borderTop: "1px solid rgba(148, 163, 184, 0.28)",
-  },
-
-  demoTitle: {
-    fontSize: 14,
-    fontWeight: 800,
-    color: "#0f172a",
-    marginBottom: 10,
-  },
-
-  demoGrid: {
-    display: "grid",
-    gap: 8,
-    fontSize: 13,
-    color: "#475569",
-    lineHeight: 1.55,
-  },
-
-  updateNoteBox: {
-    background: "linear-gradient(180deg, #f8fafc 0%, #eff6ff 100%)",
-    border: "1px solid rgba(37, 99, 235, 0.16)",
-    borderRadius: 16,
-    padding: 14,
-    marginTop: 18,
-  },
-
-  updateNoteTitle: {
-    fontSize: 13,
-    fontWeight: 800,
-    color: "#0f172a",
-    marginBottom: 6,
-  },
-
-  updateNoteText: {
-    fontSize: 13,
-    color: "#475569",
-    lineHeight: 1.55,
-  },
-
-  statusOk: {
-    display: "inline-flex",
-    alignItems: "center",
-    borderRadius: 999,
-    padding: "6px 10px",
-    background: "#dcfce7",
-    color: "#166534",
-    fontSize: 12,
-    fontWeight: 800,
-    whiteSpace: "nowrap",
-  },
-
-  statusInfo: {
-    display: "inline-flex",
-    alignItems: "center",
-    borderRadius: 999,
-    padding: "6px 10px",
-    background: "#dbeafe",
-    color: "#1d4ed8",
-    fontSize: 12,
-    fontWeight: 800,
-    whiteSpace: "nowrap",
-  },
-
-  statusWarning: {
-    display: "inline-flex",
-    alignItems: "center",
-    borderRadius: 999,
-    padding: "6px 10px",
-    background: "#fef3c7",
-    color: "#92400e",
-    fontSize: 12,
-    fontWeight: 800,
-    whiteSpace: "nowrap",
-  },
-
-  statusLocked: {
-    display: "inline-flex",
-    alignItems: "center",
-    borderRadius: 999,
-    padding: "6px 10px",
-    background: "#fee2e2",
-    color: "#991b1b",
-    fontSize: 12,
-    fontWeight: 800,
-    whiteSpace: "nowrap",
-  },
-
-  statusNeutral: {
-    display: "inline-flex",
-    alignItems: "center",
-    borderRadius: 999,
-    padding: "6px 10px",
-    background: "#e2e8f0",
-    color: "#475569",
-    fontSize: 12,
-    fontWeight: 800,
-    whiteSpace: "nowrap",
-  },
-
-  portalTabActive: {
-    background: "#1d4ed8",
-    color: "#ffffff",
-    borderColor: "#1d4ed8",
-    boxShadow: "0 10px 24px rgba(29, 78, 216, 0.22)",
-  },
-
-  textareaLarge: {
-    width: "100%",
-    minHeight: 140,
-    border: "1px solid rgba(37, 99, 235, 0.22)",
-    borderRadius: 14,
-    padding: "12px 14px",
-    background: "#ffffff",
-    outline: "none",
-    color: "#0f172a",
-    lineHeight: 1.5,
-  },
-
-  smallButtonSuccess: {
-    border: "none",
-    borderRadius: 10,
-    padding: "8px 10px",
-    background: "#16a34a",
-    color: "#fff",
-    fontWeight: 700,
-    cursor: "pointer",
-    fontSize: 12,
-  },
-
-  smallButtonDanger: {
-    border: "none",
-    borderRadius: 10,
-    padding: "8px 10px",
-    background: "#dc2626",
-    color: "#fff",
-    fontWeight: 700,
-    cursor: "pointer",
-    fontSize: 12,
-  },
-
-  sectionCard: {
-    background: "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.98) 100%)",
-    border: "1px solid rgba(148, 163, 184, 0.2)",
-    borderRadius: 18,
-    padding: 16,
-    boxShadow: "0 6px 22px rgba(15, 23, 42, 0.06)",
-  },
-
-  sectionCardMuted: {
-    background: "#f8fafc",
-    border: "1px solid rgba(148, 163, 184, 0.22)",
-    borderRadius: 16,
-    padding: 14,
-  },
-
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: 800,
-    color: "#0f172a",
-    marginBottom: 10,
-  },
-
-  formHint: {
-    fontSize: 12,
-    color: "#64748b",
-    lineHeight: 1.5,
-  },
-
-  summaryGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-    gap: 10,
-    marginBottom: 12,
-  },
-
-  concernBanner: {
-    borderRadius: 14,
-    padding: "12px 14px",
-    background: "#fff7ed",
-    border: "1px solid #fed7aa",
-    color: "#9a3412",
-    fontSize: 13,
-    lineHeight: 1.5,
-    marginBottom: 12,
-  },
-
-  queueStack: {
-    display: "grid",
-    gap: 10,
-  },
-
-  queueCard: {
-    width: "100%",
-    textAlign: "left",
-    border: "1px solid rgba(148, 163, 184, 0.2)",
-    background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
-    borderRadius: 16,
-    padding: 14,
-    cursor: "pointer",
-    boxShadow: "0 4px 16px rgba(15, 23, 42, 0.05)",
-  },
-
-  queueCardActive: {
-    border: "1px solid #1d4ed8",
-    boxShadow: "0 0 0 3px rgba(29, 78, 216, 0.12)",
-  },
-
-  queueCardHeader: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    marginBottom: 8,
-  },
-
-  queueLine: {
-    fontSize: 14,
-    fontWeight: 800,
-    color: "#0f172a",
-  },
-
-  queueLineMuted: {
-    fontSize: 13,
-    color: "#64748b",
-    marginTop: 4,
-  },
-
-  mobileCardList: {
-    display: "grid",
-    gap: 12,
-  },
-
-  mobileDataCard: {
-    border: "1px solid rgba(148, 163, 184, 0.22)",
-    background: "#ffffff",
-    borderRadius: 18,
-    padding: 14,
-    boxShadow: "0 6px 18px rgba(15, 23, 42, 0.05)",
-  },
-
-  mobileDataCardSelected: {
-    border: "1px solid #1d4ed8",
-    boxShadow: "0 0 0 3px rgba(29, 78, 216, 0.12)",
-  },
-
-  mobileDataCardHeader: {
-    display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 10,
-    marginBottom: 8,
-    flexWrap: "wrap",
-  },
-
-  mobileDataPrimary: {
-    fontSize: 14,
-    fontWeight: 800,
-    color: "#0f172a",
-  },
-
-  mobileDataSecondary: {
-    fontSize: 13,
-    color: "#64748b",
-    marginTop: 4,
-    lineHeight: 1.5,
-  },
-
-  mobileMetaRow: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    paddingTop: 8,
-    marginTop: 8,
-    borderTop: "1px solid rgba(226, 232, 240, 0.9)",
-    fontSize: 13,
-    color: "#475569",
-  },
-
-  mobileActionStack: {
-    display: "grid",
-    gap: 8,
-    marginTop: 12,
-  },
-
-  emptyState: {
-    border: "1px dashed rgba(148, 163, 184, 0.55)",
-    background: "#f8fafc",
-    borderRadius: 16,
-    padding: 20,
-    textAlign: "center",
-    color: "#64748b",
-    fontSize: 14,
-  },
-
-  stickyActionBar: {
-    position: "sticky",
-    bottom: 0,
-    display: "grid",
-    gap: 8,
-    padding: 12,
-    background: "rgba(255,255,255,0.96)",
-    borderTop: "1px solid rgba(148, 163, 184, 0.2)",
-    borderRadius: 16,
-    boxShadow: "0 -8px 24px rgba(15, 23, 42, 0.08)",
-  },
-
-  actionButtonWide: {
-    width: "100%",
-    justifyContent: "center",
-  },
-
-  toggleGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-    gap: 10,
-  },
-
-  checkboxTile: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    padding: "12px 14px",
-    borderRadius: 14,
-    border: "1px solid rgba(148, 163, 184, 0.22)",
-    background: "#ffffff",
-    color: "#334155",
-    fontSize: 13,
-    fontWeight: 700,
-  },
-
-  tablePrimary: {
-    fontSize: 13,
-    fontWeight: 800,
-    color: "#0f172a",
-  },
-
-  tableSecondary: {
-    fontSize: 12,
-    color: "#64748b",
-    marginTop: 4,
-    lineHeight: 1.4,
-  },
-
-  concernCell: {
-    maxWidth: 260,
-    whiteSpace: "normal",
-    lineHeight: 1.5,
-    color: "#334155",
-  },
-
-  concernCard: {
-    marginTop: 10,
-    padding: "10px 12px",
-    borderRadius: 12,
-    background: "#f8fafc",
-    border: "1px solid rgba(148, 163, 184, 0.2)",
-    fontSize: 13,
-    color: "#334155",
-    lineHeight: 1.5,
-  },
-
-  registrySummary: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-  },
-
-  logoutButtonCompact: {
-    border: "none",
-    background: "#dc2626",
-    color: "#fff",
-    borderRadius: 10,
-    padding: "9px 12px",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-
-  statNote: {
-    fontSize: 12,
-    color: "#94a3b8",
-    marginTop: 8,
-  },
-
-  summaryBar: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    flexWrap: "wrap",
-    padding: "12px 14px",
-    borderRadius: 14,
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
-  },
-
-  summaryPanel: {
-    padding: 14,
-    borderRadius: 16,
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
-  },
-
-  summaryTile: {
-    padding: 12,
-    borderRadius: 14,
-    background: "#ffffff",
-    border: "1px solid #e2e8f0",
-  },
-
-  summaryLabel: {
-    fontSize: 12,
-    fontWeight: 700,
-    color: "#64748b",
-    marginBottom: 6,
-  },
-
-  summaryValue: {
-    fontSize: 15,
-    fontWeight: 800,
-    color: "#0f172a",
-    lineHeight: 1.4,
-  },
-
-  detailPanel: {
-    padding: 16,
-    borderRadius: 18,
-    background: "#ffffff",
-    border: "1px solid #dbe4f0",
-    boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
-  },
-
-  detailBanner: {
-    padding: 14,
-    borderRadius: 16,
-    background: "#eff6ff",
-    border: "1px solid #bfdbfe",
-  },
-
-  detailGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: 12,
-  },
-
-  filterBar: {
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) auto auto",
-    gap: 10,
-    alignItems: "end",
-  },
-
-  twoColumnForm: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: 14,
-  },
-
-  threeColumnForm: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: 14,
-  },
-
-  formGrid4: {
-    display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-    gap: 14,
-  },
-
-  checkboxList: {
-    display: "grid",
-    gap: 10,
-    padding: 12,
-    borderRadius: 14,
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
-  },
-
-  checkboxCard: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    padding: "10px 12px",
-    borderRadius: 12,
-    background: "#ffffff",
-    border: "1px solid #dbe4f0",
-    fontWeight: 600,
-    color: "#334155",
-  },
-
-  mobileCard: {
-    border: "1px solid #e2e8f0",
-    borderRadius: 16,
-    background: "#ffffff",
-    padding: 14,
-    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
-  },
-
-  mobileCardHeader: {
-    display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 10,
-    marginBottom: 8,
-  },
-
-  mobileCardTitle: {
-    fontSize: 15,
-    fontWeight: 800,
-    color: "#0f172a",
-  },
-
-  mobileCardSubtitle: {
-    fontSize: 12,
-    color: "#64748b",
-    marginTop: 4,
-  },
-
-  mobileCardMeta: {
-    fontSize: 13,
-    color: "#475569",
-    lineHeight: 1.6,
-  },
-
-  mobileCardNote: {
-    marginTop: 8,
-    fontSize: 13,
-    color: "#475569",
-    lineHeight: 1.6,
-    padding: "10px 12px",
-    borderRadius: 12,
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
-  },
-
-  mobileDataCardButton: {
-    width: "100%",
-    border: "1px solid #dbe4f0",
-    borderRadius: 16,
-    background: "#ffffff",
-    padding: 12,
-    textAlign: "left",
-    cursor: "pointer",
-    transition: "all 0.15s ease",
-  },
-
-  mobileDataCardButtonActive: {
-    borderColor: "#93c5fd",
-    background: "#eff6ff",
-    boxShadow: "0 0 0 1px #bfdbfe inset",
-  },
 };
