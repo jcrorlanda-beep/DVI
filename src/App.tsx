@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import DashboardPage from "./modules/dashboard/DashboardPage";
 
 type UserRole =
   | "Admin"
@@ -417,6 +416,10 @@ type InspectionRecord = {
   suspensionRoadTestNotes: string;
   inspectionNotes: string;
   evidenceItems: InspectionEvidenceRecord[];
+  lastUpdatedBy?: string;
+  reopenedAt?: string;
+  reopenedBy?: string;
+  linkedRoIds?: string[];
 };
 
 type InspectionForm = Omit<
@@ -1208,6 +1211,7 @@ function writeLocalStorage<T>(key: string, value: T) {
 type DraftSaveState = "Unsaved changes" | "Saving..." | "Saved";
 
 type HistoryTimelineRow = {
+  id: string;
   vehicleKey: string;
   plateNumber: string;
   conductionNumber: string;
@@ -1324,9 +1328,10 @@ function buildVehicleHistoryGroups({
     return created;
   };
 
-  const pushRow = (group: VehicleHistoryGroup | null, row: Omit<HistoryTimelineRow, "vehicleKey" | "plateNumber" | "conductionNumber" | "vehicleLabel">) => {
+  const pushRow = (group: VehicleHistoryGroup | null, row: Omit<HistoryTimelineRow, "id" | "vehicleKey" | "plateNumber" | "conductionNumber" | "vehicleLabel">) => {
     if (!group) return;
     group.rows.push({
+      id: `${row.type}-${row.number}-${row.date}`,
       vehicleKey: group.vehicleKey,
       plateNumber: group.plateNumber,
       conductionNumber: group.conductionNumber,
@@ -5089,7 +5094,22 @@ function SupplierPortalPage({
 }
 
 
-type AppState = {
+function DashboardPage({
+  currentUser,
+  users,
+  roleDefinitions,
+  allowedNav,
+  intakeRecords,
+  repairOrders,
+  qcRecords,
+  releaseRecords,
+  approvalRecords,
+  backjobRecords,
+  invoiceRecords,
+  paymentRecords,
+  workLogs,
+  isCompactLayout,
+}: {
   currentUser: SessionUser;
   users: UserAccount[];
   roleDefinitions: RoleDefinition[];
@@ -5104,7 +5124,7 @@ type AppState = {
   paymentRecords: PaymentRecord[];
   workLogs: WorkLog[];
   isCompactLayout: boolean;
-};
+}) {
   const activeUsers = users.filter((u) => u.active);
   const userRoleCounts = ALL_ROLES.map((role) => ({
     role,
@@ -9449,12 +9469,21 @@ function RepairOrdersPage({
       linkedRoId: selectedRO.id,
       linkedRoNumber: selectedRO.roNumber,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       plateNumber: selectedRO.plateNumber || selectedRO.conductionNumber,
       customerLabel: selectedRO.accountLabel,
+      originalInvoiceNumber: "",
+      comebackInvoiceNumber: "",
+      originalPrimaryTechnicianId: selectedRO.primaryTechnicianId || "",
+      comebackPrimaryTechnicianId: "",
+      supportingTechnicianIds: [],
       complaint: backjobComplaint.trim(),
+      findings: "",
       rootCause: backjobRootCause.trim(),
       responsibility: backjobOutcome,
+      actionTaken: "",
       resolutionNotes: backjobResolutionNotes.trim(),
+      status: "Open",
       createdBy: currentUser.fullName,
     };
     setBackjobRecords((prev) => [record, ...prev]);
@@ -11178,7 +11207,7 @@ function ReleasePage({
                     onClick={() =>
                       printTextDocument(
                         `Release ${selectedRO.roNumber}`,
-                        buildReleaseExportText(selectedRO, selectedInvoice, selectedPayments, latestReleaseForSelected, latestQcForSelected, finalTotalAmount)
+                        buildReleaseExportText(selectedRO, selectedInvoice, linkedPayments, latestReleaseForSelected, latestQcForSelected, finalTotalAmount)
                       )
                     }
                   >
@@ -11190,7 +11219,7 @@ function ReleasePage({
                     onClick={() =>
                       downloadTextFile(
                         `${selectedRO.roNumber}_release.txt`,
-                        buildReleaseExportText(selectedRO, selectedInvoice, selectedPayments, latestReleaseForSelected, latestQcForSelected, finalTotalAmount)
+                        buildReleaseExportText(selectedRO, selectedInvoice, linkedPayments, latestReleaseForSelected, latestQcForSelected, finalTotalAmount)
                       )
                     }
                   >
@@ -14042,6 +14071,7 @@ function BookingsPage({
 
     if (!existingInspection) {
       const draftInspection: InspectionRecord = {
+        ...getDefaultInspectionForm(),
         id: uid("insp"),
         inspectionNumber: nextDailyNumber("INSP"),
         intakeId,
@@ -14059,7 +14089,6 @@ function BookingsPage({
         color: newIntake.color,
         odometerKm: newIntake.odometerKm,
         concern: newIntake.concern,
-        ...getDefaultInspectionForm(),
       };
       setInspectionRecords((prev) => [draftInspection, ...prev]);
     }
@@ -14912,6 +14941,8 @@ export default function App() {
         plateNumber: "NEX-2451",
         vehicleLabel: "Toyota Fortuner 2021",
         accountLabel: "Miguel Santos",
+        workshopPhotos: [],
+        returnRecords: [],
         bids: [
           {
             id: "bid_demo_1",
@@ -14925,6 +14956,12 @@ export default function App() {
             condition: "Brand New",
             notes: "Preferred supplier",
             createdAt: iso(18),
+            productPhotos: [],
+            invoiceFileName: "",
+            shippingLabelFileName: "",
+            trackingNumber: "",
+            courierName: "",
+            shippingNotes: "",
           },
         ],
       },
@@ -15080,7 +15117,7 @@ export default function App() {
         make: "Honda",
         model: "Civic",
         year: "2019",
-        serviceType: "Inspection",
+        serviceType: "Underchassis Check",
         serviceDetail: "Visual underchassis check",
         concern: "Pre-trip inspection and brake check.",
         notes: "Public booking landing page demo entry.",
