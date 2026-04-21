@@ -1327,6 +1327,108 @@ function printTextDocument(title: string, content: string) {
   popup.print();
 }
 
+function printCustomerSummary(ro: RepairOrderRecord) {
+  if (typeof window === "undefined") return;
+  const popup = window.open("", "_blank", "width=860,height=700");
+  if (!popup) return;
+
+  const approvedLines = ro.workLines.filter((l) => l.approvalDecision === "Approved");
+  const deferredLines = ro.workLines.filter((l) => l.approvalDecision === "Deferred");
+  const declinedLines = ro.workLines.filter((l) => l.approvalDecision === "Declined");
+  const approvedTotal = approvedLines.reduce((s, l) => s + parseMoneyInput(l.totalEstimate), 0);
+  const deferredTotal = deferredLines.reduce((s, l) => s + parseMoneyInput(l.totalEstimate), 0);
+  const declinedTotal = declinedLines.reduce((s, l) => s + parseMoneyInput(l.totalEstimate), 0);
+
+  const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const lineRows = (lines: typeof approvedLines) =>
+    lines.length === 0
+      ? `<tr><td colspan="3" style="color:#64748b;padding:8px 0;">None</td></tr>`
+      : lines.map((l) => `
+          <tr>
+            <td style="padding:6px 0;border-bottom:1px solid #e2e8f0;">${esc(l.title || "Untitled")}</td>
+            <td style="padding:6px 0;border-bottom:1px solid #e2e8f0;color:#475569;">${esc(l.category || "-")}</td>
+            <td style="padding:6px 0;border-bottom:1px solid #e2e8f0;text-align:right;">${formatCurrency(parseMoneyInput(l.totalEstimate))}</td>
+          </tr>
+          ${l.customerDescription ? `<tr><td colspan="3" style="padding:0 0 6px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">${esc(l.customerDescription)}</td></tr>` : ""}
+        `).join("");
+
+  const table = (title: string, color: string, lines: typeof approvedLines, total: number) => `
+    <h3 style="margin:20px 0 6px;color:${color};font-size:14px;">${esc(title)}</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="background:#f8fafc;">
+          <th style="text-align:left;padding:6px 0;border-bottom:2px solid #e2e8f0;font-size:12px;color:#64748b;">Work Item</th>
+          <th style="text-align:left;padding:6px 0;border-bottom:2px solid #e2e8f0;font-size:12px;color:#64748b;">Category</th>
+          <th style="text-align:right;padding:6px 0;border-bottom:2px solid #e2e8f0;font-size:12px;color:#64748b;">Estimate</th>
+        </tr>
+      </thead>
+      <tbody>${lineRows(lines)}</tbody>
+      ${lines.length > 0 ? `<tfoot><tr><td colspan="2" style="padding:6px 0;font-weight:600;">Subtotal</td><td style="text-align:right;padding:6px 0;font-weight:600;">${formatCurrency(total)}</td></tr></tfoot>` : ""}
+    </table>`;
+
+  const html = `
+    <html>
+      <head>
+        <title>Customer Summary – ${esc(ro.roNumber)}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 32px; color: #0f172a; max-width: 760px; margin: 0 auto; }
+          h1 { font-size: 22px; margin: 0 0 4px; }
+          h2 { font-size: 15px; font-weight: 600; margin: 20px 0 6px; border-bottom: 2px solid #0f172a; padding-bottom: 4px; }
+          .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; font-size: 13px; margin-bottom: 8px; }
+          .meta span { color: #64748b; }
+          .totals { margin-top: 20px; border-top: 2px solid #0f172a; padding-top: 12px; font-size: 14px; }
+          .totals table { width: 100%; border-collapse: collapse; }
+          .totals td { padding: 4px 0; }
+          .totals .grand { font-size: 16px; font-weight: 700; border-top: 1px solid #e2e8f0; padding-top: 8px; margin-top: 4px; }
+          .footer { margin-top: 32px; font-size: 11px; color: #94a3b8; text-align: center; }
+          @media print { body { padding: 16px; } }
+        </style>
+      </head>
+      <body>
+        <h1>Customer Work Summary</h1>
+        <div style="font-size:13px;color:#64748b;margin-bottom:16px;">Repair Order ${esc(ro.roNumber)} &bull; ${esc(ro.status)}</div>
+
+        <h2>Customer &amp; Vehicle</h2>
+        <div class="meta">
+          <div><span>Name / Account</span><br/><strong>${esc(ro.accountLabel)}</strong></div>
+          <div><span>Phone</span><br/><strong>${esc(ro.phone || "-")}</strong></div>
+          <div><span>Plate / Conduction</span><br/><strong>${esc(ro.plateNumber || ro.conductionNumber || "-")}</strong></div>
+          <div><span>Vehicle</span><br/><strong>${esc([ro.make, ro.model, ro.year, ro.color].filter(Boolean).join(" ") || "-")}</strong></div>
+          <div><span>Odometer</span><br/><strong>${esc(ro.odometerKm ? ro.odometerKm + " km" : "-")}</strong></div>
+          <div><span>Service Advisor</span><br/><strong>${esc(ro.advisorName || "-")}</strong></div>
+        </div>
+        <div style="background:#f1f5f9;border-radius:4px;padding:10px 12px;font-size:13px;margin-top:6px;">
+          <strong>Customer Concern:</strong> ${esc(ro.customerConcern || "-")}
+        </div>
+
+        ${table("Approved Work", "#15803d", approvedLines, approvedTotal)}
+        ${deferredLines.length > 0 ? table("Deferred – Decide Later", "#b45309", deferredLines, deferredTotal) : ""}
+        ${declinedLines.length > 0 ? table("Declined – Not Proceeding", "#b91c1c", declinedLines, declinedTotal) : ""}
+
+        <div class="totals">
+          <table>
+            <tr><td>Approved Work Total</td><td style="text-align:right;font-weight:600;">${formatCurrency(approvedTotal)}</td></tr>
+            ${deferredLines.length > 0 ? `<tr><td style="color:#b45309;">Deferred (excluded)</td><td style="text-align:right;color:#b45309;">${formatCurrency(deferredTotal)}</td></tr>` : ""}
+            ${declinedLines.length > 0 ? `<tr><td style="color:#b91c1c;">Declined (excluded)</td><td style="text-align:right;color:#b91c1c;">${formatCurrency(declinedTotal)}</td></tr>` : ""}
+          </table>
+          <div class="grand" style="display:flex;justify-content:space-between;">
+            <span>Estimated Amount Due</span>
+            <span>${formatCurrency(approvedTotal)}</span>
+          </div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:4px;">This is an estimate only. Final amount may vary after inspection and parts sourcing.</div>
+        </div>
+
+        <div class="footer">Generated ${new Date().toLocaleString()} &bull; ${esc(ro.roNumber)}</div>
+      </body>
+    </html>`;
+
+  popup.document.write(html);
+  popup.document.close();
+  popup.focus();
+  popup.print();
+}
+
 function buildRepairOrderExportText(ro: RepairOrderRecord, users: UserAccount[]) {
   const primary = users.find((user) => user.id === ro.primaryTechnicianId)?.fullName || "Unassigned";
   const support = ro.supportTechnicianIds.map((id) => users.find((user) => user.id === id)?.fullName || id).join(", ") || "None";
@@ -9032,6 +9134,14 @@ function RepairOrdersPage({
                       <span>Estimate</span>
                       <strong>{formatCurrency(row.workLines.reduce((sum, line) => sum + parseMoneyInput(line.totalEstimate), 0))}</strong>
                     </div>
+                    {row.status === "Ready Release" ? (
+                      <div style={{ ...styles.statusOk, marginTop: 4, fontSize: 11, padding: "2px 6px" }}>Ready for Release</div>
+                    ) : null}
+                    {row.workLines.some((l) => l.status === "Waiting Parts") ? (
+                      <div style={{ ...styles.statusWarning, marginTop: 4, fontSize: 11, padding: "2px 6px" }}>
+                        Waiting Parts ({row.workLines.filter((l) => l.status === "Waiting Parts").length})
+                      </div>
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -9051,6 +9161,13 @@ function RepairOrdersPage({
                       onClick={() => printTextDocument(`Repair Order ${selectedRO.roNumber}`, buildRepairOrderExportText(selectedRO, users))}
                     >
                       Print RO
+                    </button>
+                    <button
+                      type="button"
+                      style={styles.smallButtonSuccess}
+                      onClick={() => printCustomerSummary(selectedRO)}
+                    >
+                      Print Summary
                     </button>
                     <button
                       type="button"
@@ -9080,6 +9197,17 @@ function RepairOrdersPage({
                     <strong>Concern:</strong> {selectedRO.customerConcern}
                   </div>
                 </div>
+
+                {selectedRO.status === "Ready Release" ? (
+                  <div style={{ ...styles.statusOk, marginBottom: 8 }}>
+                    This RO is ready for release. Proceed to the Release module to complete the handover.
+                  </div>
+                ) : null}
+                {selectedRO.workLines.some((l) => l.status === "Waiting Parts") ? (
+                  <div style={{ ...styles.statusWarning, marginBottom: 8 }}>
+                    Waiting Parts — {selectedRO.workLines.filter((l) => l.status === "Waiting Parts").map((l) => l.title || "Untitled").join(", ")}
+                  </div>
+                ) : null}
 
                 <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
                   <div style={styles.formGroup}>
@@ -9242,6 +9370,65 @@ function RepairOrdersPage({
                       <div>{formatCurrency(declinedEstimateTotal)}</div>
                     </div>
                   </div>
+
+                  {(approvedWorkLines.length > 0 || declinedWorkLines.length > 0 || deferredWorkLines.length > 0) ? (
+                    <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+                      <div style={styles.sectionTitle}>Approval Summary</div>
+                      <div style={{ ...styles.summaryGrid, marginBottom: 10 }}>
+                        <div><strong style={{ color: "#15803d" }}>Approved</strong><div>{approvedWorkLines.length} line{approvedWorkLines.length !== 1 ? "s" : ""} • {formatCurrency(approvedEstimateTotal)}</div></div>
+                        <div><strong style={{ color: "#b45309" }}>Deferred</strong><div>{deferredWorkLines.length} line{deferredWorkLines.length !== 1 ? "s" : ""} • {formatCurrency(deferredEstimateTotal)}</div></div>
+                        <div><strong style={{ color: "#b91c1c" }}>Declined</strong><div>{declinedWorkLines.length} line{declinedWorkLines.length !== 1 ? "s" : ""} • {formatCurrency(declinedEstimateTotal)}</div></div>
+                        <div><strong>Pending</strong><div>{pendingWorkLines.length} line{pendingWorkLines.length !== 1 ? "s" : ""} • {formatCurrency(pendingEstimateTotal)}</div></div>
+                      </div>
+
+                      {approvedWorkLines.length > 0 ? (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ ...styles.formHint, fontWeight: 600, color: "#15803d", marginBottom: 4 }}>Approved Work Lines</div>
+                          {approvedWorkLines.map((line) => (
+                            <div key={`sum_approved_${line.id}`} style={{ ...styles.mobileDataCard, borderLeft: "3px solid #15803d", marginBottom: 4 }}>
+                              <div style={styles.mobileDataCardHeader}>
+                                <strong>{line.title || "Untitled"}</strong>
+                                <span>{formatCurrency(parseMoneyInput(line.totalEstimate))}</span>
+                              </div>
+                              <div style={styles.mobileDataSecondary}>{line.category || "General"} • {line.priority} priority • {line.status}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {deferredWorkLines.length > 0 ? (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ ...styles.formHint, fontWeight: 600, color: "#b45309", marginBottom: 4 }}>Deferred Items</div>
+                          {deferredWorkLines.map((line) => (
+                            <div key={`sum_deferred_${line.id}`} style={{ ...styles.mobileDataCard, borderLeft: "3px solid #b45309", marginBottom: 4 }}>
+                              <div style={styles.mobileDataCardHeader}>
+                                <strong>{line.title || "Untitled"}</strong>
+                                <span>{formatCurrency(parseMoneyInput(line.totalEstimate))}</span>
+                              </div>
+                              <div style={styles.mobileDataSecondary}>{line.category || "General"} • {line.priority} priority</div>
+                              {line.notes ? <div style={styles.formHint}>{line.notes}</div> : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {declinedWorkLines.length > 0 ? (
+                        <div>
+                          <div style={{ ...styles.formHint, fontWeight: 600, color: "#b91c1c", marginBottom: 4 }}>Declined Items</div>
+                          {declinedWorkLines.map((line) => (
+                            <div key={`sum_declined_${line.id}`} style={{ ...styles.mobileDataCard, borderLeft: "3px solid #b91c1c", marginBottom: 4 }}>
+                              <div style={styles.mobileDataCardHeader}>
+                                <strong>{line.title || "Untitled"}</strong>
+                                <span>{formatCurrency(parseMoneyInput(line.totalEstimate))}</span>
+                              </div>
+                              <div style={styles.mobileDataSecondary}>{line.category || "General"} • {line.priority} priority</div>
+                              {line.notes ? <div style={styles.formHint}>{line.notes}</div> : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   <div style={{ ...styles.inlineActions, marginTop: 12, flexWrap: "wrap" }}>
                     <button type="button" style={styles.smallButtonSuccess} onClick={() => setBulkLineDecision("Approved")} disabled={pendingWorkLines.length === 0}>
