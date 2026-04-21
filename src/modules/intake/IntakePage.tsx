@@ -1339,6 +1339,22 @@ function IntakePage({
                       Odometer: {row.odometerKm || "-"} km
                     </div>
                     <div style={styles.concernCard}>{row.concern}</div>
+                    <div style={styles.mobileMetaRow}>
+                      <span>Created</span>
+                      <strong>{formatDateTime(row.createdAt)}</strong>
+                    </div>
+                    {row.encodedBy ? (
+                      <div style={styles.mobileMetaRow}>
+                        <span>Encoded by</span>
+                        <strong>{row.encodedBy}</strong>
+                      </div>
+                    ) : null}
+                    {row.updatedBy ? (
+                      <div style={styles.mobileMetaRow}>
+                        <span>Last updated by</span>
+                        <strong>{row.updatedBy}</strong>
+                      </div>
+                    ) : null}
                     <div style={styles.mobileActionStack}>
                       <button
                         type="button"
@@ -1386,6 +1402,7 @@ function IntakePage({
                         <td style={styles.td}>
                           <div style={styles.tablePrimary}>{row.intakeNumber}</div>
                           <div style={styles.tableSecondary}>{formatDateTime(row.createdAt)}</div>
+                          {row.encodedBy ? <div style={styles.tableSecondary}>{row.encodedBy}</div> : null}
                         </td>
                         <td style={styles.td}>
                           <div style={styles.tablePrimary}>{row.plateNumber || "-"}</div>

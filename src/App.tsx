@@ -8,7 +8,8 @@ import BackjobPage from "./modules/backjobs/BackjobsPage";
 import PartsPage from "./modules/parts/PartsPage";
 import IntakePage from "./modules/intake/IntakePage";
 import QualityControlPage from "./modules/qualityControl/QualityControlPage";
-import type { UserRole, Permission, ViewKey, RoleDefinition, UserAccount, SessionUser, NavItem, VehicleAccountType, IntakeStatus, IntakeRecord, ApprovalDecision, BackjobOutcome, RepairOrderSourceType, ROStatus, WorkLineStatus, WorkLinePriority, RepairOrderWorkLine, RepairOrderRecord, QCResult, QCRecord, ReleaseRecord, ApprovalWorkItem, FindingRecommendationDecision, ApprovalRecord, BackjobRecord, InvoiceStatus, PaymentStatus, PaymentMethod, InvoiceRecord, PaymentRecord, WorkLog } from "./modules/shared/types";
+import type { UserRole, Permission, ViewKey, RoleDefinition, UserAccount, SessionUser, NavItem, VehicleAccountType, IntakeStatus, IntakeRecord, ApprovalDecision, BackjobOutcome, RepairOrderSourceType, ROStatus, WorkLineStatus, WorkLinePriority, RepairOrderWorkLine, RepairOrderRecord, QCResult, QCRecord, ReleaseRecord, ApprovalWorkItem, FindingRecommendationDecision, ApprovalRecord, BackjobRecord, InvoiceStatus, PaymentStatus, PaymentMethod, InvoiceRecord, PaymentRecord, WorkLog, PartsRequestRecord } from "./modules/shared/types";
+import { getTechnicianProductivity, getAdvisorSalesProduced, getRepeatCustomerFrequency, getQcPassFailSummary, getWaitingPartsAging, getBackjobRate } from "./modules/shared/helpers";
 
 
 type LoginForm = {
@@ -446,30 +447,6 @@ type PartsReturnRecord = {
   responsePictures: PartsMediaRecord[];
   respondedAt?: string;
   respondedBy?: string;
-};
-
-type PartsRequestRecord = {
-  id: string;
-  requestNumber: string;
-  roId: string;
-  roNumber: string;
-  createdAt: string;
-  updatedAt: string;
-  requestedBy: string;
-  status: PartsRequestStatus;
-  partName: string;
-  partNumber: string;
-  quantity: string;
-  urgency: PartsRequestUrgency;
-  notes: string;
-  customerSellingPrice: string;
-  selectedBidId: string;
-  plateNumber: string;
-  vehicleLabel: string;
-  accountLabel: string;
-  workshopPhotos: PartsMediaRecord[];
-  bids: SupplierBid[];
-  returnRecords: PartsReturnRecord[];
 };
 
 
@@ -4805,6 +4782,7 @@ function DashboardPage({
   invoiceRecords,
   paymentRecords,
   workLogs,
+  partsRequests,
   isCompactLayout,
 }: {
   currentUser: SessionUser;
@@ -4820,6 +4798,7 @@ function DashboardPage({
   invoiceRecords: InvoiceRecord[];
   paymentRecords: PaymentRecord[];
   workLogs: WorkLog[];
+  partsRequests: PartsRequestRecord[];
   isCompactLayout: boolean;
 }) {
   const activeUsers = users.filter((u) => u.active);
@@ -4893,6 +4872,13 @@ function DashboardPage({
   const releasedRevenue = releaseRecords.reduce((sum, row) => sum + parseMoneyInput(row.finalTotalAmount), 0);
   const releasedJobsCount = releaseRecords.length;
   const averageReleasedTicket = releasedJobsCount ? releasedRevenue / releasedJobsCount : 0;
+
+  const reportTechProductivity = getTechnicianProductivity(repairOrders, workLogs, users);
+  const reportAdvisorSales = getAdvisorSalesProduced(repairOrders, invoiceRecords);
+  const reportRepeatCustomers = getRepeatCustomerFrequency(repairOrders);
+  const reportQcSummary = getQcPassFailSummary(qcRecords);
+  const reportWaitingPartsAging = getWaitingPartsAging(repairOrders, partsRequests);
+  const reportBackjobRate = getBackjobRate(repairOrders, backjobRecords);
 
   const roProfitMap = repairOrders
     .map((ro) => {
@@ -5078,6 +5064,38 @@ function DashboardPage({
           </div>
         </div>
 
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>QC Pass Rate</div>
+            <div style={styles.statValue}>{reportQcSummary.passRatePct}%</div>
+            <div style={styles.statNote}>{reportQcSummary.passed} passed • {reportQcSummary.failed} failed of {reportQcSummary.total}</div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Backjob Rate</div>
+            <div style={styles.statValue}>{reportBackjobRate.backjobRatePct}%</div>
+            <div style={styles.statNote}>{reportBackjobRate.backjobCount} backjobs of {reportBackjobRate.totalROs} ROs</div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Repeat Customers</div>
+            <div style={styles.statValue}>{reportRepeatCustomers.length}</div>
+            <div style={styles.statNote}>Vehicles / accounts with 2+ visits</div>
+          </div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
+          <div style={styles.statCard}>
+            <div style={styles.statLabel}>Parts-Blocked ROs</div>
+            <div style={styles.statValue}>{reportWaitingPartsAging.length}</div>
+            <div style={styles.statNote}>{reportWaitingPartsAging[0] ? `Longest: ${reportWaitingPartsAging[0].daysWaiting}d` : "No blocked ROs"}</div>
+          </div>
+        </div>
+
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(7, isCompactLayout) }}>
           <Card title="User Distribution" subtitle="Active users by position">
             <div style={styles.roleGrid}>
@@ -5216,6 +5234,253 @@ function DashboardPage({
                 />
               ))}
             </div>
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Technician Productivity" subtitle="Labor produced and logged hours per technician">
+            {reportTechProductivity.length === 0 ? (
+              <div style={styles.emptyState}>No technician data yet.</div>
+            ) : isCompactLayout ? (
+              <div style={styles.mobileCardList}>
+                {reportTechProductivity.map((row) => (
+                  <div key={row.technicianId} style={styles.mobileDataCard}>
+                    <div style={styles.mobileDataCardHeader}><strong>{row.technicianName}</strong></div>
+                    <div style={styles.mobileMetaRow}><span>Jobs</span><strong>{row.jobCount}</strong></div>
+                    <div style={styles.mobileMetaRow}><span>Labor Produced</span><strong>{formatCurrency(row.laborProduced)}</strong></div>
+                    <div style={styles.mobileMetaRow}><span>Logged</span><strong>{formatMinutesAsHours(row.loggedMinutes)}</strong></div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={styles.tableWrap}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Technician</th>
+                      <th style={styles.th}>Jobs</th>
+                      <th style={styles.th}>Labor Produced</th>
+                      <th style={styles.th}>Logged</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportTechProductivity.map((row) => (
+                      <tr key={row.technicianId}>
+                        <td style={styles.td}>{row.technicianName}</td>
+                        <td style={styles.td}>{row.jobCount}</td>
+                        <td style={styles.td}>{formatCurrency(row.laborProduced)}</td>
+                        <td style={styles.td}>{formatMinutesAsHours(row.loggedMinutes)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(6, isCompactLayout) }}>
+          <Card title="Advisor Sales Produced" subtitle="RO volume and invoiced amounts per service advisor">
+            {reportAdvisorSales.length === 0 ? (
+              <div style={styles.emptyState}>No invoice data yet.</div>
+            ) : isCompactLayout ? (
+              <div style={styles.mobileCardList}>
+                {reportAdvisorSales.map((row) => (
+                  <div key={row.advisorName} style={styles.mobileDataCard}>
+                    <div style={styles.mobileDataCardHeader}><strong>{row.advisorName}</strong></div>
+                    <div style={styles.mobileMetaRow}><span>ROs</span><strong>{row.roCount}</strong></div>
+                    <div style={styles.mobileMetaRow}><span>Total Invoiced</span><strong>{formatCurrency(row.totalInvoiced)}</strong></div>
+                    <div style={styles.mobileMetaRow}><span>Labor</span><strong>{formatCurrency(row.laborSubtotal)}</strong></div>
+                    <div style={styles.mobileMetaRow}><span>Parts</span><strong>{formatCurrency(row.partsSubtotal)}</strong></div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={styles.tableWrap}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Advisor</th>
+                      <th style={styles.th}>ROs</th>
+                      <th style={styles.th}>Total Invoiced</th>
+                      <th style={styles.th}>Labor</th>
+                      <th style={styles.th}>Parts</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportAdvisorSales.map((row) => (
+                      <tr key={row.advisorName}>
+                        <td style={styles.td}>{row.advisorName}</td>
+                        <td style={styles.td}>{row.roCount}</td>
+                        <td style={styles.td}>{formatCurrency(row.totalInvoiced)}</td>
+                        <td style={styles.td}>{formatCurrency(row.laborSubtotal)}</td>
+                        <td style={styles.td}>{formatCurrency(row.partsSubtotal)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(6, isCompactLayout) }}>
+          <Card title="QC Pass / Fail by Officer" subtitle="Quality check outcomes per QC officer">
+            {reportQcSummary.byQCOfficer.length === 0 ? (
+              <div style={styles.emptyState}>No QC records yet.</div>
+            ) : isCompactLayout ? (
+              <div style={styles.mobileCardList}>
+                {reportQcSummary.byQCOfficer.map((row) => (
+                  <div key={row.qcBy} style={styles.mobileDataCard}>
+                    <div style={styles.mobileDataCardHeader}><strong>{row.qcBy}</strong></div>
+                    <div style={styles.mobileMetaRow}><span>Total</span><strong>{row.total}</strong></div>
+                    <div style={styles.mobileMetaRow}><span>Passed</span><strong style={{ color: "#15803d" }}>{row.passed}</strong></div>
+                    <div style={styles.mobileMetaRow}><span>Failed</span><strong style={{ color: "#b91c1c" }}>{row.failed}</strong></div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={styles.tableWrap}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>QC Officer</th>
+                      <th style={styles.th}>Total</th>
+                      <th style={styles.th}>Passed</th>
+                      <th style={styles.th}>Failed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportQcSummary.byQCOfficer.map((row) => (
+                      <tr key={row.qcBy}>
+                        <td style={styles.td}>{row.qcBy}</td>
+                        <td style={styles.td}>{row.total}</td>
+                        <td style={{ ...styles.td, color: "#15803d" }}>{row.passed}</td>
+                        <td style={{ ...styles.td, color: row.failed > 0 ? "#b91c1c" : undefined }}>{row.failed}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(8, isCompactLayout) }}>
+          <Card title="Waiting Parts Aging" subtitle="ROs blocked by parts requests, sorted by days waiting">
+            {reportWaitingPartsAging.length === 0 ? (
+              <div style={styles.emptyState}>No parts-blocked ROs.</div>
+            ) : isCompactLayout ? (
+              <div style={styles.mobileCardList}>
+                {reportWaitingPartsAging.map((row) => (
+                  <div key={row.roId} style={styles.mobileDataCard}>
+                    <div style={styles.mobileDataCardHeader}><strong>{row.roNumber}</strong><span style={{ color: row.daysWaiting >= 3 ? "#b45309" : undefined }}>{row.daysWaiting}d waiting</span></div>
+                    <div style={styles.mobileDataPrimary}>{row.plateNumber || row.accountLabel || "-"}</div>
+                    <div style={styles.mobileDataSecondary}>{row.blockedWorkLineTitles.join(", ") || "-"}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={styles.tableWrap}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>RO No.</th>
+                      <th style={styles.th}>Plate</th>
+                      <th style={styles.th}>Account</th>
+                      <th style={styles.th}>Days Waiting</th>
+                      <th style={styles.th}>Blocked Work Lines</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportWaitingPartsAging.map((row) => (
+                      <tr key={row.roId}>
+                        <td style={styles.td}>{row.roNumber}</td>
+                        <td style={styles.td}>{row.plateNumber || "-"}</td>
+                        <td style={styles.td}>{row.accountLabel || "-"}</td>
+                        <td style={{ ...styles.td, color: row.daysWaiting >= 3 ? "#b45309" : undefined, fontWeight: row.daysWaiting >= 3 ? 700 : undefined }}>{row.daysWaiting}d</td>
+                        <td style={styles.td}>{row.blockedWorkLineTitles.join(", ") || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(4, isCompactLayout) }}>
+          <Card title="Backjob Breakdown" subtitle="Comeback rate by responsibility">
+            {reportBackjobRate.byResponsibility.length === 0 ? (
+              <div style={styles.emptyState}>No backjob records yet.</div>
+            ) : isCompactLayout ? (
+              <div style={styles.mobileCardList}>
+                {reportBackjobRate.byResponsibility.map((row) => (
+                  <div key={row.responsibility} style={styles.mobileDataCard}>
+                    <div style={styles.mobileDataCardHeader}><strong>{row.responsibility}</strong></div>
+                    <div style={styles.mobileMetaRow}><span>Count</span><strong>{row.count}</strong></div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={styles.tableWrap}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Responsibility</th>
+                      <th style={styles.th}>Count</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportBackjobRate.byResponsibility.map((row) => (
+                      <tr key={row.responsibility}>
+                        <td style={styles.td}>{row.responsibility}</td>
+                        <td style={styles.td}>{row.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Repeat Customers / Vehicles" subtitle="Vehicles or accounts with more than one repair order">
+            {reportRepeatCustomers.length === 0 ? (
+              <div style={styles.emptyState}>No repeat visits recorded yet.</div>
+            ) : isCompactLayout ? (
+              <div style={styles.mobileCardList}>
+                {reportRepeatCustomers.map((row) => (
+                  <div key={row.key} style={styles.mobileDataCard}>
+                    <div style={styles.mobileDataCardHeader}><strong>{row.plateNumber || row.accountLabel || row.key}</strong></div>
+                    <div style={styles.mobileMetaRow}><span>Visits</span><strong>{row.visitCount}</strong></div>
+                    <div style={styles.mobileMetaRow}><span>Last Visit</span><strong>{row.lastVisitDate ? new Date(row.lastVisitDate).toLocaleDateString() : "-"}</strong></div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={styles.tableWrap}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Plate / Account</th>
+                      <th style={styles.th}>Visits</th>
+                      <th style={styles.th}>Last Visit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportRepeatCustomers.map((row) => (
+                      <tr key={row.key}>
+                        <td style={styles.td}>{row.plateNumber || row.accountLabel || row.key}</td>
+                        <td style={styles.td}>{row.visitCount}</td>
+                        <td style={styles.td}>{row.lastVisitDate ? new Date(row.lastVisitDate).toLocaleDateString() : "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Card>
         </div>
       </div>
@@ -8006,6 +8271,7 @@ function RepairOrdersPage({
       backjobReferenceRoId: "",
       findingRecommendationDecisions: [],
       encodedBy: currentUser.fullName,
+      updatedBy: "",
     };
 
     setRepairOrders((prev) => [newRO, ...prev]);
@@ -8026,10 +8292,12 @@ function RepairOrdersPage({
   };
 
   const updateRO = (id: string, patch: Partial<RepairOrderRecord>) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { roNumber: _rn, createdAt: _ca, encodedBy: _eb, ...safePatch } = patch as RepairOrderRecord;
     setRepairOrders((prev) =>
       prev.map((row) =>
         row.id === id
-          ? { ...row, ...patch, updatedAt: new Date().toISOString() }
+          ? { ...row, ...safePatch, updatedAt: new Date().toISOString(), updatedBy: currentUser.fullName }
           : row
       )
     );
@@ -8043,6 +8311,7 @@ function RepairOrdersPage({
         return {
           ...row,
           updatedAt: new Date().toISOString(),
+          updatedBy: currentUser.fullName,
           workLines: row.workLines.map((line) => {
             if (line.id !== lineId) return line;
 
@@ -8088,6 +8357,7 @@ function RepairOrdersPage({
           ? {
               ...row,
               updatedAt: new Date().toISOString(),
+              updatedBy: currentUser.fullName,
               workLines: [...row.workLines, getEmptyWorkLine()],
             }
           : row
@@ -8102,6 +8372,7 @@ function RepairOrdersPage({
           ? {
               ...row,
               updatedAt: new Date().toISOString(),
+              updatedBy: currentUser.fullName,
               workLines:
                 row.workLines.length === 1
                   ? row.workLines
@@ -8375,7 +8646,7 @@ function RepairOrdersPage({
     setBackjobRecords((prev) => [record, ...prev]);
     setRepairOrders((prev) =>
       prev.map((row) =>
-        row.id === selectedRO.id ? { ...row, backjobReferenceRoId: record.id, updatedAt: new Date().toISOString() } : row
+        row.id === selectedRO.id ? { ...row, backjobReferenceRoId: record.id, updatedAt: new Date().toISOString(), updatedBy: currentUser.fullName } : row
       )
     );
     setBackjobComplaint("");
@@ -9661,13 +9932,16 @@ function ShopFloorPage({
     users.find((user) => user.id === userId)?.fullName || "Unassigned";
 
   const updateRO = (roId: string, patch: Partial<RepairOrderRecord>) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { roNumber: _rn, createdAt: _ca, encodedBy: _eb, ...safePatch } = patch as RepairOrderRecord;
     setRepairOrders((prev) =>
       prev.map((row) =>
         row.id === roId
           ? {
               ...row,
-              ...patch,
+              ...safePatch,
               updatedAt: new Date().toISOString(),
+              updatedBy: currentUser.fullName,
             }
           : row
       )
@@ -9891,6 +10165,7 @@ function ShopFloorPage({
           workLines: nextWorkLines,
           status: nextStatus,
           updatedAt: now,
+          updatedBy: currentUser.fullName,
           workStartedAt: row.workStartedAt || now,
         };
       })
@@ -11779,6 +12054,7 @@ export default function App() {
             invoiceRecords={invoiceRecords}
             paymentRecords={paymentRecords}
             workLogs={workLogs}
+            partsRequests={partsRequests}
             isCompactLayout={isMobile}
           />
         );
@@ -11959,6 +12235,7 @@ export default function App() {
             invoiceRecords={invoiceRecords}
             paymentRecords={paymentRecords}
             workLogs={workLogs}
+            partsRequests={partsRequests}
             isCompactLayout={isMobile}
           />
         );

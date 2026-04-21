@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { SessionUser, RepairOrderRecord, ROStatus, WorkLineStatus } from "../shared/types";
-import { formatCurrency, parseMoneyInput, getResponsiveSpan } from "../shared/helpers";
+import { formatCurrency, parseMoneyInput, getResponsiveSpan, formatDateTime } from "../shared/helpers";
 
 // --- local types ---
 
@@ -92,6 +92,7 @@ type PartsRequestRecord = {
   plateNumber: string;
   vehicleLabel: string;
   accountLabel: string;
+  updatedBy?: string;
   workshopPhotos: PartsMediaRecord[];
   bids: SupplierBid[];
   returnRecords: PartsReturnRecord[];
@@ -644,6 +645,7 @@ function PartsPage({
                         </strong>
                       </div>
                     ) : null}
+                    <div style={styles.mobileMetaRow}><span>Created</span><strong>{formatDateTime(row.createdAt)}</strong></div>
                     <div style={styles.mobileMetaRow}><span>Workshop Photos</span><strong>{row.workshopPhotos.length}</strong></div>
                     <div style={styles.mobileMetaRow}><span>Bids</span><strong>{row.bids.length}</strong></div>
                     <div style={styles.mobileMetaRow}><span>Selected Supplier</span><strong>{chosenBid?.supplierName || "Not selected"}</strong></div>
@@ -663,9 +665,12 @@ function PartsPage({
                 <div style={styles.detailBanner}>
                   <div style={styles.detailGrid}>
                     <div><strong>Part</strong><div>{selectedRequest.partName}</div></div>
+                    <div><strong>Request No.</strong><div>{selectedRequest.requestNumber}</div></div>
                     <div><strong>RO</strong><div>{selectedRequest.roNumber}</div></div>
                     <div><strong>Vehicle</strong><div>{selectedRequest.plateNumber || selectedRequest.vehicleLabel || "-"}</div></div>
                     <div><strong>Requested By</strong><div>{selectedRequest.requestedBy}</div></div>
+                    <div><strong>Created</strong><div>{formatDateTime(selectedRequest.createdAt)}</div></div>
+                    {selectedRequest.updatedBy ? <div><strong>Last Updated By</strong><div>{selectedRequest.updatedBy}</div></div> : null}
                     {linkedWorkLine ? (
                       <div>
                         <strong>Work Line</strong>

@@ -668,6 +668,22 @@ function ReleasePage({
                     <div style={styles.summaryValue}>{passedQcRoIds.has(selectedRO.id) ? "Passed" : "Missing"}</div>
                   </div>
                 </div>
+                <div style={isCompactLayout ? styles.formStack : styles.formGrid3}>
+                  <div style={styles.summaryTile}>
+                    <div style={styles.summaryLabel}>RO Created</div>
+                    <div style={styles.summaryValue}>{formatDateTime(selectedRO.createdAt)}</div>
+                  </div>
+                  <div style={styles.summaryTile}>
+                    <div style={styles.summaryLabel}>Encoded By</div>
+                    <div style={styles.summaryValue}>{selectedRO.encodedBy || "-"}</div>
+                  </div>
+                  {selectedRO.updatedBy ? (
+                    <div style={styles.summaryTile}>
+                      <div style={styles.summaryLabel}>Last Updated By</div>
+                      <div style={styles.summaryValue}>{selectedRO.updatedBy}</div>
+                    </div>
+                  ) : <div style={styles.summaryTile} />}
+                </div>
 
                 <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
                   <div style={styles.formGroup}>

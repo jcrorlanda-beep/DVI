@@ -23,6 +23,7 @@ export type IntakeRecord = {
   notes: string;
   status: IntakeStatus;
   encodedBy: string;
+  updatedBy?: string;
 };
 
 export type RepairOrderRecord = {
@@ -60,6 +61,7 @@ export type RepairOrderRecord = {
   backjobReferenceRoId: string;
   findingRecommendationDecisions: FindingRecommendationDecision[];
   encodedBy: string;
+  updatedBy?: string;
   pullOutReason?: string;
   pulledOutAt?: string;
   pulledOutBy?: string;
@@ -80,6 +82,8 @@ export type QCRecord = {
   noNewDamage: boolean;
   toolsRemoved: boolean;
   notes: string;
+  updatedAt?: string;
+  updatedBy?: string;
 };
 
 export type ReleaseRecord = {
@@ -98,6 +102,8 @@ export type ReleaseRecord = {
   noNewDamage: boolean;
   cleanVehicle: boolean;
   toolsRemoved: boolean;
+  updatedAt?: string;
+  updatedBy?: string;
 };
 
 export type ApprovalRecord = {
@@ -136,6 +142,7 @@ export type BackjobRecord = {
   resolutionNotes: string;
   status: "Open" | "In Progress" | "Monitoring" | "Closed";
   createdBy: string;
+  updatedBy?: string;
 };
 
 export type InvoiceRecord = {
@@ -154,6 +161,7 @@ export type InvoiceRecord = {
   paymentStatus: PaymentStatus;
   chargeAccountApproved: boolean;
   notes: string;
+  updatedBy?: string;
 };
 
 export type PaymentRecord = {
@@ -601,6 +609,55 @@ export type PartsRequestStatus =
 
 export type PartsRequestUrgency = "Low" | "Medium" | "High";
 
+export type SupplierBidCondition = "Brand New" | "OEM" | "Replacement" | "Surplus";
+export type PartsMediaOwner = "Workshop" | "Supplier" | "Return";
+export type PartsReturnResponseStatus = "Requested" | "Approved" | "Rejected" | "Replacement in Process" | "Refund in Process";
+
+export type PartsMediaRecord = {
+  id: string;
+  owner: PartsMediaOwner;
+  kind: string;
+  fileName: string;
+  previewDataUrl: string;
+  addedAt: string;
+  note: string;
+  uploadedBy: string;
+};
+
+export type SupplierBid = {
+  id: string;
+  supplierName: string;
+  brand: string;
+  quantity: string;
+  unitCost: string;
+  totalCost: string;
+  deliveryTime: string;
+  warrantyNote: string;
+  condition: SupplierBidCondition;
+  notes: string;
+  createdAt: string;
+  productPhotos: PartsMediaRecord[];
+  invoiceFileName: string;
+  shippingLabelFileName: string;
+  trackingNumber: string;
+  courierName: string;
+  shippingNotes: string;
+};
+
+export type PartsReturnRecord = {
+  id: string;
+  reason: string;
+  notes: string;
+  pictures: PartsMediaRecord[];
+  createdAt: string;
+  createdBy: string;
+  responseStatus: PartsReturnResponseStatus;
+  responseNotes: string;
+  responsePictures: PartsMediaRecord[];
+  respondedAt?: string;
+  respondedBy?: string;
+};
+
 export type PartsRequestRecord = {
   id: string;
   requestNumber: string;
@@ -621,4 +678,59 @@ export type PartsRequestRecord = {
   plateNumber: string;
   vehicleLabel: string;
   accountLabel: string;
+  updatedBy?: string;
+  workshopPhotos: PartsMediaRecord[];
+  bids: SupplierBid[];
+  returnRecords: PartsReturnRecord[];
+};
+
+// --- REPORT OUTPUT TYPES ---
+
+export type TechnicianProductivityRow = {
+  technicianId: string;
+  technicianName: string;
+  jobCount: number;
+  laborProduced: number;
+  loggedMinutes: number;
+  loggedHours: number;
+};
+
+export type AdvisorSalesRow = {
+  advisorName: string;
+  roCount: number;
+  totalInvoiced: number;
+  laborSubtotal: number;
+  partsSubtotal: number;
+};
+
+export type RepeatCustomerRow = {
+  key: string;
+  plateNumber: string;
+  accountLabel: string;
+  visitCount: number;
+  lastVisitDate: string;
+};
+
+export type QCPassFailSummary = {
+  total: number;
+  passed: number;
+  failed: number;
+  passRatePct: number;
+  byQCOfficer: { qcBy: string; total: number; passed: number; failed: number }[];
+};
+
+export type WaitingPartsAgingRow = {
+  roId: string;
+  roNumber: string;
+  plateNumber: string;
+  accountLabel: string;
+  daysWaiting: number;
+  blockedWorkLineTitles: string[];
+};
+
+export type BackjobRateSummary = {
+  totalROs: number;
+  backjobCount: number;
+  backjobRatePct: number;
+  byResponsibility: { responsibility: string; count: number }[];
 };

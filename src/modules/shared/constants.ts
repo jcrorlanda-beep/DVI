@@ -32,3 +32,15 @@ export const ALL_PERMISSIONS: Permission[] = [
   "roles.manage",
   "settings.view",
 ];
+
+// Shared storage key for document number counters (must match all modules)
+export const NUMBERING_STORAGE_KEY = "dvi_phase2_counters_v1";
+
+// Document number prefixes — format: PREFIX-YYYYMMDD-###
+export const DOC_NUMBER_PREFIXES = {
+  INTAKE: "INT",
+  REPAIR_ORDER: "RO",
+  PARTS_REQUEST: "PR",
+  QUALITY_CHECK: "QC",
+  RELEASE: "REL",
+} as const;
