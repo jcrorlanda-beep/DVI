@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import type {
   SessionUser,
   IntakeRecord,
+  InspectionRecord,
   RepairOrderRecord,
   QCRecord,
   ReleaseRecord,
@@ -11,22 +12,6 @@ import type {
   PaymentRecord,
 } from "../shared/types";
 import { formatDateTime, getResponsiveSpan, formatCurrency, parseMoneyInput } from "../shared/helpers";
-
-type InspectionRecord = {
-  plateNumber: string;
-  conductionNumber: string;
-  make: string;
-  model: string;
-  year: string;
-  odometerKm: string;
-  updatedAt: string;
-  createdAt: string;
-  inspectionNumber: string;
-  status: string;
-  concern: string;
-  inspectionNotes?: string;
-  recommendedWork?: string;
-};
 
 type HistoryTimelineRow = {
   id: string;

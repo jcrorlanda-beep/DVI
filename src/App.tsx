@@ -7,6 +7,7 @@ import ReleasePage from "./modules/release/ReleasePage";
 import BackjobPage from "./modules/backjobs/BackjobsPage";
 import PartsPage from "./modules/parts/PartsPage";
 import IntakePage from "./modules/intake/IntakePage";
+import QualityControlPage from "./modules/qualityControl/QualityControlPage";
 import type { UserRole, Permission, ViewKey, RoleDefinition, UserAccount, SessionUser, NavItem, VehicleAccountType, IntakeStatus, IntakeRecord, ApprovalDecision, BackjobOutcome, RepairOrderSourceType, ROStatus, WorkLineStatus, WorkLinePriority, RepairOrderWorkLine, RepairOrderRecord, QCResult, QCRecord, ReleaseRecord, ApprovalWorkItem, FindingRecommendationDecision, ApprovalRecord, BackjobRecord, InvoiceStatus, PaymentStatus, PaymentMethod, InvoiceRecord, PaymentRecord, WorkLog } from "./modules/shared/types";
 
 
@@ -5222,6 +5223,8 @@ function DashboardPage({
   );
 }
 
+
+
 function InspectionPage({
   currentUser,
   intakeRecords,
@@ -8064,6 +8067,10 @@ function RepairOrdersPage({
               };
             }
 
+            if (field === "status" && value === "Completed" && line.status === "Waiting Parts") {
+              return line;
+            }
+
             return recalculateWorkLine({
               ...line,
               [field]: value,
@@ -8201,7 +8208,9 @@ function RepairOrdersPage({
   const setFindingRecommendationDecision = (recommendation: FindingToRORecommendation, decision: "Approved" | "Declined" | "Deferred") => {
     if (!selectedRO) return;
     const now = new Date().toISOString();
-    const existingLine = selectedRO.workLines.find((line) => line.recommendationSource === `Finding:${recommendation.id}`);
+    const existingLine = selectedRO.workLines.find(
+      (line) => line.sourceRecommendationId === recommendation.id || line.recommendationSource === `Finding:${recommendation.id}`
+    );
 
     setRepairOrders((prev) =>
       prev.map((row) => {
@@ -8233,6 +8242,7 @@ function RepairOrdersPage({
               notes: [recommendation.note, ...recommendation.photoNotes].filter(Boolean).join(" | "),
               customerDescription: `${recommendation.category}: ${recommendation.workLineTitle}. ${recommendation.note || "Customer-approved recommended work."}`.trim(),
               recommendationSource: `Finding:${recommendation.id}`,
+              sourceRecommendationId: recommendation.id,
               approvalDecision: "Approved",
               approvalAt: now,
             }),
@@ -8297,6 +8307,34 @@ function RepairOrdersPage({
     if (lockedStatuses.includes(nextStatus) && !canAdvanceToWork) {
       setError("RO cannot advance to work until all approvals are decided and at least one work line is approved.");
       return;
+    }
+
+    const allowedTransitions: Partial<Record<ROStatus, ROStatus[]>> = {
+      "Draft": ["Waiting Inspection", "Approved / Ready to Work"],
+      "Waiting Inspection": ["Waiting Approval", "Approved / Ready to Work"],
+      "Waiting Approval": ["Approved / Ready to Work"],
+      "Approved / Ready to Work": ["In Progress", "Pulled Out"],
+      "In Progress": ["Waiting Parts", "Quality Check", "Pulled Out"],
+      "Waiting Parts": ["In Progress", "Pulled Out"],
+      "Quality Check": ["Ready Release", "In Progress"],
+      "Ready Release": ["Released", "Pulled Out"],
+      "Released": ["Closed"],
+      "Pulled Out": [],
+      "Closed": [],
+    };
+    if (!(allowedTransitions[selectedRO.status] ?? []).includes(nextStatus)) {
+      setError(`Cannot transition from "${selectedRO.status}" to "${nextStatus}".`);
+      return;
+    }
+
+    if (nextStatus === "Quality Check") {
+      const approvedLines = selectedRO.workLines.filter(
+        (l) => l.approvalDecision !== "Declined" && l.approvalDecision !== "Deferred"
+      );
+      if (approvedLines.length === 0 || !approvedLines.every((l) => l.status === "Completed")) {
+        setError("All approved work lines must be completed before moving to Quality Check.");
+        return;
+      }
     }
 
     updateRO(selectedRO.id, {
@@ -8991,21 +9029,20 @@ function RepairOrdersPage({
                             {item.note ? <div style={styles.concernCard}>{item.note}</div> : null}
                             {item.photoNotes.length ? <div style={styles.formHint}>Photo notes: {item.photoNotes.join(" • ")}</div> : null}
                             {item.decidedAt ? <div style={styles.formHint}>Decision Time: {formatDateTime(item.decidedAt)}</div> : null}
-                            {item.decision !== "Approved" ? (
-                              <div style={styles.inlineActions}>
-                                <button type="button" style={styles.smallButtonSuccess} onClick={() => setFindingRecommendationDecision(item, "Approved")}>
-                                  Approve to RO
-                                </button>
-                                <button type="button" style={styles.smallButtonMuted} onClick={() => setFindingRecommendationDecision(item, "Deferred")}>
-                                  Defer
-                                </button>
-                                <button type="button" style={styles.smallButtonDanger} onClick={() => setFindingRecommendationDecision(item, "Declined")}>
-                                  Decline
-                                </button>
-                              </div>
-                            ) : (
+                            <div style={styles.inlineActions}>
+                              <button type="button" style={styles.smallButtonSuccess} onClick={() => setFindingRecommendationDecision(item, "Approved")} disabled={item.decision === "Approved"}>
+                                Approve to RO
+                              </button>
+                              <button type="button" style={styles.smallButtonMuted} onClick={() => setFindingRecommendationDecision(item, "Deferred")} disabled={item.decision === "Deferred"}>
+                                Defer
+                              </button>
+                              <button type="button" style={styles.smallButtonDanger} onClick={() => setFindingRecommendationDecision(item, "Declined")} disabled={item.decision === "Declined"}>
+                                Decline
+                              </button>
+                            </div>
+                            {item.decision === "Approved" ? (
                               <div style={styles.formHint}>This finding is already mapped into the RO work lines.</div>
-                            )}
+                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -9258,395 +9295,7 @@ function RepairOrdersPage({
 }
 
 
-function QualityControlPage({
-  currentUser,
-  repairOrders,
-  setRepairOrders,
-  qcRecords,
-  setQcRecords,
-  isCompactLayout,
-}: {
-  currentUser: SessionUser;
-  repairOrders: RepairOrderRecord[];
-  setRepairOrders: React.Dispatch<React.SetStateAction<RepairOrderRecord[]>>;
-  qcRecords: QCRecord[];
-  setQcRecords: React.Dispatch<React.SetStateAction<QCRecord[]>>;
-  isCompactLayout: boolean;
-}) {
-  const canPerformQC = ["Admin", "Chief Technician", "Senior Mechanic"].includes(currentUser.role);
 
-  const queue = useMemo(
-    () =>
-      [...repairOrders]
-        .filter((row) => row.status === "Quality Check")
-        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
-    [repairOrders]
-  );
-
-  const [selectedRoId, setSelectedRoId] = useState("");
-  const [checks, setChecks] = useState({
-    allApprovedWorkCompleted: true,
-    noLeaksOrWarningLights: true,
-    roadTestDone: true,
-    cleanlinessCheck: true,
-    noNewDamage: true,
-    toolsRemoved: true,
-  });
-  const [notes, setNotes] = useState("");
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!selectedRoId && queue[0]) {
-      setSelectedRoId(queue[0].id);
-    }
-    if (selectedRoId && !queue.some((row) => row.id === selectedRoId)) {
-      setSelectedRoId(queue[0]?.id ?? "");
-    }
-  }, [queue, selectedRoId]);
-
-  const selectedRO = useMemo(
-    () => queue.find((row) => row.id === selectedRoId) ?? null,
-    [queue, selectedRoId]
-  );
-
-  const selectedApprovedLines = useMemo(
-    () => (selectedRO ? selectedRO.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Approved") : []),
-    [selectedRO]
-  );
-
-  const selectedCompletedApprovedCount = useMemo(
-    () => selectedApprovedLines.filter((line) => line.status === "Completed").length,
-    [selectedApprovedLines]
-  );
-
-  const selectedOutstandingApprovedCount = Math.max(selectedApprovedLines.length - selectedCompletedApprovedCount, 0);
-
-  const latestQcForSelected = useMemo(
-    () =>
-      selectedRO
-        ? [...qcRecords]
-            .filter((row) => row.roId === selectedRO.id)
-            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null
-        : null,
-    [qcRecords, selectedRO]
-  );
-
-  useEffect(() => {
-    if (!selectedRO) return;
-    setChecks({
-      allApprovedWorkCompleted: selectedOutstandingApprovedCount === 0,
-      noLeaksOrWarningLights: true,
-      roadTestDone: true,
-      cleanlinessCheck: true,
-      noNewDamage: true,
-      toolsRemoved: true,
-    });
-    setNotes("");
-    setError("");
-  }, [selectedRO?.id, selectedOutstandingApprovedCount]);
-
-  const history = useMemo(
-    () =>
-      [...qcRecords]
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        .slice(0, 10),
-    [qcRecords]
-  );
-
-  const submitQC = (result: QCResult) => {
-    if (!selectedRO || !canPerformQC) return;
-    if (result === "Failed" && !notes.trim()) {
-      setError("Failure notes are required when QC fails.");
-      return;
-    }
-    if (result === "Passed" && (!checks.allApprovedWorkCompleted || !checks.noLeaksOrWarningLights || !checks.roadTestDone || !checks.cleanlinessCheck || !checks.noNewDamage || !checks.toolsRemoved)) {
-      setError("All QC checklist items must pass before the job can move to Ready Release.");
-      return;
-    }
-
-    const record: QCRecord = {
-      id: uid("qc"),
-      qcNumber: nextDailyNumber("QC"),
-      roId: selectedRO.id,
-      roNumber: selectedRO.roNumber,
-      createdAt: new Date().toISOString(),
-      qcBy: currentUser.fullName,
-      result,
-      allApprovedWorkCompleted: checks.allApprovedWorkCompleted,
-      noLeaksOrWarningLights: checks.noLeaksOrWarningLights,
-      roadTestDone: checks.roadTestDone,
-      cleanlinessCheck: checks.cleanlinessCheck,
-      noNewDamage: checks.noNewDamage,
-      toolsRemoved: checks.toolsRemoved,
-      notes: notes.trim(),
-    };
-
-    setQcRecords((prev) => [record, ...prev]);
-    setRepairOrders((prev) =>
-      prev.map((row) =>
-        row.id === selectedRO.id
-          ? {
-              ...row,
-              status: result === "Passed" ? "Ready Release" : "In Progress",
-              updatedAt: new Date().toISOString(),
-            }
-          : row
-      )
-    );
-    setChecks({
-      allApprovedWorkCompleted: true,
-      noLeaksOrWarningLights: true,
-      roadTestDone: true,
-      cleanlinessCheck: true,
-      noNewDamage: true,
-      toolsRemoved: true,
-    });
-    setNotes("");
-    setError("");
-  };
-
-  const checklistItems: Array<{ key: keyof typeof checks; label: string }> = [
-    { key: "allApprovedWorkCompleted", label: "All approved work completed" },
-    { key: "noLeaksOrWarningLights", label: "No leaks, errors, or warning lights" },
-    { key: "roadTestDone", label: "Road test done if applicable" },
-    { key: "cleanlinessCheck", label: "Cleanliness check passed" },
-    { key: "noNewDamage", label: "No new damage found" },
-    { key: "toolsRemoved", label: "Tools removed and secured" },
-  ];
-
-  return (
-    <div style={styles.pageContent}>
-      <div style={styles.grid}>
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(4, isCompactLayout) }}>
-          <Card
-            title="QC Queue"
-            subtitle="Only jobs already moved to Quality Check"
-            right={<span style={styles.statusWarning}>{queue.length} waiting</span>}
-          >
-            {!queue.length ? (
-              <div style={styles.emptyState}>No repair orders are waiting for QC.</div>
-            ) : (
-              <div style={styles.mobileCardList}>
-                {queue.map((row) => {
-                  const active = row.id === selectedRoId;
-                  return (
-                    <button
-                      key={row.id}
-                      type="button"
-                      onClick={() => setSelectedRoId(row.id)}
-                      style={{
-                        ...styles.mobileCard,
-                        textAlign: "left",
-                        borderColor: active ? "#2563eb" : "#e5e7eb",
-                        background: active ? "#eff6ff" : "#ffffff",
-                      }}
-                    >
-                      <div style={styles.mobileCardHeader}>
-                        <div>
-                          <div style={styles.mobileCardTitle}>{row.roNumber}</div>
-                          <div style={styles.mobileCardSubtitle}>
-                            {row.plateNumber || row.conductionNumber || "No plate"}
-                          </div>
-                        </div>
-                        <span style={getROStatusStyle(row.status)}>{row.status}</span>
-                      </div>
-                      <div style={styles.mobileCardMeta}>
-                        <strong>{row.accountLabel}</strong>
-                      </div>
-                      <div style={styles.mobileCardMeta}>
-                        {row.make} {row.model} {row.year}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
-        </div>
-
-        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(8, isCompactLayout) }}>
-          <Card
-            title="QC Form"
-            subtitle="Chief Technician / Senior Mechanic gate before release"
-            right={
-              selectedRO ? (
-                <div style={styles.inlineActions}>
-                  <button
-                    type="button"
-                    style={styles.smallButtonMuted}
-                    onClick={() => printTextDocument(`QC ${selectedRO.roNumber}`, buildQcExportText(selectedRO, latestQcForSelected))}
-                  >
-                    Print QC
-                  </button>
-                  <button
-                    type="button"
-                    style={styles.smallButton}
-                    onClick={() => downloadTextFile(`${selectedRO.roNumber}_qc.txt`, buildQcExportText(selectedRO, latestQcForSelected))}
-                  >
-                    Export QC
-                  </button>
-                  {canPerformQC ? <span style={styles.statusOk}>QC Allowed</span> : <span style={styles.statusLocked}>QC Locked</span>}
-                </div>
-              ) : canPerformQC ? (
-                <span style={styles.statusOk}>QC Allowed</span>
-              ) : (
-                <span style={styles.statusLocked}>QC Locked</span>
-              )
-            }
-          >
-            {!selectedRO ? (
-              <div style={styles.emptyState}>Select a repair order from the QC queue.</div>
-            ) : (
-              <div style={styles.formStack}>
-                <div style={isCompactLayout ? styles.formStack : styles.formGrid3}>
-                  <div style={styles.summaryTile}>
-                    <div style={styles.summaryLabel}>RO Number</div>
-                    <div style={styles.summaryValue}>{selectedRO.roNumber}</div>
-                  </div>
-                  <div style={styles.summaryTile}>
-                    <div style={styles.summaryLabel}>Vehicle</div>
-                    <div style={styles.summaryValue}>{selectedRO.plateNumber || selectedRO.conductionNumber || "-"}</div>
-                  </div>
-                  <div style={styles.summaryTile}>
-                    <div style={styles.summaryLabel}>Customer</div>
-                    <div style={styles.summaryValue}>{selectedRO.accountLabel}</div>
-                  </div>
-                </div>
-
-                <div style={isCompactLayout ? styles.formStack : styles.formGrid3}>
-                  <div style={styles.summaryTile}>
-                    <div style={styles.summaryLabel}>Approved Lines</div>
-                    <div style={styles.summaryValue}>{selectedApprovedLines.length}</div>
-                  </div>
-                  <div style={styles.summaryTile}>
-                    <div style={styles.summaryLabel}>Completed Approved</div>
-                    <div style={styles.summaryValue}>{selectedCompletedApprovedCount}</div>
-                  </div>
-                  <div style={styles.summaryTile}>
-                    <div style={styles.summaryLabel}>Outstanding</div>
-                    <div style={styles.summaryValue}>{selectedOutstandingApprovedCount}</div>
-                  </div>
-                </div>
-
-                {latestQcForSelected ? (
-                  <div style={styles.quickAccessRow}>
-                    <span>Latest QC Result</span>
-                    <strong>{latestQcForSelected.qcNumber} • {latestQcForSelected.result} • {formatDateTime(latestQcForSelected.createdAt)}</strong>
-                  </div>
-                ) : (
-                  <div style={styles.quickAccessRow}>
-                    <span>Latest QC Result</span>
-                    <strong>No prior QC record yet</strong>
-                  </div>
-                )}
-
-                <div style={styles.formStack}>
-                  {checklistItems.map((item) => (
-                    <label key={item.key} style={styles.checkboxCard}>
-                      <input
-                        type="checkbox"
-                        checked={checks[item.key]}
-                        disabled={!canPerformQC}
-                        onChange={(e) => setChecks((prev) => ({ ...prev, [item.key]: e.target.checked }))}
-                      />
-                      <span>{item.label}</span>
-                    </label>
-                  ))}
-                </div>
-
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>QC Notes</label>
-                  <textarea
-                    style={{ ...styles.textarea, minHeight: 120 }}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    disabled={!canPerformQC}
-                    placeholder="Enter findings. Required when QC fails."
-                  />
-                </div>
-
-                {error ? <div style={styles.errorBox}>{error}</div> : null}
-
-                <div style={isCompactLayout ? styles.stickyActionBar : styles.inlineActions}>
-                  <button
-                    type="button"
-                    style={{ ...styles.smallButtonDanger, ...(isCompactLayout ? styles.actionButtonWide : {}) }}
-                    disabled={!canPerformQC}
-                    onClick={() => submitQC("Failed")}
-                  >
-                    Fail QC
-                  </button>
-                  <button
-                    type="button"
-                    style={{ ...styles.smallButtonSuccess, ...(isCompactLayout ? styles.actionButtonWide : {}) }}
-                    disabled={!canPerformQC}
-                    onClick={() => submitQC("Passed")}
-                  >
-                    Pass QC
-                  </button>
-                </div>
-              </div>
-            )}
-          </Card>
-
-          <div style={{ marginTop: 16 }}>
-            <Card title="Recent QC History" subtitle="Latest QC results">
-              {!history.length ? (
-                <div style={styles.emptyState}>No QC history yet.</div>
-              ) : isCompactLayout ? (
-                <div style={styles.mobileCardList}>
-                  {history.map((row) => (
-                    <div key={row.id} style={styles.mobileCard}>
-                      <div style={styles.mobileCardHeader}>
-                        <div>
-                          <div style={styles.mobileCardTitle}>{row.qcNumber}</div>
-                          <div style={styles.mobileCardSubtitle}>{row.roNumber}</div>
-                        </div>
-                        <span style={row.result === "Passed" ? styles.statusOk : styles.statusLocked}>{row.result}</span>
-                      </div>
-                      <div style={styles.mobileCardMeta}>By: {row.qcBy}</div>
-                      <div style={styles.mobileCardMeta}>{formatDateTime(row.createdAt)}</div>
-                      {row.notes ? <div style={styles.mobileCardNote}>{row.notes}</div> : null}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div style={styles.tableWrap}>
-                  <table style={styles.table}>
-                    <thead>
-                      <tr>
-                        <th style={styles.th}>QC No.</th>
-                        <th style={styles.th}>RO</th>
-                        <th style={styles.th}>Result</th>
-                        <th style={styles.th}>By</th>
-                        <th style={styles.th}>Date</th>
-                        <th style={styles.th}>Notes</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {history.map((row) => (
-                        <tr key={row.id}>
-                          <td style={styles.td}>{row.qcNumber}</td>
-                          <td style={styles.td}>{row.roNumber}</td>
-                          <td style={styles.td}>
-                            <span style={row.result === "Passed" ? styles.statusOk : styles.statusLocked}>{row.result}</span>
-                          </td>
-                          <td style={styles.td}>{row.qcBy}</td>
-                          <td style={styles.td}>{formatDateTime(row.createdAt)}</td>
-                          <td style={styles.td}>{row.notes || "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </Card>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function UsersPage({
   currentUser,
@@ -10210,16 +9859,26 @@ function ShopFloorPage({
       prev.map((row) => {
         if (row.id !== selectedRO.id) return row;
 
+        const targetLine = row.workLines.find((l) => l.id === workLineId);
+        if (!targetLine) return row;
+
+        if (targetLine.approvalDecision !== "Approved" && status !== "Pending") return row;
+
+        if (targetLine.status === "Waiting Parts" && status === "Completed") return row;
+
         const nextWorkLines = row.workLines.map((line) =>
           line.id === workLineId ? { ...line, status, completedAt: status === "Completed" ? now : line.completedAt } : line
         );
 
-        const allCompleted = nextWorkLines.length > 0 && nextWorkLines.every((line) => line.status === "Completed");
+        const approvedLines = nextWorkLines.filter(
+          (l) => l.approvalDecision !== "Declined" && l.approvalDecision !== "Deferred"
+        );
+        const allApprovedCompleted = approvedLines.length > 0 && approvedLines.every((l) => l.status === "Completed");
         const hasWaitingParts = nextWorkLines.some((line) => line.status === "Waiting Parts");
         const hasInProgress = nextWorkLines.some((line) => line.status === "In Progress");
 
         let nextStatus = row.status;
-        if (allCompleted && !["Released", "Closed"].includes(row.status)) {
+        if (allApprovedCompleted && !["Released", "Closed"].includes(row.status)) {
           nextStatus = "Quality Check";
         } else if (hasWaitingParts && row.status !== "Quality Check") {
           nextStatus = "Waiting Parts";

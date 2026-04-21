@@ -110,6 +110,7 @@ function getPaymentStatusFromAmounts(totalAmount: string, paymentTotal: number):
 
 function getROStatusStyle(status: ROStatus): React.CSSProperties {
   if (status === "Draft") return styles.statusNeutral;
+  if (status === "Pulled Out") return styles.statusLocked;
   if (status === "Waiting Inspection" || status === "Waiting Approval") return styles.statusInfo;
   if (status === "Approved / Ready to Work" || status === "Ready Release" || status === "Released" || status === "Closed") return styles.statusOk;
   if (status === "Waiting Parts" || status === "Quality Check") return styles.statusWarning;
@@ -240,6 +241,7 @@ function ReleasePage({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Cash");
   const [paymentReferenceNumber, setPaymentReferenceNumber] = useState("");
   const [paymentNotes, setPaymentNotes] = useState("");
+  const [pullOutReason, setPullOutReason] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -319,6 +321,7 @@ function ReleasePage({
     setPaymentMethod("Cash");
     setPaymentReferenceNumber("");
     setPaymentNotes("");
+    setPullOutReason("");
   }, [selectedRO, selectedInvoice]);
 
   const finalTotalAmount = calculateInvoiceTotal(finalServiceAmount, finalPartsAmount, discountAmount).toFixed(2);
@@ -433,6 +436,7 @@ function ReleasePage({
 
   const releaseVehicle = () => {
     if (!selectedRO) return;
+    if (selectedRO.status !== "Ready Release") return;
     const invoice = upsertInvoice("Finalized");
     if (!invoice) return;
     if (!latestQcPassed) {
@@ -471,6 +475,32 @@ function ReleasePage({
           : row
       )
     );
+    setError("");
+  };
+
+  const pullOutVehicle = () => {
+    if (!selectedRO) return;
+    if (selectedRO.status !== "Ready Release") return;
+    if (!pullOutReason.trim()) {
+      setError("A pull-out reason is required.");
+      return;
+    }
+    const now = new Date().toISOString();
+    setRepairOrders((prev) =>
+      prev.map((row) =>
+        row.id === selectedRO.id
+          ? {
+              ...row,
+              status: "Pulled Out",
+              pullOutReason: pullOutReason.trim(),
+              pulledOutAt: now,
+              pulledOutBy: currentUser.fullName,
+              updatedAt: now,
+            }
+          : row
+      )
+    );
+    setPullOutReason("");
     setError("");
   };
 
@@ -834,6 +864,35 @@ function ReleasePage({
                   <label style={styles.checkboxCard}><input type="checkbox" checked={toolsRemoved} onChange={(e) => setToolsRemoved(e.target.checked)} /> <span>Tools removed and area checked</span></label>
                 </div>
 
+                {selectedRO.status === "Ready Release" ? (
+                  <div style={styles.pullOutSection}>
+                    <div style={styles.sectionTitle}>Pull Out Vehicle</div>
+                    <div style={styles.formHint}>
+                      Use this if the customer is taking the vehicle before repairs are fully settled. A pull-out reason is required and the RO will be marked as Pulled Out.
+                    </div>
+                    <div style={{ marginTop: 10 }}>
+                      <div style={styles.formGroup}>
+                        <label style={styles.label}>Pull-Out Reason</label>
+                        <textarea
+                          style={styles.textarea}
+                          value={pullOutReason}
+                          onChange={(e) => setPullOutReason(e.target.value)}
+                          placeholder="State the reason the vehicle is being pulled out without normal release."
+                        />
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 10 }}>
+                      <button
+                        type="button"
+                        style={isCompactLayout ? { ...styles.smallButtonDanger, ...styles.actionButtonWide } : styles.smallButtonDanger}
+                        onClick={pullOutVehicle}
+                      >
+                        Confirm Pull Out
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
                 {error ? <div style={styles.errorBox}>{error}</div> : null}
 
                 <div style={isCompactLayout ? styles.stickyActionBar : styles.inlineActions}>
@@ -1064,6 +1123,10 @@ const styles: Record<string, React.CSSProperties> = {
     border: "none", borderRadius: 10, padding: "8px 10px",
     background: "#64748b", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12,
   },
+  smallButtonDanger: {
+    border: "none", borderRadius: 10, padding: "8px 10px",
+    background: "#dc2626", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12,
+  },
   inlineActions: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" },
 
   stickyActionBar: {
@@ -1079,6 +1142,13 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 16, boxShadow: "0 6px 22px rgba(15, 23, 42, 0.06)",
   },
   sectionTitle: { fontSize: 15, fontWeight: 800, color: "#0f172a", marginBottom: 10 },
+
+  pullOutSection: {
+    background: "#fff7ed",
+    border: "1px solid #fed7aa",
+    borderRadius: 16,
+    padding: 14,
+  },
 
   summaryBar: {
     display: "flex", alignItems: "center", justifyContent: "space-between",

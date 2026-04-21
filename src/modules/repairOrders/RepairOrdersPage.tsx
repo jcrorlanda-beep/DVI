@@ -11,9 +11,6 @@ import type {
   ApprovalLinkToken,
 } from "../shared/types";
 
-;
-// TODO: Import all needed types and helpers from shared modules when modularized
-
 function RepairOrdersPage({
   currentUser,
   users,

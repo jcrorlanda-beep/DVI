@@ -7,19 +7,12 @@ import type {
   BackjobRecord,
   BackjobOutcome,
 } from "../shared/types";
-import { formatDateTime, getResponsiveSpan } from "../shared/helpers";
+import { formatDateTime, getResponsiveSpan, todayStamp } from "../shared/helpers";
 
 // --- local helpers ---
 
 function uid(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function todayStamp(date = new Date()) {
-  const yyyy = date.getFullYear().toString();
-  const mm = `${date.getMonth() + 1}`.padStart(2, "0");
-  const dd = `${date.getDate()}`.padStart(2, "0");
-  return `${yyyy}${mm}${dd}`;
 }
 
 function readLocalStorage<T>(key: string, fallback: T): T {
@@ -245,8 +238,12 @@ function BackjobPage({
   };
 
   const saveBackjob = () => {
+    if (!selectedRoId) {
+      setError("A linked repair order is required. Select the original RO before saving a backjob.");
+      return;
+    }
     if (!selectedRO) {
-      setError("Select a linked repair order first.");
+      setError("The selected repair order could not be found. Please select a valid existing RO.");
       return;
     }
     if (!complaint.trim()) {

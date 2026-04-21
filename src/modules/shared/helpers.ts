@@ -1,7 +1,7 @@
 // src/modules/shared/helpers.ts
 // Shared helper functions extracted from App.tsx
 
-import type { UserRole, RoleDefinition, Permission, WorkLog } from "./types";
+import type { UserRole, RoleDefinition, Permission, WorkLog, RepairOrderRecord, RepairOrderWorkLine, PartsRequestRecord, PartsRequestStatus } from "./types";
 
 export function getPermissionsForRole(role: UserRole, defs: RoleDefinition[]): Permission[] {
   const def = defs.find((d) => d.role === role);
@@ -55,4 +55,66 @@ export function formatDateTime(value: string) {
 
 export function getResponsiveSpan(span: number, isCompactLayout: boolean) {
   return isCompactLayout ? "span 12" : `span ${span}`;
+}
+
+export function canReleaseRO(ro: RepairOrderRecord): boolean {
+  return ro.status === "Ready Release";
+}
+
+export function canExecuteWorkLine(ro: RepairOrderRecord, line: RepairOrderWorkLine): boolean {
+  if (ro.status !== "In Progress" && ro.status !== "Waiting Parts") return false;
+  if (line.approvalDecision === "Declined" || line.approvalDecision === "Deferred") return false;
+  return line.status === "Pending" || line.status === "Waiting Parts";
+}
+
+const PARTS_BLOCKING_STATUSES: PartsRequestStatus[] = [
+  "Draft",
+  "Requested",
+  "Sent to Suppliers",
+  "Waiting for Bids",
+  "Bidding",
+  "Supplier Selected",
+  "Ordered",
+  "In Transit",
+  "Shipped",
+];
+
+export function isWorkLineBlockedByParts(line: RepairOrderWorkLine, partsRequests: PartsRequestRecord[]): boolean {
+  if (line.status === "Waiting Parts") return true;
+  return partsRequests.some(
+    (req) => req.workLineId === line.id && PARTS_BLOCKING_STATUSES.includes(req.status)
+  );
+}
+
+export function canCompleteWorkLine(ro: RepairOrderRecord, line: RepairOrderWorkLine, partsRequests?: PartsRequestRecord[]): boolean {
+  if (ro.status !== "In Progress" && ro.status !== "Waiting Parts") return false;
+  if (line.status !== "In Progress") return false;
+  if (partsRequests && isWorkLineBlockedByParts(line, partsRequests)) return false;
+  return true;
+}
+
+export function canMoveToQualityCheck(ro: RepairOrderRecord): boolean {
+  if (ro.status !== "In Progress" && ro.status !== "Waiting Parts") return false;
+  const approvedOrUnapproved = ro.workLines.filter(
+    (l) => l.approvalDecision !== "Declined" && l.approvalDecision !== "Deferred"
+  );
+  return approvedOrUnapproved.length > 0 && approvedOrUnapproved.every((l) => l.status === "Completed");
+}
+
+export function canTransitionROStatus(ro: RepairOrderRecord, to: RepairOrderRecord["status"]): boolean {
+  const from = ro.status;
+  const allowed: Partial<Record<RepairOrderRecord["status"], RepairOrderRecord["status"][]>> = {
+    "Draft": ["Waiting Inspection", "Approved / Ready to Work"],
+    "Waiting Inspection": ["Waiting Approval", "Approved / Ready to Work"],
+    "Waiting Approval": ["Approved / Ready to Work"],
+    "Approved / Ready to Work": ["In Progress", "Pulled Out"],
+    "In Progress": ["Waiting Parts", "Quality Check", "Pulled Out"],
+    "Waiting Parts": ["In Progress", "Pulled Out"],
+    "Quality Check": ["Ready Release", "In Progress"],
+    "Ready Release": ["Released", "Pulled Out"],
+    "Released": ["Closed"],
+    "Pulled Out": [],
+    "Closed": [],
+  };
+  return (allowed[from] ?? []).includes(to);
 }

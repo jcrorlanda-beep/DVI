@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import type { SessionUser, RepairOrderRecord, ROStatus } from "../shared/types";
+import type { SessionUser, RepairOrderRecord, ROStatus, WorkLineStatus } from "../shared/types";
 import { formatCurrency, parseMoneyInput, getResponsiveSpan } from "../shared/helpers";
 
 // --- local types ---
@@ -77,6 +77,7 @@ type PartsRequestRecord = {
   requestNumber: string;
   roId: string;
   roNumber: string;
+  workLineId?: string;
   createdAt: string;
   updatedAt: string;
   requestedBy: string;
@@ -95,6 +96,20 @@ type PartsRequestRecord = {
   bids: SupplierBid[];
   returnRecords: PartsReturnRecord[];
 };
+
+// --- local constants ---
+
+const PARTS_BLOCKING_STATUSES: PartsRequestStatus[] = [
+  "Draft",
+  "Requested",
+  "Sent to Suppliers",
+  "Waiting for Bids",
+  "Bidding",
+  "Supplier Selected",
+  "Ordered",
+  "In Transit",
+  "Shipped",
+];
 
 // --- local helpers ---
 
@@ -250,6 +265,7 @@ function PartsPage({
   const [selectedRequestId, setSelectedRequestId] = useState("");
   const [createForm, setCreateForm] = useState({
     roId: "",
+    workLineId: "",
     partName: "",
     partNumber: "",
     quantity: "1",
@@ -307,7 +323,25 @@ function PartsPage({
     }
   }, [selectedRequestId, visibleRequests]);
 
-  const selectedRO = useMemo(() => sortedRepairOrders.find((row) => row.id === createForm.roId) ?? null, [createForm.roId, sortedRepairOrders]);
+  const selectedRO = useMemo(
+    () => sortedRepairOrders.find((row) => row.id === createForm.roId) ?? null,
+    [createForm.roId, sortedRepairOrders]
+  );
+
+  // Work lines eligible for parts linkage: approved and not yet completed
+  const linkableWorkLines = useMemo(() => {
+    if (!selectedRO) return [];
+    return selectedRO.workLines.filter(
+      (line) =>
+        line.approvalDecision === "Approved" &&
+        line.status !== "Completed"
+    );
+  }, [selectedRO]);
+
+  // Reset workLineId when RO changes
+  useEffect(() => {
+    setCreateForm((prev) => ({ ...prev, workLineId: "" }));
+  }, [createForm.roId]);
 
   const setLinkedRoStatus = (roId: string, status: ROStatus) => {
     if (!roId) return;
@@ -315,6 +349,23 @@ function PartsPage({
       prev.map((row) =>
         row.id === roId && !["Released", "Closed"].includes(row.status)
           ? { ...row, status, updatedAt: new Date().toISOString() }
+          : row
+      )
+    );
+  };
+
+  const setLinkedWorkLineStatus = (roId: string, workLineId: string, status: WorkLineStatus) => {
+    if (!roId || !workLineId) return;
+    setRepairOrders((prev) =>
+      prev.map((row) =>
+        row.id === roId
+          ? {
+              ...row,
+              updatedAt: new Date().toISOString(),
+              workLines: row.workLines.map((line) =>
+                line.id === workLineId ? { ...line, status } : line
+              ),
+            }
           : row
       )
     );
@@ -347,6 +398,7 @@ function PartsPage({
       requestNumber: nextDailyNumber("PR"),
       roId: ro.id,
       roNumber: ro.roNumber,
+      workLineId: createForm.workLineId || undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       requestedBy: currentUser.fullName,
@@ -368,9 +420,13 @@ function PartsPage({
 
     setPartsRequests((prev) => [record, ...prev]);
     setSelectedRequestId(record.id);
-    setCreateForm({ roId: "", partName: "", partNumber: "", quantity: "1", urgency: "Medium", notes: "", customerSellingPrice: "" });
+    setCreateForm({ roId: "", workLineId: "", partName: "", partNumber: "", quantity: "1", urgency: "Medium", notes: "", customerSellingPrice: "" });
     setCreateError("");
+
     setLinkedRoStatus(ro.id, "Waiting Parts");
+    if (record.workLineId) {
+      setLinkedWorkLineStatus(ro.id, record.workLineId, "Waiting Parts");
+    }
   };
 
   const addBid = (e: React.FormEvent) => {
@@ -473,11 +529,30 @@ function PartsPage({
     updateRequest(request.id, (row) => ({ ...row, status, updatedAt: new Date().toISOString() }));
     if (status === "Arrived" || status === "Parts Arrived") {
       setLinkedRoStatus(request.roId, "In Progress");
+      if (request.workLineId) {
+        setLinkedWorkLineStatus(request.roId, request.workLineId, "In Progress");
+      }
     }
-    if (["Draft", "Requested", "Sent to Suppliers", "Waiting for Bids", "Bidding", "Supplier Selected", "Ordered", "In Transit", "Shipped", "Return Requested"].includes(status)) {
+    if (PARTS_BLOCKING_STATUSES.includes(status)) {
       setLinkedRoStatus(request.roId, "Waiting Parts");
+      if (request.workLineId) {
+        setLinkedWorkLineStatus(request.roId, request.workLineId, "Waiting Parts");
+      }
     }
   };
+
+  // Look up linked work line for the selected request
+  const selectedRequestRO = useMemo(
+    () => (selectedRequest ? repairOrders.find((row) => row.id === selectedRequest.roId) ?? null : null),
+    [selectedRequest, repairOrders]
+  );
+  const linkedWorkLine = useMemo(
+    () =>
+      selectedRequest?.workLineId && selectedRequestRO
+        ? selectedRequestRO.workLines.find((line) => line.id === selectedRequest.workLineId) ?? null
+        : null,
+    [selectedRequest, selectedRequestRO]
+  );
 
   return (
     <div style={styles.pageContent}>
@@ -502,7 +577,7 @@ function PartsPage({
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}><div style={styles.statCard}><div style={styles.statLabel}>Selected Bid Value</div><div style={styles.statValueSmall}>{formatCurrency(totalSelectedBidsValue)}</div><div style={styles.statNote}>Internal purchasing visibility</div></div></div>
 
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(5, isCompactLayout) }}>
-          <Card title="Create Parts Request" subtitle="Link request to a repair order before sending it to suppliers">
+          <Card title="Create Parts Request" subtitle="Link request to a repair order and optionally to a specific approved work line">
             <form onSubmit={createRequest} style={styles.formStack}>
               <div style={styles.formGroup}>
                 <label style={styles.label}>Linked RO</label>
@@ -512,6 +587,24 @@ function PartsPage({
                 </select>
                 {selectedRO ? <div style={styles.formHint}>Vehicle: {[selectedRO.make, selectedRO.model, selectedRO.year].filter(Boolean).join(" ")} • Status: {selectedRO.status}</div> : null}
               </div>
+
+              {selectedRO && linkableWorkLines.length > 0 ? (
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Linked Work Line (optional)</label>
+                  <select style={styles.select} value={createForm.workLineId} onChange={(e) => setCreateForm((prev) => ({ ...prev, workLineId: e.target.value }))}>
+                    <option value="">No specific work line</option>
+                    {linkableWorkLines.map((line) => (
+                      <option key={line.id} value={line.id}>
+                        {line.title || "Untitled"} — {line.category || "General"} [{line.status}]
+                      </option>
+                    ))}
+                  </select>
+                  <div style={styles.formHint}>Linking a work line blocks its completion until parts arrive.</div>
+                </div>
+              ) : selectedRO && linkableWorkLines.length === 0 ? (
+                <div style={styles.formHint}>No approved in-progress work lines available to link.</div>
+              ) : null}
+
               <div style={styles.formGroup}><label style={styles.label}>Part Name</label><input style={styles.input} value={createForm.partName} onChange={(e) => setCreateForm((prev) => ({ ...prev, partName: e.target.value }))} placeholder="Example: Front brake pads" /></div>
               <div style={isCompactLayout ? styles.formStack : styles.twoColumnForm}>
                 <div style={styles.formGroup}><label style={styles.label}>Part Number</label><input style={styles.input} value={createForm.partNumber} onChange={(e) => setCreateForm((prev) => ({ ...prev, partNumber: e.target.value }))} placeholder="Optional part number" /></div>
@@ -535,12 +628,22 @@ function PartsPage({
               {visibleRequests.length === 0 ? <div style={styles.emptyState}>No parts requests yet.</div> : visibleRequests.map((row) => {
                 const selected = row.id === selectedRequest?.id;
                 const chosenBid = row.bids.find((bid) => bid.id === row.selectedBidId) ?? null;
+                const linkedRO = repairOrders.find((ro) => ro.id === row.roId) ?? null;
+                const linkedLine = row.workLineId && linkedRO ? linkedRO.workLines.find((line) => line.id === row.workLineId) ?? null : null;
                 return (
                   <button key={row.id} type="button" onClick={() => setSelectedRequestId(row.id)} style={{ ...styles.mobileDataCard, ...(selected ? styles.mobileDataCardSelected : {}), textAlign: "left", width: "100%" }}>
                     <div style={styles.mobileDataCardHeader}><strong>{row.requestNumber}</strong><span style={getPartsRequestStatusStyle(row.status)}>{row.status}</span></div>
                     <div style={styles.mobileDataSecondary}>{row.partName}</div>
                     <div style={styles.mobileMetaRow}><span>RO</span><strong>{row.roNumber || "Unlinked"}</strong></div>
                     <div style={styles.mobileMetaRow}><span>Vehicle</span><strong>{row.plateNumber || row.vehicleLabel || "-"}</strong></div>
+                    {linkedLine ? (
+                      <div style={styles.mobileMetaRow}>
+                        <span>Work Line</span>
+                        <strong style={linkedLine.status === "Waiting Parts" ? { color: "#b45309" } : undefined}>
+                          {linkedLine.title || "Untitled"} [{linkedLine.status}]
+                        </strong>
+                      </div>
+                    ) : null}
                     <div style={styles.mobileMetaRow}><span>Workshop Photos</span><strong>{row.workshopPhotos.length}</strong></div>
                     <div style={styles.mobileMetaRow}><span>Bids</span><strong>{row.bids.length}</strong></div>
                     <div style={styles.mobileMetaRow}><span>Selected Supplier</span><strong>{chosenBid?.supplierName || "Not selected"}</strong></div>
@@ -563,8 +666,21 @@ function PartsPage({
                     <div><strong>RO</strong><div>{selectedRequest.roNumber}</div></div>
                     <div><strong>Vehicle</strong><div>{selectedRequest.plateNumber || selectedRequest.vehicleLabel || "-"}</div></div>
                     <div><strong>Requested By</strong><div>{selectedRequest.requestedBy}</div></div>
+                    {linkedWorkLine ? (
+                      <div>
+                        <strong>Work Line</strong>
+                        <div style={linkedWorkLine.status === "Waiting Parts" ? { color: "#b45309", fontWeight: 700 } : undefined}>
+                          {linkedWorkLine.title || "Untitled"} — {linkedWorkLine.status}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                   <div style={styles.concernBanner}><strong>Request Notes:</strong> {selectedRequest.notes || "No notes entered."}</div>
+                  {linkedWorkLine && linkedWorkLine.status === "Waiting Parts" ? (
+                    <div style={styles.waitingPartsNotice}>
+                      Work line is currently blocked — completion is locked until this parts request is marked as Arrived or Parts Arrived.
+                    </div>
+                  ) : null}
                 </div>
 
                 <div style={styles.grid}>
@@ -820,6 +936,16 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "10px 14px",
     fontSize: 13,
     color: "#991b1b",
+  },
+
+  waitingPartsNotice: {
+    background: "#fff7ed",
+    border: "1px solid #fed7aa",
+    borderRadius: 10,
+    padding: "10px 14px",
+    fontSize: 13,
+    color: "#92400e",
+    fontWeight: 600,
   },
 
   inlineActions: { display: "flex", gap: 10, flexWrap: "wrap" as const, alignItems: "center" },

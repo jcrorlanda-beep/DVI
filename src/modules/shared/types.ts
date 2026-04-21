@@ -60,6 +60,9 @@ export type RepairOrderRecord = {
   backjobReferenceRoId: string;
   findingRecommendationDecisions: FindingRecommendationDecision[];
   encodedBy: string;
+  pullOutReason?: string;
+  pulledOutAt?: string;
+  pulledOutBy?: string;
 };
 
 export type QCRecord = {
@@ -264,6 +267,7 @@ export type ROStatus =
   | "Quality Check"
   | "Ready Release"
   | "Released"
+  | "Pulled Out"
   | "Closed";
 
 export type ApprovalDecision = "Pending" | "Approved" | "Declined" | "Deferred";
@@ -289,6 +293,7 @@ export type RepairOrderWorkLine = {
   partsMarkupPercent: string;
   estimateUploadName?: string;
   recommendationSource?: string;
+  sourceRecommendationId?: string;
   approvalDecision?: ApprovalDecision;
   approvalAt?: string;
   assignedTechnicianId?: string;
@@ -302,7 +307,7 @@ export type FindingRecommendationDecision = {
   recommendationId: string;
   title: string;
   category: string;
-  decision: "Approved" | "Declined" | "Deferred";
+  decision: ApprovalDecision;
   decidedAt: string;
   note: string;
 };
@@ -574,4 +579,46 @@ export type ApprovalLinkToken = {
   lastUsedAt: string;
   revokedAt: string;
   channel: "SMS" | "Manual";
+};
+
+export type PartsRequestStatus =
+  | "Draft"
+  | "Requested"
+  | "Sent to Suppliers"
+  | "Waiting for Bids"
+  | "Bidding"
+  | "Supplier Selected"
+  | "Ordered"
+  | "In Transit"
+  | "Shipped"
+  | "Arrived"
+  | "Parts Arrived"
+  | "Return Requested"
+  | "Return Approved"
+  | "Return Rejected"
+  | "Closed"
+  | "Cancelled";
+
+export type PartsRequestUrgency = "Low" | "Medium" | "High";
+
+export type PartsRequestRecord = {
+  id: string;
+  requestNumber: string;
+  roId: string;
+  roNumber: string;
+  workLineId?: string;
+  createdAt: string;
+  updatedAt: string;
+  requestedBy: string;
+  status: PartsRequestStatus;
+  partName: string;
+  partNumber: string;
+  quantity: string;
+  urgency: PartsRequestUrgency;
+  notes: string;
+  customerSellingPrice: string;
+  selectedBidId: string;
+  plateNumber: string;
+  vehicleLabel: string;
+  accountLabel: string;
 };
