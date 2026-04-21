@@ -2148,6 +2148,304 @@ function buildFindingToRORecommendations(record: InspectionRecord): FindingToROR
   );
 }
 
+type CustomerInspectionStatus = "Good" | "Needs Attention" | "Critical";
+
+type CustomerInspectionFinding = {
+  title: string;
+  status: CustomerInspectionStatus;
+  note: string;
+};
+
+type CustomerInspectionSection = {
+  label: string;
+  note: string;
+  findings: CustomerInspectionFinding[];
+};
+
+function getCustomerInspectionStatus(value: string): CustomerInspectionStatus | null {
+  if (value === "Good" || value === "OK") return "Good";
+  if (value === "Monitor" || value === "Needs Attention") return "Needs Attention";
+  if (value === "Replace" || value === "Needs Replacement") return "Critical";
+  return null;
+}
+
+function getCustomerInspectionStatusStyle(status: CustomerInspectionStatus): React.CSSProperties {
+  if (status === "Good") return styles.statusOk;
+  if (status === "Needs Attention") return styles.statusWarning;
+  return styles.statusLocked;
+}
+
+function joinInspectionNotes(...notes: Array<string | number | null | undefined>) {
+  return notes
+    .map((note) => String(note ?? "").trim())
+    .filter(Boolean)
+    .join(" • ");
+}
+
+function buildCustomerInspectionSections(record: InspectionRecord): CustomerInspectionSection[] {
+  const sections: CustomerInspectionSection[] = [];
+
+  const pushSection = (label: string, findings: CustomerInspectionFinding[], note = "") => {
+    if (!findings.length && !note.trim()) return;
+    sections.push({ label, note: note.trim(), findings });
+  };
+
+  const pushFinding = (findings: CustomerInspectionFinding[], title: string, value: string, note = "") => {
+    const status = getCustomerInspectionStatus(value);
+    if (!status) return;
+    findings.push({ title, status, note: note.trim() });
+  };
+
+  const arrivalFindings: CustomerInspectionFinding[] = [];
+  pushFinding(arrivalFindings, "Exterior lights", record.arrivalLights);
+  pushFinding(arrivalFindings, "Broken glass", record.arrivalBrokenGlass);
+  pushFinding(arrivalFindings, "Wipers", record.arrivalWipers);
+  pushFinding(arrivalFindings, "Horn", record.arrivalHorn);
+  pushFinding(arrivalFindings, "Check engine light", record.arrivalCheckEngineLight);
+  pushFinding(arrivalFindings, "ABS light", record.arrivalAbsLight);
+  pushFinding(arrivalFindings, "Airbag light", record.arrivalAirbagLight);
+  pushFinding(arrivalFindings, "Battery light", record.arrivalBatteryLight);
+  pushFinding(arrivalFindings, "Oil pressure light", record.arrivalOilPressureLight);
+  pushFinding(arrivalFindings, "Temperature light", record.arrivalTempLight);
+  pushFinding(arrivalFindings, "Transmission light", record.arrivalTransmissionLight);
+  pushFinding(arrivalFindings, "Other warning light", record.arrivalOtherWarningLight, record.arrivalOtherWarningNote);
+  pushSection("Arrival / Safety", arrivalFindings, joinInspectionNotes(record.inspectionPhotoNotes, record.arrivalOtherWarningNote));
+
+  const tireFindings: CustomerInspectionFinding[] = [];
+  pushFinding(tireFindings, "Front left tire", record.frontLeftTireState, joinInspectionNotes(
+    record.frontLeftTreadMm ? `Tread ${record.frontLeftTreadMm} mm` : "",
+    record.frontLeftWearPattern ? `Wear ${record.frontLeftWearPattern}` : ""
+  ));
+  pushFinding(tireFindings, "Front right tire", record.frontRightTireState, joinInspectionNotes(
+    record.frontRightTreadMm ? `Tread ${record.frontRightTreadMm} mm` : "",
+    record.frontRightWearPattern ? `Wear ${record.frontRightWearPattern}` : ""
+  ));
+  pushFinding(tireFindings, "Rear left tire", record.rearLeftTireState, joinInspectionNotes(
+    record.rearLeftTreadMm ? `Tread ${record.rearLeftTreadMm} mm` : "",
+    record.rearLeftWearPattern ? `Wear ${record.rearLeftWearPattern}` : ""
+  ));
+  pushFinding(tireFindings, "Rear right tire", record.rearRightTireState, joinInspectionNotes(
+    record.rearRightTreadMm ? `Tread ${record.rearRightTreadMm} mm` : "",
+    record.rearRightWearPattern ? `Wear ${record.rearRightWearPattern}` : ""
+  ));
+  pushSection("Tires", tireFindings);
+
+  const underHoodFindings: CustomerInspectionFinding[] = [];
+  pushFinding(underHoodFindings, "Under hood overall", record.underHoodState, record.underHoodSummary);
+  pushFinding(underHoodFindings, "Engine oil level", record.engineOilLevel, record.engineOilNotes);
+  pushFinding(underHoodFindings, "Engine oil condition", record.engineOilCondition, record.engineOilNotes);
+  pushFinding(underHoodFindings, "Engine oil leaks", record.engineOilLeaks, joinInspectionNotes(record.engineOilNotes, record.leakNotes));
+  pushFinding(underHoodFindings, "Coolant level", record.coolantLevel, record.coolantNotes);
+  pushFinding(underHoodFindings, "Coolant condition", record.coolantCondition, record.coolantNotes);
+  pushFinding(underHoodFindings, "Radiator hose condition", record.radiatorHoseCondition, record.coolantNotes);
+  pushFinding(underHoodFindings, "Cooling leaks", record.coolingLeaks, record.coolantNotes);
+  pushFinding(underHoodFindings, "Brake fluid level", record.brakeFluidLevel, record.brakeFluidNotes);
+  pushFinding(underHoodFindings, "Brake fluid condition", record.brakeFluidCondition, record.brakeFluidNotes);
+  pushFinding(underHoodFindings, "Power steering level", record.powerSteeringLevel, record.powerSteeringNotes);
+  pushFinding(underHoodFindings, "Power steering condition", record.powerSteeringCondition, record.powerSteeringNotes);
+  pushFinding(underHoodFindings, "Battery condition", record.batteryCondition, record.batteryNotes);
+  pushFinding(underHoodFindings, "Battery terminal condition", record.batteryTerminalCondition, record.batteryNotes);
+  pushFinding(underHoodFindings, "Battery hold-down condition", record.batteryHoldDownCondition, record.batteryNotes);
+  pushFinding(underHoodFindings, "Drive belt condition", record.driveBeltCondition, record.beltNotes);
+  pushFinding(underHoodFindings, "Air filter condition", record.airFilterCondition, record.intakeNotes);
+  pushFinding(underHoodFindings, "Intake hose condition", record.intakeHoseCondition, record.intakeNotes);
+  pushFinding(underHoodFindings, "Engine mount condition", record.engineMountCondition);
+  pushFinding(underHoodFindings, "Wiring condition", record.wiringCondition);
+  pushFinding(underHoodFindings, "Unusual smell", record.unusualSmellState);
+  pushFinding(underHoodFindings, "Unusual sound", record.unusualSoundState);
+  pushFinding(underHoodFindings, "Visible engine leak", record.visibleEngineLeakState, record.leakNotes);
+  pushSection("Under Hood", underHoodFindings, record.underHoodSummary);
+
+  const brakeFindings: CustomerInspectionFinding[] = [];
+  pushFinding(brakeFindings, "Front brake condition", record.frontBrakeState, joinInspectionNotes(record.frontBrakeCondition, record.brakeFluidNotes));
+  pushFinding(brakeFindings, "Rear brake condition", record.rearBrakeState, joinInspectionNotes(record.rearBrakeCondition, record.brakeFluidNotes));
+  pushSection("Brakes", brakeFindings, joinInspectionNotes(record.brakeFluidNotes));
+
+  const coolingFindings: CustomerInspectionFinding[] = [];
+  pushFinding(coolingFindings, "Cooling fan operation", record.coolingFanOperationState, record.coolingSystemNotes);
+  pushFinding(coolingFindings, "Radiator condition", record.radiatorConditionState, record.coolingSystemNotes);
+  pushFinding(coolingFindings, "Water pump condition", record.waterPumpConditionState, record.coolingSystemNotes);
+  pushFinding(coolingFindings, "Thermostat condition", record.thermostatConditionState, record.coolingSystemNotes);
+  pushFinding(coolingFindings, "Overflow reservoir condition", record.overflowReservoirConditionState, record.coolingSystemNotes);
+  pushFinding(coolingFindings, "Cooling system pressure", record.coolingSystemPressureState, record.coolingSystemNotes);
+  record.coolingAdditionalFindings.forEach((finding) => {
+    const status = getCustomerInspectionStatus(finding.status);
+    if (!status) return;
+    coolingFindings.push({
+      title: finding.title.trim() || "Cooling finding",
+      status,
+      note: joinInspectionNotes(finding.note, finding.photoNotes.join(" • ")),
+    });
+  });
+  pushSection("Cooling System", coolingFindings, record.coolingSystemNotes);
+
+  const steeringFindings: CustomerInspectionFinding[] = [];
+  pushFinding(steeringFindings, "Steering wheel play", record.steeringWheelPlayState, record.steeringSystemNotes);
+  pushFinding(steeringFindings, "Steering pump / EPS motor", record.steeringPumpMotorState, record.steeringSystemNotes);
+  pushFinding(steeringFindings, "Steering fluid condition", record.steeringFluidConditionState, record.steeringSystemNotes);
+  pushFinding(steeringFindings, "Steering hose condition", record.steeringHoseConditionState, record.steeringSystemNotes);
+  pushFinding(steeringFindings, "Steering column condition", record.steeringColumnConditionState, record.steeringSystemNotes);
+  pushFinding(steeringFindings, "Road feel", record.steeringRoadFeelState, record.steeringSystemNotes);
+  record.steeringAdditionalFindings.forEach((finding) => {
+    const status = getCustomerInspectionStatus(finding.status);
+    if (!status) return;
+    steeringFindings.push({
+      title: finding.title.trim() || "Steering finding",
+      status,
+      note: joinInspectionNotes(finding.note, finding.photoNotes.join(" • ")),
+    });
+  });
+  pushSection("Steering", steeringFindings, record.steeringSystemNotes);
+
+  const engineFindings: CustomerInspectionFinding[] = [];
+  pushFinding(engineFindings, "Starting performance", record.engineStartingState, record.enginePerformanceNotes);
+  pushFinding(engineFindings, "Idle quality", record.idleQualityState, record.enginePerformanceNotes);
+  pushFinding(engineFindings, "Acceleration response", record.accelerationResponseState, record.enginePerformanceNotes);
+  pushFinding(engineFindings, "Misfire", record.engineMisfireState, record.enginePerformanceNotes);
+  pushFinding(engineFindings, "Smoke", record.engineSmokeState, record.enginePerformanceNotes);
+  pushFinding(engineFindings, "Fuel efficiency concern", record.fuelEfficiencyConcernState, record.enginePerformanceNotes);
+  record.enginePerformanceAdditionalFindings.forEach((finding) => {
+    const status = getCustomerInspectionStatus(finding.status);
+    if (!status) return;
+    engineFindings.push({
+      title: finding.title.trim() || "Engine performance finding",
+      status,
+      note: joinInspectionNotes(finding.note, finding.photoNotes.join(" • ")),
+    });
+  });
+  pushSection("Engine Performance", engineFindings, record.enginePerformanceNotes);
+
+  const roadTestFindings: CustomerInspectionFinding[] = [];
+  pushFinding(roadTestFindings, "Noise during road test", record.roadTestNoiseState, record.roadTestNotes);
+  pushFinding(roadTestFindings, "Brake feel", record.roadTestBrakeFeelState, record.roadTestNotes);
+  pushFinding(roadTestFindings, "Steering tracking", record.roadTestSteeringTrackingState, record.roadTestNotes);
+  pushFinding(roadTestFindings, "Ride quality", record.roadTestRideQualityState, record.roadTestNotes);
+  pushFinding(roadTestFindings, "Acceleration", record.roadTestAccelerationState, record.roadTestNotes);
+  pushFinding(roadTestFindings, "Transmission shift quality", record.roadTestTransmissionShiftState, record.roadTestNotes);
+  record.roadTestAdditionalFindings.forEach((finding) => {
+    const status = getCustomerInspectionStatus(finding.status);
+    if (!status) return;
+    roadTestFindings.push({
+      title: finding.title.trim() || "Road test finding",
+      status,
+      note: joinInspectionNotes(finding.note, finding.photoNotes.join(" • ")),
+    });
+  });
+  pushSection("Road Test", roadTestFindings, record.roadTestNotes);
+
+  const acFindings: CustomerInspectionFinding[] = [];
+  pushFinding(acFindings, "Cooling performance", record.acCoolingPerformanceState, joinInspectionNotes(record.acVentTemperature ? `Vent temperature ${record.acVentTemperature}` : "", record.acNotes));
+  pushFinding(acFindings, "Compressor condition", record.acCompressorState, record.acNotes);
+  pushFinding(acFindings, "Condenser fan condition", record.acCondenserFanState, record.acNotes);
+  pushFinding(acFindings, "Cabin filter condition", record.acCabinFilterState, record.acNotes);
+  pushFinding(acFindings, "Airflow condition", record.acAirflowState, record.acNotes);
+  pushFinding(acFindings, "Odor condition", record.acOdorState, record.acNotes);
+  pushSection("A/C", acFindings, joinInspectionNotes(record.acVentTemperature ? `Vent temperature ${record.acVentTemperature}` : "", record.acNotes));
+
+  const electricalFindings: CustomerInspectionFinding[] = [];
+  pushFinding(electricalFindings, "Starter", record.electricalStarterState, record.electricalNotes);
+  pushFinding(electricalFindings, "Alternator", record.electricalAlternatorState, record.electricalNotes);
+  pushFinding(electricalFindings, "Fuse / relay", record.electricalFuseRelayState, record.electricalNotes);
+  pushFinding(electricalFindings, "Wiring", record.electricalWiringState, record.electricalNotes);
+  pushFinding(electricalFindings, "Warning light", record.electricalWarningLightState, record.electricalNotes);
+  if (record.electricalBatteryVoltage.trim()) {
+    electricalFindings.push({ title: "Battery voltage", status: "Good", note: record.electricalBatteryVoltage.trim() });
+  }
+  if (record.electricalChargingVoltage.trim()) {
+    electricalFindings.push({ title: "Charging voltage", status: "Good", note: record.electricalChargingVoltage.trim() });
+  }
+  pushSection("Electrical", electricalFindings, record.electricalNotes);
+
+  const transmissionFindings: CustomerInspectionFinding[] = [];
+  pushFinding(transmissionFindings, "Transmission fluid", record.transmissionFluidState, record.transmissionNotes);
+  pushFinding(transmissionFindings, "Transmission fluid condition", record.transmissionFluidConditionState, record.transmissionNotes);
+  pushFinding(transmissionFindings, "Transmission leak", record.transmissionLeakState, record.transmissionNotes);
+  pushFinding(transmissionFindings, "Shifting performance", record.shiftingPerformanceState, record.transmissionNotes);
+  pushFinding(transmissionFindings, "Clutch operation", record.clutchOperationState, record.transmissionNotes);
+  pushFinding(transmissionFindings, "Drivetrain vibration", record.drivetrainVibrationState, record.transmissionNotes);
+  pushFinding(transmissionFindings, "CV joint / drive axle", record.cvJointDriveAxleState, record.transmissionNotes);
+  pushFinding(transmissionFindings, "Transmission mount", record.transmissionMountState, record.transmissionNotes);
+  pushSection("Transmission", transmissionFindings, record.transmissionNotes);
+
+  const suspensionFindings: CustomerInspectionFinding[] = [];
+  pushFinding(suspensionFindings, "Front shock", record.frontShockState, record.frontSuspensionNotes);
+  pushFinding(suspensionFindings, "Front ball joint", record.frontBallJointState, record.frontSuspensionNotes);
+  pushFinding(suspensionFindings, "Front tie rod end", record.frontTieRodEndState, record.frontSuspensionNotes);
+  pushFinding(suspensionFindings, "Front rack end", record.frontRackEndState, record.frontSuspensionNotes);
+  pushFinding(suspensionFindings, "Front stabilizer link", record.frontStabilizerLinkState, record.frontSuspensionNotes);
+  pushFinding(suspensionFindings, "Front control arm bushing", record.frontControlArmBushingState, record.frontSuspensionNotes);
+  pushFinding(suspensionFindings, "Front upper control arm", record.frontUpperControlArmState, record.frontSuspensionNotes);
+  pushFinding(suspensionFindings, "Front lower control arm", record.frontLowerControlArmState, record.frontSuspensionNotes);
+  pushFinding(suspensionFindings, "Front strut mount", record.frontStrutMountState, record.frontSuspensionNotes);
+  pushFinding(suspensionFindings, "Steering rack", record.steeringRackConditionState, record.steeringFeelNotes);
+  pushFinding(suspensionFindings, "Front CV boot", record.frontCvBootState, record.frontSuspensionNotes);
+  pushFinding(suspensionFindings, "Front wheel bearing", record.frontWheelBearingState, record.frontSuspensionNotes);
+  pushFinding(suspensionFindings, "Rear shock", record.rearShockState, record.rearSuspensionNotes);
+  pushFinding(suspensionFindings, "Rear stabilizer link", record.rearStabilizerLinkState, record.rearSuspensionNotes);
+  pushFinding(suspensionFindings, "Rear bushing", record.rearBushingState, record.rearSuspensionNotes);
+  pushFinding(suspensionFindings, "Rear spring", record.rearSpringState, record.rearSuspensionNotes);
+  pushFinding(suspensionFindings, "Rear control arm", record.rearControlArmState, record.rearSuspensionNotes);
+  pushFinding(suspensionFindings, "Rear coil spring", record.rearCoilSpringState, record.rearSuspensionNotes);
+  pushFinding(suspensionFindings, "Rear leaf spring", record.rearLeafSpringState, record.rearSuspensionNotes);
+  pushFinding(suspensionFindings, "Rear leaf spring bushing", record.rearLeafSpringBushingState, record.rearSuspensionNotes);
+  pushFinding(suspensionFindings, "Rear U-bolt mount", record.rearUBoltMountState, record.rearSuspensionNotes);
+  pushFinding(suspensionFindings, "Rear axle mount", record.rearAxleMountState, record.rearSuspensionNotes);
+  pushFinding(suspensionFindings, "Rear wheel bearing", record.rearWheelBearingState, record.rearSuspensionNotes);
+  pushSection("Suspension", suspensionFindings, joinInspectionNotes(record.rearSuspensionType, record.frontSuspensionNotes, record.rearSuspensionNotes, record.steeringFeelNotes, record.suspensionRoadTestNotes));
+
+  const scanFindings: CustomerInspectionFinding[] = [];
+  if (record.scanPerformed || record.scanNotes.trim() || record.scanUploadNames.length > 0) {
+    scanFindings.push({
+      title: "Scan performed",
+      status: record.scanPerformed ? "Good" : "Needs Attention",
+      note: joinInspectionNotes(record.scanToolUsed, record.scanNotes),
+    });
+  }
+  if (record.scanUploadNames.length > 0) {
+    scanFindings.push({
+      title: "Scan file uploads",
+      status: "Good",
+      note: record.scanUploadNames.join(" • "),
+    });
+  }
+  pushSection("Scan / Diagnostics", scanFindings, joinInspectionNotes(record.scanToolUsed, record.scanNotes));
+
+  const alignmentFindings: CustomerInspectionFinding[] = [];
+  if (record.alignmentRecommended || record.alignmentConcernNotes.trim() || record.alignmentBeforePrintoutName.trim() || record.alignmentAfterPrintoutName.trim()) {
+    alignmentFindings.push({
+      title: "Alignment check",
+      status: record.alignmentRecommended ? "Needs Attention" : "Good",
+      note: joinInspectionNotes(
+        record.alignmentConcernNotes,
+        record.alignmentBeforePrintoutName ? `Before printout: ${record.alignmentBeforePrintoutName}` : "",
+        record.alignmentAfterPrintoutName ? `After printout: ${record.alignmentAfterPrintoutName}` : ""
+      ),
+    });
+  }
+  pushSection("Alignment", alignmentFindings, record.alignmentConcernNotes);
+
+  if (record.inspectionNotes.trim()) {
+    pushSection("Inspection Notes", [{
+      title: "Overall notes",
+      status: "Good",
+      note: record.inspectionNotes.trim(),
+    }], "");
+  }
+
+  return sections;
+}
+
+function groupInspectionMediaBySection(items: InspectionEvidenceRecord[]) {
+  const grouped = new Map<string, InspectionEvidenceRecord[]>();
+  items.forEach((item) => {
+    const key = item.section.trim() || "General";
+    const current = grouped.get(key) ?? [];
+    current.push(item);
+    grouped.set(key, current);
+  });
+  return Array.from(grouped.entries()).map(([section, media]) => ({ section, media }));
+}
+
 function isAttentionOrReplacement(value: InspectionCheckValue) {
   return value === "Needs Attention" || value === "Needs Replacement";
 }
@@ -3643,6 +3941,20 @@ function CustomerPortalPage({
 
   const activeJobCount = linkedRepairOrders.filter((row) => !["Released", "Closed"].includes(row.status)).length;
   const releasedJobCount = linkedRepairOrders.filter((row) => ["Released", "Closed"].includes(row.status)).length;
+  const portalInspectionRows = useMemo(() => {
+    const seenInspectionIds = new Set<string>();
+    const rows: Array<{ row: RepairOrderRecord; inspection: InspectionRecord }> = [];
+
+    linkedRepairOrders.forEach((row) => {
+      const inspection = inspectionRecords.find((r) => r.id === row.inspectionId || r.intakeId === row.intakeId) ?? null;
+      if (!inspection || seenInspectionIds.has(inspection.id)) return;
+      seenInspectionIds.add(inspection.id);
+      rows.push({ row, inspection });
+    });
+
+    return rows;
+  }, [inspectionRecords, linkedRepairOrders]);
+
   const activePortalLinks = approvalLinkTokens.filter((row) => {
     if (row.customerId !== customer.id || row.revokedAt) return false;
     const ro = repairOrders.find((r) => r.id === row.roId);
@@ -3965,89 +4277,272 @@ function CustomerPortalPage({
               </div>
             ) : portalView === "inspection" ? (
               <div style={styles.mobileCardList}>
-                <div style={styles.sectionCardMuted}>
+                <div style={{ ...styles.sectionCardMuted, marginBottom: 8 }}>
                   <div style={styles.sectionTitle}>Condition Legend</div>
-                  <div style={styles.inlineActions}>
-                    <span style={styles.statusOk}>Good</span>
-                    <span style={styles.statusNeutral}>Monitor</span>
-                    <span style={styles.statusWarning}>Needs Attention</span>
-                    <span style={styles.statusLocked}>Needs Replacement</span>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, marginTop: 6 }}>
+                    <span style={{ background: "#dcfce7", color: "#15803d", borderRadius: 4, padding: "2px 10px", fontWeight: 600, fontSize: 12 }}>Good</span>
+                    <span style={{ background: "#fef3c7", color: "#b45309", borderRadius: 4, padding: "2px 10px", fontWeight: 600, fontSize: 12 }}>Needs Attention</span>
+                    <span style={{ background: "#fee2e2", color: "#b91c1c", borderRadius: 4, padding: "2px 10px", fontWeight: 600, fontSize: 12 }}>Critical</span>
                   </div>
                 </div>
+                {portalInspectionRows.length === 0 ? (
+                  <div style={styles.emptyState}>No inspection records available.</div>
+                ) : (
+                  portalInspectionRows.map(({ row, inspection }) => {
+                    const sections = buildCustomerInspectionSections(inspection);
+                    const allFindings = sections.flatMap((section) => section.findings);
+                    const statusTotals = allFindings.reduce(
+                      (acc, finding) => {
+                        acc[finding.status] += 1;
+                        return acc;
+                      },
+                      { Good: 0, "Needs Attention": 0, Critical: 0 } as Record<CustomerInspectionStatus, number>
+                    );
+                    const mediaGroups = groupInspectionMediaBySection(inspection.evidenceItems);
+                    const mediaCount = mediaGroups.reduce((sum, group) => sum + group.media.length, 0);
+
+                    return (
+                      <div key={inspection.id} style={{ ...styles.mobileDataCard, padding: 0, overflow: "hidden" }}>
+                        <div style={{ background: "#1e293b", padding: "12px 14px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" as const, gap: 6 }}>
+                            <strong style={{ color: "#f8fafc", fontSize: 15 }}>{inspection.inspectionNumber}</strong>
+                            <span style={getInspectionStatusStyle(inspection.status)}>{inspection.status}</span>
+                          </div>
+                          <div style={{ color: "#94a3b8", fontSize: 13, marginTop: 2 }}>{row.roNumber} â€¢ {inspection.accountLabel}</div>
+                          <div style={{ color: "#64748b", fontSize: 12 }}>{inspection.plateNumber || inspection.conductionNumber || "-"} â€¢ {[inspection.make, inspection.model, inspection.year].filter(Boolean).join(" ") || "-"}</div>
+                          <div style={{ color: "#94a3b8", fontSize: 12 }}>Created {formatDateTime(inspection.createdAt)} â€¢ Updated {formatDateTime(inspection.updatedAt)}</div>
+                        </div>
+
+                        <div style={{ padding: "12px 14px" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+                            <div style={{ background: "#dcfce7", borderRadius: 6, padding: "8px 10px", textAlign: "center" as const }}>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: "#15803d" }}>{statusTotals.Good}</div>
+                              <div style={{ fontSize: 11, color: "#15803d" }}>Good</div>
+                            </div>
+                            <div style={{ background: "#fef3c7", borderRadius: 6, padding: "8px 10px", textAlign: "center" as const }}>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: "#b45309" }}>{statusTotals["Needs Attention"]}</div>
+                              <div style={{ fontSize: 11, color: "#b45309" }}>Needs Attention</div>
+                            </div>
+                            <div style={{ background: "#fee2e2", borderRadius: 6, padding: "8px 10px", textAlign: "center" as const }}>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: "#b91c1c" }}>{statusTotals.Critical}</div>
+                              <div style={{ fontSize: 11, color: "#b91c1c" }}>Critical</div>
+                            </div>
+                            <div style={{ background: "#e2e8f0", borderRadius: 6, padding: "8px 10px", textAlign: "center" as const }}>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: "#334155" }}>{mediaCount}</div>
+                              <div style={{ fontSize: 11, color: "#334155" }}>Media</div>
+                            </div>
+                          </div>
+
+                          {sections.length === 0 ? (
+                            <div style={styles.emptyState}>No inspection findings recorded.</div>
+                          ) : (
+                            sections.map((section) => (
+                              <div key={section.label} style={{ marginBottom: 14 }}>
+                                <div style={{ fontWeight: 600, fontSize: 13, color: "#334155", borderBottom: "1px solid #e2e8f0", paddingBottom: 4, marginBottom: 8 }}>
+                                  {section.label} <span style={{ fontWeight: 400, color: "#94a3b8", fontSize: 12 }}>({section.findings.length})</span>
+                                </div>
+                                {section.note ? <div style={styles.concernCard}>{section.note}</div> : null}
+                                <div style={styles.formStack}>
+                                  {section.findings.map((finding, findingIndex) => (
+                                    <div key={`${section.label}_${finding.title}_${findingIndex}`} style={styles.sectionCardMuted}>
+                                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" as const }}>
+                                        <strong style={{ fontSize: 14 }}>{finding.title}</strong>
+                                        <span style={getCustomerInspectionStatusStyle(finding.status)}>{finding.status}</span>
+                                      </div>
+                                      {finding.note ? (
+                                        <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>
+                                          {finding.note}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))
+                          )}
+
+                          {mediaGroups.length > 0 ? (
+                            <div style={{ marginTop: 12 }}>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: "#334155", borderBottom: "1px solid #e2e8f0", paddingBottom: 4, marginBottom: 8 }}>
+                                Photos / Videos ({mediaCount})
+                              </div>
+                              <div style={styles.formStack}>
+                                {mediaGroups.map(({ section, media }) => (
+                                  <div key={section}>
+                                    <div style={{ fontWeight: 600, fontSize: 13, color: "#334155", marginBottom: 6 }}>
+                                      {section} ({media.length})
+                                    </div>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 8 }}>
+                                      {media.map((item) => (
+                                        <div key={item.id} style={{ borderRadius: 6, overflow: "hidden", border: "1px solid #e2e8f0", background: "#fff" }}>
+                                          {item.previewDataUrl && item.type === "Photo" ? (
+                                            <img
+                                              src={item.previewDataUrl}
+                                              alt={item.itemLabel || item.section || "Inspection photo"}
+                                              style={{ width: "100%", aspectRatio: "1", objectFit: "cover" as const, display: "block" }}
+                                            />
+                                          ) : item.previewDataUrl && item.type === "Video" ? (
+                                            <video
+                                              src={item.previewDataUrl}
+                                              controls
+                                              style={{ width: "100%", aspectRatio: "1", objectFit: "cover" as const, display: "block", background: "#0f172a" }}
+                                            />
+                                          ) : (
+                                            <div style={{ minHeight: 92, padding: "10px 8px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 4, background: "#f8fafc" }}>
+                                              <strong style={{ fontSize: 12, color: "#0f172a" }}>{item.type}</strong>
+                                              <span style={{ fontSize: 11, color: "#64748b" }}>{item.fileName}</span>
+                                            </div>
+                                          )}
+                                          <div style={{ padding: "4px 6px", fontSize: 10, color: "#64748b", background: "#f8fafc" }}>
+                                            {item.itemLabel || item.section || item.fileName}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
                 {linkedRepairOrders.length === 0 ? (
                   <div style={styles.emptyState}>No inspection records available.</div>
                 ) : (
                   linkedRepairOrders.map((row) => {
-                    const grouped = row.workLines.reduce((acc, line) => {
+                    const linkedInspection = inspectionRecords.find(
+                      (r) => r.id === row.inspectionId || r.intakeId === row.intakeId
+                    ) ?? null;
+
+                    const conditionOf = (line: RepairOrderWorkLine) => {
+                      const raw = getCustomerConditionLabelFromWorkLine(line);
+                      return raw === "Needs Replacement" ? "Critical" : raw === "Monitor" ? "Needs Attention" : raw;
+                    };
+
+                    const cardStyleFor = (cond: string): React.CSSProperties => {
+                      if (cond === "Good") return { borderLeft: "4px solid #15803d", background: "#f0fdf4", borderRadius: 6, padding: "10px 12px", marginBottom: 6 };
+                      if (cond === "Needs Attention") return { borderLeft: "4px solid #b45309", background: "#fffbeb", borderRadius: 6, padding: "10px 12px", marginBottom: 6 };
+                      return { borderLeft: "4px solid #b91c1c", background: "#fff1f2", borderRadius: 6, padding: "10px 12px", marginBottom: 6 };
+                    };
+
+                    const badgeFor = (cond: string): React.CSSProperties => {
+                      if (cond === "Good") return { background: "#dcfce7", color: "#15803d", borderRadius: 4, padding: "2px 8px", fontWeight: 700, fontSize: 11 };
+                      if (cond === "Needs Attention") return { background: "#fef3c7", color: "#b45309", borderRadius: 4, padding: "2px 8px", fontWeight: 700, fontSize: 11 };
+                      return { background: "#fee2e2", color: "#b91c1c", borderRadius: 4, padding: "2px 8px", fontWeight: 700, fontSize: 11 };
+                    };
+
+                    const allLines = row.workLines;
+                    const criticalLines = allLines.filter((l) => conditionOf(l) === "Critical");
+                    const needsAttentionLines = allLines.filter((l) => conditionOf(l) === "Needs Attention");
+                    const goodLines = allLines.filter((l) => conditionOf(l) === "Good");
+
+                    const grouped = allLines.reduce((acc, line) => {
                       const key = line.category || "General";
                       if (!acc[key]) acc[key] = [];
                       acc[key].push(line);
                       return acc;
                     }, {} as Record<string, RepairOrderWorkLine[]>);
 
+                    const evidencePhotos = linkedInspection
+                      ? linkedInspection.evidenceItems.filter((e) => e.type === "Photo" && e.previewDataUrl)
+                      : [];
+
+                    const FindingCard = ({ line }: { line: RepairOrderWorkLine }) => {
+                      const cond = conditionOf(line);
+                      return (
+                        <div style={cardStyleFor(cond)}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" as const }}>
+                            <strong style={{ fontSize: 14 }}>{line.title || "Untitled"}</strong>
+                            <span style={badgeFor(cond)}>{cond}</span>
+                          </div>
+                          {(line.customerDescription || line.notes) ? (
+                            <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>
+                              {line.customerDescription || line.notes}
+                            </div>
+                          ) : null}
+                          {line.customerDescription && line.notes ? (
+                            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Note: {line.notes}</div>
+                          ) : null}
+                          <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "#64748b", flexWrap: "wrap" as const }}>
+                            <span>Estimate: <strong style={{ color: "#0f172a" }}>{formatCurrency(parseMoneyInput(line.totalEstimate))}</strong></span>
+                            <span>Decision: <strong style={{ color: "#0f172a" }}>{line.approvalDecision ?? "Pending"}</strong></span>
+                          </div>
+                        </div>
+                      );
+                    };
+
                     return (
-                      <div key={row.id} style={styles.mobileDataCard}>
-                        <div style={styles.mobileDataCardHeader}>
-                          <strong>{row.roNumber}</strong>
-                          <span style={styles.statusInfo}>{row.status}</span>
-                        </div>
-                        <div style={styles.mobileDataPrimary}>{row.accountLabel}</div>
-                        <div style={styles.mobileDataSecondary}>
-                          {row.plateNumber || row.conductionNumber || "-"} • {[row.make, row.model, row.year].filter(Boolean).join(" ")}
+                      <div key={row.id} style={{ ...styles.mobileDataCard, padding: 0, overflow: "hidden" }}>
+                        <div style={{ background: "#1e293b", padding: "12px 14px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" as const, gap: 6 }}>
+                            <strong style={{ color: "#f8fafc", fontSize: 15 }}>{row.roNumber}</strong>
+                            <span style={{ background: "#334155", color: "#cbd5e1", borderRadius: 4, padding: "2px 8px", fontSize: 12 }}>{row.status}</span>
+                          </div>
+                          <div style={{ color: "#94a3b8", fontSize: 13, marginTop: 2 }}>{row.accountLabel}</div>
+                          <div style={{ color: "#64748b", fontSize: 12 }}>{row.plateNumber || row.conductionNumber || "-"} • {[row.make, row.model, row.year].filter(Boolean).join(" ")}</div>
                         </div>
 
-                        <div style={styles.sectionCardMuted}>
-                          <div style={styles.sectionTitle}>Inspection Summary</div>
-                          <div style={styles.quickAccessList}>
-                            <div style={styles.quickAccessRow}>
-                              <span>Total Findings</span>
-                              <strong>{row.workLines.length}</strong>
+                        <div style={{ padding: "12px 14px" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
+                            <div style={{ background: "#dcfce7", borderRadius: 6, padding: "8px 10px", textAlign: "center" as const }}>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: "#15803d" }}>{goodLines.length}</div>
+                              <div style={{ fontSize: 11, color: "#15803d" }}>Good</div>
                             </div>
-                            <div style={styles.quickAccessRow}>
-                              <span>Approved</span>
-                              <strong>{row.workLines.filter((l) => l.approvalDecision === "Approved").length}</strong>
+                            <div style={{ background: "#fef3c7", borderRadius: 6, padding: "8px 10px", textAlign: "center" as const }}>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: "#b45309" }}>{needsAttentionLines.length}</div>
+                              <div style={{ fontSize: 11, color: "#b45309" }}>Needs Attention</div>
                             </div>
-                            <div style={styles.quickAccessRow}>
-                              <span>Pending</span>
-                              <strong>{row.workLines.filter((l) => (l.approvalDecision ?? "Pending") === "Pending").length}</strong>
+                            <div style={{ background: "#fee2e2", borderRadius: 6, padding: "8px 10px", textAlign: "center" as const }}>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: "#b91c1c" }}>{criticalLines.length}</div>
+                              <div style={{ fontSize: 11, color: "#b91c1c" }}>Critical</div>
                             </div>
                           </div>
-                        </div>
 
-                        <div style={styles.sectionCardMuted}>
-                          <div style={styles.sectionTitle}>Inspection Evidence</div>
-                          <div style={styles.formHint}>
-                            Photos, videos, scan reports, and printouts uploaded during inspection appear in the internal record. This customer view shows the inspection summary and itemized results.
-                          </div>
-                        </div>
+                          {criticalLines.length > 0 ? (
+                            <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
+                              <div style={{ fontWeight: 700, color: "#b91c1c", fontSize: 13, marginBottom: 8 }}>Critical — Requires Immediate Attention</div>
+                              {criticalLines.map((line) => <FindingCard key={`crit_${line.id}`} line={line} />)}
+                            </div>
+                          ) : null}
 
-                        {Object.entries(grouped).length === 0 ? (
-                          <div style={styles.emptyState}>No findings recorded.</div>
-                        ) : (
-                          Object.entries(grouped).map(([category, lines]) => (
-                            <div key={category} style={styles.sectionCardMuted}>
-                              <div style={styles.sectionTitle}>{category}</div>
-                              <div style={styles.formHint}>{lines.length} item(s) in this category</div>
-                              <div style={styles.formStack}>
-                                {lines.map((line, idx) => {
-                                  const customerCondition = getCustomerConditionLabelFromWorkLine(line);
-                                  return (
-                                    <div key={line.id || idx} style={styles.concernCard}>
-                                      <div style={styles.mobileDataCardHeader}>
-                                        <strong>{line.title || "Untitled"}</strong>
-                                        <span style={getCustomerConditionStyle(customerCondition)}>{customerCondition}</span>
-                                      </div>
-                                      <div style={styles.formHint}>Workflow Status: {line.status}</div>
-                                      <div style={styles.formHint}>Recommendation: {line.approvalDecision ?? "Pending"}</div>
-                                      <div style={styles.formHint}>Estimate: {formatCurrency(parseMoneyInput(line.totalEstimate))}</div>
-                                      {line.notes ? <div style={styles.formHint}>Notes: {line.notes}</div> : null}
-                                    </div>
-                                  );
-                                })}
+                          {Object.entries(grouped).length === 0 ? (
+                            <div style={styles.emptyState}>No findings recorded.</div>
+                          ) : (
+                            Object.entries(grouped).map(([category, lines]) => (
+                              <div key={category} style={{ marginBottom: 14 }}>
+                                <div style={{ fontWeight: 600, fontSize: 13, color: "#334155", borderBottom: "1px solid #e2e8f0", paddingBottom: 4, marginBottom: 8 }}>
+                                  {category} <span style={{ fontWeight: 400, color: "#94a3b8", fontSize: 12 }}>({lines.length})</span>
+                                </div>
+                                {lines.map((line) => <FindingCard key={`grp_${line.id}`} line={line} />)}
+                              </div>
+                            ))
+                          )}
+
+                          {evidencePhotos.length > 0 ? (
+                            <div style={{ marginTop: 12 }}>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: "#334155", borderBottom: "1px solid #e2e8f0", paddingBottom: 4, marginBottom: 8 }}>
+                                Inspection Photos ({evidencePhotos.length})
+                              </div>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: 6 }}>
+                                {evidencePhotos.map((photo) => (
+                                  <div key={photo.id} style={{ borderRadius: 6, overflow: "hidden", border: "1px solid #e2e8f0" }}>
+                                    <img
+                                      src={photo.previewDataUrl}
+                                      alt={photo.itemLabel || photo.section || "Inspection photo"}
+                                      style={{ width: "100%", aspectRatio: "1", objectFit: "cover" as const, display: "block" }}
+                                    />
+                                    {photo.itemLabel ? (
+                                      <div style={{ padding: "3px 5px", fontSize: 10, color: "#64748b", background: "#f8fafc" }}>{photo.itemLabel}</div>
+                                    ) : null}
+                                  </div>
+                                ))}
                               </div>
                             </div>
-                          ))
-                        )}
+                          ) : null}
+                        </div>
                       </div>
                     );
                   })
