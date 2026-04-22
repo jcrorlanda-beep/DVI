@@ -573,6 +573,25 @@ type ServiceReminderView = {
   body: string;
 };
 
+type MaintenanceSuggestionItem = {
+  id: string;
+  title: string;
+  reason: string;
+  intervalTag: string;
+};
+
+type MileageSuggestionRule = {
+  id: string;
+  title: string;
+  reason: string;
+  intervalTag: string;
+  intervalKm?: number;
+  startKm?: number;
+  bandMinKm?: number;
+  bandMaxKm?: number;
+  minKm?: number;
+};
+
 
 type BookingStatus = "New" | "Confirmed" | "Arrived" | "No Show" | "Rescheduled" | "Cancelled" | "Converted to Intake";
 type BookingServiceType =
@@ -1209,6 +1228,87 @@ function addDaysToDate(dateValue: string, days: number) {
 function parseOdometerValue(value: string) {
   const parsed = Number(String(value ?? "").replace(/,/g, "").trim());
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+const MILEAGE_SUGGESTION_WINDOW_KM = 500;
+
+const MILEAGE_SUGGESTION_RULES: MileageSuggestionRule[] = [
+  { id: "m5000_oil_change", title: "Engine Oil Change", reason: "Recommended every 5,000 km for engine lubrication protection.", intervalTag: "Every 5,000 km", intervalKm: 5000, startKm: 5000 },
+  { id: "m5000_oil_filter", title: "Oil Filter Replacement", reason: "Oil filter service is due every 5,000 km interval.", intervalTag: "Every 5,000 km", intervalKm: 5000, startKm: 5000 },
+  { id: "m5000_safety_inspection", title: "Safety Inspection", reason: "Routine safety inspection is due at the 5,000 km cycle.", intervalTag: "Every 5,000 km", intervalKm: 5000, startKm: 5000 },
+  { id: "m5000_tire_rotation", title: "Tire Rotation", reason: "Tire rotation helps maintain even wear every 5,000 km.", intervalTag: "Every 5,000 km", intervalKm: 5000, startKm: 5000 },
+  { id: "m5000_fluid_check", title: "Fluid Check", reason: "Fluid condition and levels should be checked every 5,000 km.", intervalTag: "Every 5,000 km", intervalKm: 5000, startKm: 5000 },
+
+  { id: "m10000_air_filter", title: "Air Filter Inspection/Replacement", reason: "Air filter service is due at each 10,000 km interval.", intervalTag: "Every 10,000 km", intervalKm: 10000, startKm: 10000 },
+  { id: "m10000_cabin_filter", title: "Cabin Filter Inspection/Replacement", reason: "Cabin air filter service is recommended every 10,000 km.", intervalTag: "Every 10,000 km", intervalKm: 10000, startKm: 10000 },
+  { id: "m10000_brake_inspection", title: "Brake Inspection/Cleaning", reason: "Brake inspection and cleaning are due on the 10,000 km cycle.", intervalTag: "Every 10,000 km", intervalKm: 10000, startKm: 10000 },
+  { id: "m10000_underchassis", title: "Underchassis Inspection", reason: "Underchassis components should be checked every 10,000 km.", intervalTag: "Every 10,000 km", intervalKm: 10000, startKm: 10000 },
+  { id: "m10000_alignment", title: "Wheel Alignment Check", reason: "Wheel alignment check is recommended at every 10,000 km interval.", intervalTag: "Every 10,000 km", intervalKm: 10000, startKm: 10000 },
+
+  { id: "m20000_throttle", title: "Throttle Body / Intake Check", reason: "Throttle/intake cleaning and inspection are due every 20,000 km.", intervalTag: "Every 20,000 km", intervalKm: 20000, startKm: 20000 },
+  { id: "m20000_brake_service", title: "Brake Service", reason: "Comprehensive brake service is recommended every 20,000 km.", intervalTag: "Every 20,000 km", intervalKm: 20000, startKm: 20000 },
+  { id: "m20000_battery", title: "Battery / Charging Check", reason: "Battery and charging system checks are due every 20,000 km.", intervalTag: "Every 20,000 km", intervalKm: 20000, startKm: 20000 },
+  { id: "m20000_suspension", title: "Suspension Check", reason: "Suspension inspection is part of the 20,000 km maintenance cycle.", intervalTag: "Every 20,000 km", intervalKm: 20000, startKm: 20000 },
+
+  { id: "m30000_egr", title: "EGR and Intake Manifold Cleaning (if applicable)", reason: "Conditional service at 30,000 km repeating intervals if applicable.", intervalTag: "Every 30,000 km (if applicable)", intervalKm: 30000, startKm: 30000 },
+
+  { id: "m40000_transmission", title: "Transmission Service Check", reason: "Transmission service check is due every 40,000 km.", intervalTag: "Every 40,000 km", intervalKm: 40000, startKm: 40000 },
+  { id: "m40000_coolant", title: "Coolant Service Check", reason: "Coolant service check is part of the 40,000 km cycle.", intervalTag: "Every 40,000 km", intervalKm: 40000, startKm: 40000 },
+  { id: "m40000_fuel", title: "Fuel System Cleaning", reason: "Fuel system cleaning is recommended at each 40,000 km interval.", intervalTag: "Every 40,000 km", intervalKm: 40000, startKm: 40000 },
+  { id: "m40000_spark", title: "Spark Plug Inspection", reason: "Spark plugs should be inspected every 40,000 km.", intervalTag: "Every 40,000 km", intervalKm: 40000, startKm: 40000 },
+
+  { id: "m50000_60000_suspension", title: "Full Suspension Check", reason: "Full suspension check is recommended in the 50,000-60,000 km band.", intervalTag: "50,000-60,000 km", bandMinKm: 50000, bandMaxKm: 60000 },
+  { id: "m50000_60000_brakes", title: "Full Brake System Check", reason: "Full brake system check is recommended in the 50,000-60,000 km band.", intervalTag: "50,000-60,000 km", bandMinKm: 50000, bandMaxKm: 60000 },
+
+  { id: "m80000_major", title: "Major Service Review", reason: "At 80,000 km and above, perform a major service review.", intervalTag: "80,000 km+", minKm: 80000 },
+  { id: "m80000_timing", title: "Timing Belt/Chain Inspection", reason: "At 80,000 km and above, inspect timing belt/chain based on vehicle type.", intervalTag: "80,000 km+", minKm: 80000 },
+];
+
+function normalizeMaintenanceText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function matchesMileageSuggestionRule(km: number, rule: MileageSuggestionRule) {
+  if (typeof rule.bandMinKm === "number" && typeof rule.bandMaxKm === "number") {
+    return km >= rule.bandMinKm - MILEAGE_SUGGESTION_WINDOW_KM && km <= rule.bandMaxKm + MILEAGE_SUGGESTION_WINDOW_KM;
+  }
+
+  if (typeof rule.minKm === "number") {
+    return km >= rule.minKm;
+  }
+
+  if (rule.intervalKm) {
+    const startKm = rule.startKm ?? rule.intervalKm;
+    if (km < startKm - MILEAGE_SUGGESTION_WINDOW_KM) return false;
+    const closestInterval = Math.round(km / rule.intervalKm) * rule.intervalKm;
+    const targetKm = Math.max(startKm, closestInterval);
+    return Math.abs(km - targetKm) <= MILEAGE_SUGGESTION_WINDOW_KM;
+  }
+
+  return false;
+}
+
+function buildMileageBasedMaintenanceSuggestions(odometerKm: number): MaintenanceSuggestionItem[] {
+  return MILEAGE_SUGGESTION_RULES
+    .filter((rule) => matchesMileageSuggestionRule(odometerKm, rule))
+    .map((rule) => ({
+      id: rule.id,
+      title: rule.title,
+      reason: rule.reason,
+      intervalTag: rule.intervalTag,
+    }));
+}
+
+function hasMaintenanceTitleMatch(existingTitles: string[], suggestionTitle: string) {
+  const suggestionNormalized = normalizeMaintenanceText(suggestionTitle);
+  return existingTitles.some((title) => {
+    const existingNormalized = normalizeMaintenanceText(title);
+    return (
+      existingNormalized === suggestionNormalized ||
+      existingNormalized.includes(suggestionNormalized) ||
+      suggestionNormalized.includes(existingNormalized)
+    );
+  });
 }
 
 function getOilChangePolicy(oilType: OilChangeReminderType) {
@@ -9340,6 +9440,10 @@ function RepairOrdersPage({
   const [isSavingSmsProviderSettings, setIsSavingSmsProviderSettings] = useState(false);
   const [isGeneratingApprovalLink, setIsGeneratingApprovalLink] = useState(false);
   const [resendingSmsLogId, setResendingSmsLogId] = useState("");
+  const [draftMaintenanceRecommendations, setDraftMaintenanceRecommendations] = useState<MaintenanceSuggestionItem[]>([]);
+  const [dismissedDraftMaintenanceSuggestionIds, setDismissedDraftMaintenanceSuggestionIds] = useState<string[]>([]);
+  const [roMaintenanceRecommendationsByRoId, setRoMaintenanceRecommendationsByRoId] = useState<Record<string, MaintenanceSuggestionItem[]>>({});
+  const [dismissedMaintenanceSuggestionIdsByRoId, setDismissedMaintenanceSuggestionIdsByRoId] = useState<Record<string, string[]>>({});
 
   const sortedRepairOrders = useMemo(() => repairOrders, [repairOrders]);
 
@@ -9921,6 +10025,34 @@ function RepairOrdersPage({
     ? selectedRO.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length
     : 0;
 
+  const draftOdometerKm = useMemo(() => parseOdometerValue(form.odometerKm), [form.odometerKm]);
+  const draftMaintenanceSuggestions = useMemo(() => {
+    if (draftOdometerKm == null) return [];
+    const existingWorkLineTitles = form.workLines.map((line) => line.title);
+    const existingRecommendationTitles = draftMaintenanceRecommendations.map((item) => item.title);
+    return buildMileageBasedMaintenanceSuggestions(draftOdometerKm).filter((item) => {
+      if (dismissedDraftMaintenanceSuggestionIds.includes(item.id)) return false;
+      if (hasMaintenanceTitleMatch(existingWorkLineTitles, item.title)) return false;
+      if (hasMaintenanceTitleMatch(existingRecommendationTitles, item.title)) return false;
+      return true;
+    });
+  }, [draftMaintenanceRecommendations, draftOdometerKm, dismissedDraftMaintenanceSuggestionIds, form.workLines]);
+
+  const selectedROMaintenanceRecommendations = selectedRO ? roMaintenanceRecommendationsByRoId[selectedRO.id] ?? [] : [];
+  const selectedROOdometerKm = selectedRO ? parseOdometerValue(selectedRO.odometerKm) : null;
+  const selectedROMaintenanceSuggestions = useMemo(() => {
+    if (!selectedRO || selectedROOdometerKm == null) return [];
+    const existingWorkLineTitles = selectedRO.workLines.map((line) => line.title);
+    const existingRecommendationTitles = selectedROMaintenanceRecommendations.map((item) => item.title);
+    const dismissedIds = dismissedMaintenanceSuggestionIdsByRoId[selectedRO.id] ?? [];
+    return buildMileageBasedMaintenanceSuggestions(selectedROOdometerKm).filter((item) => {
+      if (dismissedIds.includes(item.id)) return false;
+      if (hasMaintenanceTitleMatch(existingWorkLineTitles, item.title)) return false;
+      if (hasMaintenanceTitleMatch(existingRecommendationTitles, item.title)) return false;
+      return true;
+    });
+  }, [dismissedMaintenanceSuggestionIdsByRoId, selectedRO, selectedROOdometerKm, selectedROMaintenanceRecommendations]);
+
   useEffect(() => {
     setForm((prev) => ({
       ...prev,
@@ -9971,6 +10103,8 @@ function RepairOrdersPage({
     setCreationMode("Intake");
     setSelectedIntakeId("");
     setForm(getDefaultRepairOrderForm(currentUser.fullName));
+    setDraftMaintenanceRecommendations([]);
+    setDismissedDraftMaintenanceSuggestionIds([]);
     setError("");
   };
 
@@ -10008,6 +10142,86 @@ function RepairOrdersPage({
         ? prev.supportTechnicianIds.filter((id) => id !== technicianId)
         : [...prev.supportTechnicianIds, technicianId],
     }));
+  };
+
+  const addDraftMaintenanceToRecommendations = (suggestion: MaintenanceSuggestionItem) => {
+    setDraftMaintenanceRecommendations((prev) =>
+      hasMaintenanceTitleMatch(prev.map((item) => item.title), suggestion.title) ? prev : [...prev, suggestion]
+    );
+  };
+
+  const addDraftMaintenanceToWorkLine = (suggestion: MaintenanceSuggestionItem) => {
+    setForm((prev) => {
+      if (hasMaintenanceTitleMatch(prev.workLines.map((line) => line.title), suggestion.title)) return prev;
+      const nextLine = recalculateWorkLine({
+        ...getEmptyWorkLine(),
+        id: uid("wl"),
+        title: suggestion.title,
+        category: "Preventive Maintenance",
+        priority: "Medium",
+        notes: suggestion.reason,
+        customerDescription: `Mileage-based maintenance suggestion (${suggestion.intervalTag}) at ${prev.odometerKm || "-"} km.`,
+        recommendationSource: `Mileage:${suggestion.intervalTag}`,
+      });
+      return {
+        ...prev,
+        workLines: [...prev.workLines, nextLine],
+      };
+    });
+  };
+
+  const dismissDraftMaintenanceSuggestion = (suggestionId: string) => {
+    setDismissedDraftMaintenanceSuggestionIds((prev) => (prev.includes(suggestionId) ? prev : [...prev, suggestionId]));
+  };
+
+  const addSelectedROMaintenanceToRecommendations = (suggestion: MaintenanceSuggestionItem) => {
+    if (!selectedRO) return;
+    setRoMaintenanceRecommendationsByRoId((prev) => {
+      const current = prev[selectedRO.id] ?? [];
+      if (hasMaintenanceTitleMatch(current.map((item) => item.title), suggestion.title)) return prev;
+      return {
+        ...prev,
+        [selectedRO.id]: [...current, suggestion],
+      };
+    });
+  };
+
+  const addSelectedROMaintenanceToWorkLine = (suggestion: MaintenanceSuggestionItem) => {
+    if (!selectedRO) return;
+    setRepairOrders((prev) =>
+      prev.map((row) => {
+        if (row.id !== selectedRO.id) return row;
+        if (hasMaintenanceTitleMatch(row.workLines.map((line) => line.title), suggestion.title)) return row;
+        const nextLine = recalculateWorkLine({
+          ...getEmptyWorkLine(),
+          id: uid("wl"),
+          title: suggestion.title,
+          category: "Preventive Maintenance",
+          priority: "Medium",
+          notes: suggestion.reason,
+          customerDescription: `Mileage-based maintenance suggestion (${suggestion.intervalTag}) at ${row.odometerKm || "-"} km.`,
+          recommendationSource: `Mileage:${suggestion.intervalTag}`,
+        });
+        return {
+          ...row,
+          updatedAt: new Date().toISOString(),
+          updatedBy: currentUser.fullName,
+          workLines: [...row.workLines, nextLine],
+        };
+      })
+    );
+  };
+
+  const dismissSelectedROMaintenanceSuggestion = (suggestionId: string) => {
+    if (!selectedRO) return;
+    setDismissedMaintenanceSuggestionIdsByRoId((prev) => {
+      const current = prev[selectedRO.id] ?? [];
+      if (current.includes(suggestionId)) return prev;
+      return {
+        ...prev,
+        [selectedRO.id]: [...current, suggestionId],
+      };
+    });
   };
 
   const handleCreateRO = (e: React.FormEvent) => {
@@ -10672,6 +10886,47 @@ function RepairOrdersPage({
                 </div>
               </div>
 
+              <div style={styles.sectionCard}>
+                <div style={styles.mobileDataCardHeader}>
+                  <div style={styles.sectionTitle}>Maintenance Suggestions ({form.odometerKm || "-"} km)</div>
+                  <span style={styles.statusInfo}>Mileage-based</span>
+                </div>
+                {draftOdometerKm == null ? (
+                  <div style={styles.formHint}>Enter a valid odometer value to generate maintenance suggestions.</div>
+                ) : draftMaintenanceSuggestions.length === 0 ? (
+                  <div style={styles.formHint}>No new maintenance suggestions for the current mileage window.</div>
+                ) : (
+                  <div style={styles.mobileCardList}>
+                    {draftMaintenanceSuggestions.map((suggestion) => (
+                      <div key={suggestion.id} style={styles.mobileDataCard}>
+                        <div style={styles.mobileDataCardHeader}>
+                          <strong>{suggestion.title}</strong>
+                          <span style={styles.statusNeutral}>{suggestion.intervalTag}</span>
+                        </div>
+                        <div style={styles.formHint}>{suggestion.reason}</div>
+                        <div style={styles.inlineActions}>
+                          <button type="button" style={styles.smallButton} onClick={() => addDraftMaintenanceToRecommendations(suggestion)}>
+                            Add to Recommendations
+                          </button>
+                          <button type="button" style={styles.smallButtonSuccess} onClick={() => addDraftMaintenanceToWorkLine(suggestion)}>
+                            Add to Work Line
+                          </button>
+                          <button type="button" style={styles.smallButtonMuted} onClick={() => dismissDraftMaintenanceSuggestion(suggestion.id)}>
+                            Dismiss
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {draftMaintenanceRecommendations.length ? (
+                  <div style={{ ...styles.sectionCardMuted, marginTop: 8 }}>
+                    <div style={styles.formHint}>Added Recommendations</div>
+                    <div>{draftMaintenanceRecommendations.map((item) => item.title).join("  |  ")}</div>
+                  </div>
+                ) : null}
+              </div>
+
               <div style={styles.formGroup}>
                 <label style={styles.label}>Customer Concern</label>
                 <textarea
@@ -10949,7 +11204,7 @@ function RepairOrdersPage({
                   </div>
                 ) : null}
 
-                <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                <div style={isCompactLayout ? styles.formStack : styles.formGrid3}>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>RO Status</label>
                     <select
@@ -10985,6 +11240,16 @@ function RepairOrdersPage({
                       ))}
                     </select>
                   </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Odometer KM</label>
+                    <input
+                      style={styles.input}
+                      value={selectedRO.odometerKm}
+                      onChange={(e) => updateRO(selectedRO.id, { odometerKm: e.target.value })}
+                      placeholder="Current mileage"
+                    />
+                  </div>
                 </div>
 
                 <div style={styles.summaryGrid}>
@@ -10992,8 +11257,50 @@ function RepairOrdersPage({
                   <div><strong>Support:</strong> {selectedRO.supportTechnicianIds.length ? selectedRO.supportTechnicianIds.map(getUserLabel).join(", ") : "None"}</div>
                   <div><strong>Total Estimate:</strong> {formatCurrency(selectedROTotal)}</div>
                   <div><strong>Updated:</strong> {formatDateTime(selectedRO.updatedAt)}</div>
+                  <div><strong>Odometer:</strong> {selectedRO.odometerKm || "-"}</div>
                   <div><strong>Approval Lock:</strong> {canAdvanceToWork ? "Ready to advance" : "Blocked until all decisions are complete"}</div>
                   <div><strong>Approved Line Total:</strong> {formatCurrency(approvedEstimateTotal)}</div>
+                </div>
+
+                <div style={styles.sectionCard}>
+                  <div style={styles.mobileDataCardHeader}>
+                    <div style={styles.sectionTitle}>Maintenance Suggestions ({selectedRO.odometerKm || "-"} km)</div>
+                    <span style={styles.statusInfo}>Mileage-based</span>
+                  </div>
+                  {selectedROOdometerKm == null ? (
+                    <div style={styles.formHint}>Enter a valid odometer value to generate maintenance suggestions.</div>
+                  ) : selectedROMaintenanceSuggestions.length === 0 ? (
+                    <div style={styles.formHint}>No new maintenance suggestions for the current mileage window.</div>
+                  ) : (
+                    <div style={styles.mobileCardList}>
+                      {selectedROMaintenanceSuggestions.map((suggestion) => (
+                        <div key={`${selectedRO.id}_${suggestion.id}`} style={styles.mobileDataCard}>
+                          <div style={styles.mobileDataCardHeader}>
+                            <strong>{suggestion.title}</strong>
+                            <span style={styles.statusNeutral}>{suggestion.intervalTag}</span>
+                          </div>
+                          <div style={styles.formHint}>{suggestion.reason}</div>
+                          <div style={styles.inlineActions}>
+                            <button type="button" style={styles.smallButton} onClick={() => addSelectedROMaintenanceToRecommendations(suggestion)}>
+                              Add to Recommendations
+                            </button>
+                            <button type="button" style={styles.smallButtonSuccess} onClick={() => addSelectedROMaintenanceToWorkLine(suggestion)}>
+                              Add to Work Line
+                            </button>
+                            <button type="button" style={styles.smallButtonMuted} onClick={() => dismissSelectedROMaintenanceSuggestion(suggestion.id)}>
+                              Dismiss
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {selectedROMaintenanceRecommendations.length ? (
+                    <div style={{ ...styles.sectionCardMuted, marginTop: 8 }}>
+                      <div style={styles.formHint}>Added Recommendations</div>
+                      <div>{selectedROMaintenanceRecommendations.map((item) => item.title).join("  |  ")}</div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div style={styles.sectionCard}>
