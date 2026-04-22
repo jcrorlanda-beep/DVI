@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import RolesPage from "./modules/roles/RolesPage";
 import HistoryPage from "./modules/history/HistoryPage";
 import SettingsPage from "./modules/settings/SettingsPage";
@@ -554,6 +554,23 @@ type ReleaseFollowUpReminder = {
   dueDate: string;
   isDue: boolean;
   dueReason: string;
+};
+
+type ServiceReminderStatus = "Due Soon" | "Overdue" | "Sent";
+
+type ServiceReminderView = {
+  key: string;
+  kind: CustomerNotificationTemplateKey;
+  title: string;
+  status: ServiceReminderStatus;
+  roNumber: string;
+  customerName: string;
+  vehicleLabel: string;
+  plateNumber: string;
+  dueDate: string;
+  dueReason: string;
+  lastSentAt: string;
+  body: string;
 };
 
 
@@ -2977,6 +2994,66 @@ class CustomerPortalErrorBoundary extends React.Component<CustomerPortalErrorBou
   }
 }
 
+type AppErrorBoundaryProps = {
+  children: React.ReactNode;
+};
+
+type AppErrorBoundaryState = {
+  hasError: boolean;
+  errorMessage: string;
+};
+
+class AppErrorBoundary extends React.Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
+  state: AppErrorBoundaryState = {
+    hasError: false,
+    errorMessage: "",
+  };
+
+  static getDerivedStateFromError(error: Error): AppErrorBoundaryState {
+    return {
+      hasError: true,
+      errorMessage: error.message || "The app could not be rendered.",
+    };
+  }
+
+  componentDidCatch(error: Error, _errorInfo: React.ErrorInfo) {
+    console.error("App render error:", error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <>
+          <style>{globalCss}</style>
+          <div style={styles.appShell}>
+            <div style={styles.mainArea}>
+              <div style={styles.pageContent}>
+                <div style={styles.grid}>
+                  <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+                    <Card title="App Recovery" subtitle="Safe fallback">
+                      <div style={styles.errorBox}>Something in the app failed to render.</div>
+                      <div style={styles.formHint}>
+                        {this.state.errorMessage || "A record or screen state triggered a runtime error. Reload the app to continue."}
+                      </div>
+                      <div style={styles.inlineActions}>
+                        <button type="button" style={styles.smallButtonSuccess} onClick={() => window.location.reload()}>
+                          Reload App
+                        </button>
+                      </div>
+                    </Card>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 function isAttentionOrReplacement(value: InspectionCheckValue) {
   return value === "Needs Attention" || value === "Needs Replacement";
 }
@@ -4176,6 +4253,7 @@ function LoginScreen({
   setPublicBookingForm,
   publicBookingError,
   onPublicBookingSubmit,
+  isPublicBookingSubmitting,
   onQuickStaffLogin,
   onLoadDemoData,
   onOpenDemoCustomerPortal,
@@ -4198,6 +4276,7 @@ function LoginScreen({
   setPublicBookingForm: React.Dispatch<React.SetStateAction<BookingForm>>;
   publicBookingError: string;
   onPublicBookingSubmit: (e: React.FormEvent) => void;
+  isPublicBookingSubmitting: boolean;
   onQuickStaffLogin: (username: string) => void;
   onLoadDemoData: () => void;
   onOpenDemoCustomerPortal: () => void;
@@ -4458,7 +4537,7 @@ function LoginScreen({
                 <textarea style={styles.textarea} value={publicBookingForm.notes} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Optional notes" />
               </div>
               {publicBookingError ? <div style={styles.errorBox}>{publicBookingError}</div> : null}
-              <button type="submit" style={styles.primaryButton}>Submit Public Booking</button>
+              <button type="submit" style={styles.primaryButton} disabled={isPublicBookingSubmitting}>Submit Public Booking</button>
             </form>
             <div style={styles.demoBox}>
               <div style={styles.demoTitle}>Public Booking Landing Page</div>
@@ -4716,6 +4795,8 @@ function CustomerPortalPage({
     year: "",
   });
   const [portalVehicleError, setPortalVehicleError] = useState("");
+  const [isSubmittingPortalBooking, setIsSubmittingPortalBooking] = useState(false);
+  const [isSavingPortalVehicle, setIsSavingPortalVehicle] = useState(false);
   const customerBookings = useMemo(() => {
     return bookings
       .filter((row) => {
@@ -4734,6 +4815,9 @@ function CustomerPortalPage({
 
   const submitPortalBooking = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingPortalBooking) return;
+    setIsSubmittingPortalBooking(true);
+    try {
     const isNewVehicle = selectedVehicleKey === "__new__";
     const vehicleGroup = !isNewVehicle
       ? portalVehicleGroups.find((group) => group.vehicleKey === selectedVehicleKey) ?? portalVehicleGroups[0] ?? null
@@ -4802,10 +4886,16 @@ function CustomerPortalPage({
     setBookingForm((prev) => ({ ...getDefaultBookingForm(customer.fullName), requestedDate: prev.requestedDate, requestedTime: prev.requestedTime }));
     setBookingError("");
     setPortalView("bookings");
+    } finally {
+      setIsSubmittingPortalBooking(false);
+    }
   };
 
   const handleAddPortalVehicle = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSavingPortalVehicle) return;
+    setIsSavingPortalVehicle(true);
+    try {
     const identifier = portalVehicleForm.plateNumber.trim() || portalVehicleForm.conductionNumber.trim();
     if (!identifier) {
       setPortalVehicleError("Plate number or conduction number is required.");
@@ -4836,6 +4926,9 @@ function CustomerPortalPage({
     });
     setPortalVehicleError("");
     setSelectedVehicleKey(vehicleKey);
+    } finally {
+      setIsSavingPortalVehicle(false);
+    }
   };
 
   const setCustomerDecision = (roId: string, lineId: string, decision: ApprovalDecision) => {
@@ -5264,7 +5357,7 @@ function CustomerPortalPage({
                         <textarea style={styles.textarea} value={bookingForm.notes} onChange={(e) => setBookingForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Optional notes" />
                       </div>
                       {bookingError ? <div style={styles.errorBox}>{bookingError}</div> : null}
-                      <div style={styles.inlineActions}><button type="submit" style={styles.primaryButton}>Submit Booking Request</button></div>
+                      <div style={styles.inlineActions}><button type="submit" style={styles.primaryButton} disabled={isSubmittingPortalBooking}>Submit Booking Request</button></div>
                     </form>
                   </Card>
                 </div>
@@ -5455,7 +5548,7 @@ function CustomerPortalPage({
                       </div>
                       {portalVehicleError ? <div style={styles.errorBox}>{portalVehicleError}</div> : null}
                       <div style={styles.inlineActions}>
-                        <button type="submit" style={styles.smallButton}>Add Vehicle</button>
+                        <button type="submit" style={styles.smallButton} disabled={isSavingPortalVehicle}>Add Vehicle</button>
                       </div>
                     </form>
                     {portalVehicleGroups.length === 0 ? (
@@ -5573,6 +5666,7 @@ function SupplierPortalPage({
   const [invoiceFileName, setInvoiceFileName] = useState("");
   const [shippingLabelFileName, setShippingLabelFileName] = useState("");
   const [error, setError] = useState("");
+  const [isSubmittingBid, setIsSubmittingBid] = useState(false);
   const [returnResponseStatus, setReturnResponseStatus] = useState<Exclude<PartsReturnResponseStatus, "Requested">>("Approved");
   const [returnResponseNotes, setReturnResponseNotes] = useState("");
 
@@ -5619,6 +5713,9 @@ function SupplierPortalPage({
 
   const submitBid = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingBid) return;
+    setIsSubmittingBid(true);
+    try {
     if (!selectedRequest) {
       setError("Select a parts request first.");
       return;
@@ -5681,6 +5778,9 @@ function SupplierPortalPage({
     setError("");
     if (productPhotoInput) productPhotoInput.value = "";
     setPortalView("myBids");
+    } finally {
+      setIsSubmittingBid(false);
+    }
   };
 
   const updateShippingForBid = (requestId: string, bidId: string) => {
@@ -5946,7 +6046,7 @@ function SupplierPortalPage({
                         {error ? <div style={styles.errorBox}>{error}</div> : null}
 
                         <div style={styles.inlineActions}>
-                          <button type="submit" style={styles.primaryButton}>Submit Bid</button>
+                          <button type="submit" style={styles.primaryButton} disabled={isSubmittingBid}>Submit Bid</button>
                         </div>
                       </form>
                     )}
@@ -9236,6 +9336,10 @@ function RepairOrdersPage({
   const [smsTwilioAccountSid, setSmsTwilioAccountSid] = useState(smsProviderDefaults.twilioAccountSid);
   const [smsTwilioFromNumber, setSmsTwilioFromNumber] = useState(smsProviderDefaults.twilioFromNumber);
   const [smsProviderConfigFeedback, setSmsProviderConfigFeedback] = useState("");
+  const [isCreatingRO, setIsCreatingRO] = useState(false);
+  const [isSavingSmsProviderSettings, setIsSavingSmsProviderSettings] = useState(false);
+  const [isGeneratingApprovalLink, setIsGeneratingApprovalLink] = useState(false);
+  const [resendingSmsLogId, setResendingSmsLogId] = useState("");
 
   const sortedRepairOrders = useMemo(() => repairOrders, [repairOrders]);
 
@@ -9617,9 +9721,118 @@ function RepairOrdersPage({
     [smsApprovalLogs, selectedRO]
   );
 
+  const serviceReminderRows = useMemo<ServiceReminderView[]>(() => {
+    const latestSentByReminderKey = new Map<string, SmsApprovalDispatchLog>();
+
+    smsApprovalLogs.forEach((row) => {
+      if (row.status !== "Sent") return;
+      if (row.messageType !== "oil-reminder" && row.messageType !== "follow-up") return;
+      const key = `${row.messageType}:${row.roId}`;
+      const existing = latestSentByReminderKey.get(key);
+      if (!existing || row.createdAt > existing.createdAt) {
+        latestSentByReminderKey.set(key, row);
+      }
+    });
+
+    const rows: ServiceReminderView[] = [];
+    const pushReminder = (entry: {
+      key: string;
+      kind: CustomerNotificationTemplateKey;
+      title: string;
+      roNumber: string;
+      customerName: string;
+      vehicleLabel: string;
+      plateNumber: string;
+      dueDate: string;
+      dueReason: string;
+      body: string;
+      isDueSoon: boolean;
+      isOverdue: boolean;
+      lastSentAt: string;
+    }) => {
+      const status: ServiceReminderStatus = entry.lastSentAt
+        ? "Sent"
+        : entry.isOverdue
+          ? "Overdue"
+          : "Due Soon";
+      rows.push({
+        key: entry.key,
+        kind: entry.kind,
+        title: entry.title,
+        status,
+        roNumber: entry.roNumber,
+        customerName: entry.customerName,
+        vehicleLabel: entry.vehicleLabel,
+        plateNumber: entry.plateNumber,
+        dueDate: entry.dueDate,
+        dueReason: entry.dueReason,
+        lastSentAt: entry.lastSentAt,
+        body: entry.body,
+      });
+    };
+
+    oilChangeReminders.forEach((reminder) => {
+      const currentOdometer = parseOdometerValue(reminder.currentOdometerKm) ?? 0;
+      const kmUntilDue = reminder.dueOdometerKm - currentOdometer;
+      const dueDateValue = new Date(reminder.dueDate).getTime();
+      const daysUntilDue = Math.ceil((dueDateValue - Date.now()) / (1000 * 60 * 60 * 24));
+      const isDueSoon = !reminder.isDue && (daysUntilDue <= 30 || kmUntilDue <= 1000);
+      const lastSentAt = latestSentByReminderKey.get(`oil-reminder:${reminder.roId}`)?.createdAt ?? "";
+      if (!reminder.isDue && !isDueSoon && !lastSentAt) return;
+      pushReminder({
+        key: `oil:${reminder.roId}`,
+        kind: "oil-reminder",
+        title: "Oil Change Reminder",
+        roNumber: reminder.roNumber,
+        customerName: reminder.customerName,
+        vehicleLabel: reminder.vehicleLabel,
+        plateNumber: reminder.plateNumber || reminder.conductionNumber || "",
+        dueDate: reminder.dueDate,
+        dueReason: reminder.dueReason,
+        body: buildOilChangeReminderMessage(reminder),
+        isDueSoon,
+        isOverdue: reminder.isDue,
+        lastSentAt,
+      });
+    });
+
+    releaseFollowUpReminders.forEach((reminder) => {
+      const dueDateValue = new Date(reminder.dueDate).getTime();
+      const daysUntilDue = Math.ceil((dueDateValue - Date.now()) / (1000 * 60 * 60 * 24));
+      const isDueSoon = !reminder.isDue && daysUntilDue <= 3;
+      const lastSentAt = latestSentByReminderKey.get(`follow-up:${reminder.roId}`)?.createdAt ?? "";
+      if (!reminder.isDue && !isDueSoon && !lastSentAt) return;
+      pushReminder({
+        key: `follow:${reminder.roId}`,
+        kind: "follow-up",
+        title: "Follow-up (3 days after release)",
+        roNumber: reminder.roNumber,
+        customerName: reminder.customerName,
+        vehicleLabel: reminder.vehicleLabel,
+        plateNumber: reminder.plateNumber || reminder.conductionNumber || "",
+        dueDate: reminder.dueDate,
+        dueReason: reminder.dueReason,
+        body: buildReleaseFollowUpMessage(reminder),
+        isDueSoon,
+        isOverdue: reminder.isDue,
+        lastSentAt,
+      });
+    });
+
+    return rows.sort((a, b) => {
+      const order = (status: ServiceReminderStatus) => (status === "Overdue" ? 0 : status === "Due Soon" ? 1 : 2);
+      return order(a.status) - order(b.status) || b.dueDate.localeCompare(a.dueDate);
+    });
+  }, [oilChangeReminders, releaseFollowUpReminders, smsApprovalLogs]);
+
   const saveSmsProviderSettings = () => {
-    if (typeof window === "undefined") return;
+    if (isSavingSmsProviderSettings) return;
+    setIsSavingSmsProviderSettings(true);
     try {
+      if (typeof window === "undefined") {
+        setSmsProviderConfigFeedback("SMS provider settings cannot be saved in this environment.");
+        return;
+      }
       window.localStorage.setItem(STORAGE_KEYS.smsProviderMode, smsProviderMode);
       window.localStorage.setItem(STORAGE_KEYS.smsAndroidGatewayUrl, smsAndroidGatewayUrl.trim());
       window.localStorage.setItem(STORAGE_KEYS.smsAndroidGatewayApiKey, smsAndroidGatewayApiKey.trim());
@@ -9639,6 +9852,8 @@ function RepairOrdersPage({
       );
     } catch {
       setSmsProviderConfigFeedback("SMS provider settings could not be saved in this browser.");
+    } finally {
+      setIsSavingSmsProviderSettings(false);
     }
   };
 
@@ -9797,119 +10012,125 @@ function RepairOrdersPage({
 
   const handleCreateRO = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isCreatingRO) return;
+    setIsCreatingRO(true);
 
-    const customerName = form.customerName.trim();
-    const companyName = form.companyName.trim();
-    const plateNumber = form.plateNumber.trim().toUpperCase();
-    const conductionNumber = form.conductionNumber.trim().toUpperCase();
-    const make = form.make.trim();
-    const model = form.model.trim();
-    const customerConcern = form.customerConcern.trim();
-    const advisorName = form.advisorName.trim() || currentUser.fullName;
-    const cleanWorkLines = form.workLines
-      .map((line) =>
-        recalculateWorkLine({
-          ...line,
-          title: line.title.trim(),
-          category: line.category.trim(),
-          notes: line.notes.trim(),
-        })
-      )
-      .filter((line) => line.title);
-
-    if (creationMode === "Intake" && !selectedIntake) {
-      setError("Select an intake first or switch to manual RO mode.");
-      return;
-    }
-
-    if (!plateNumber && !conductionNumber) {
-      setError("Plate number or conduction number is required.");
-      return;
-    }
-
-    if (!make || !model) {
-      setError("Vehicle make and model are required.");
-      return;
-    }
-
-    if (!customerConcern) {
-      setError("Customer concern is required.");
-      return;
-    }
-
-    if (form.accountType === "Personal" && !customerName) {
-      setError("Customer name is required for personal accounts.");
-      return;
-    }
-
-    if (form.accountType === "Company / Fleet" && !companyName) {
-      setError("Company / fleet name is required for company or fleet accounts.");
-      return;
-    }
-
-    if (cleanWorkLines.length === 0) {
-      setError("Add at least one work line before creating the RO.");
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const inspection = creationMode === "Intake" && selectedIntake
-      ? inspectionRecords.find((row) => row.intakeId === selectedIntake.id) ?? null
-      : null;
-
-    const newRO: RepairOrderRecord = {
-      id: uid("ro"),
-      roNumber: nextDailyNumber("RO"),
-      createdAt: now,
-      updatedAt: now,
-      workStartedAt: form.status === "In Progress" ? now : "",
-      sourceType: creationMode,
-      intakeId: creationMode === "Intake" && selectedIntake ? selectedIntake.id : "",
-      inspectionId: inspection?.id ?? "",
-      intakeNumber: creationMode === "Intake" && selectedIntake ? selectedIntake.intakeNumber : "",
-      inspectionNumber: inspection?.inspectionNumber ?? "",
-      customerName,
-      companyName,
-      accountType: form.accountType,
-      accountLabel: companyName || customerName || "Unknown Customer",
-      phone: form.phone.trim(),
-      email: form.email.trim(),
-      plateNumber,
-      conductionNumber,
-      make,
-      model,
-      year: form.year.trim(),
-      color: form.color.trim(),
-      odometerKm: form.odometerKm.trim(),
-      customerConcern,
-      advisorName,
-      status: form.status,
-      primaryTechnicianId: form.primaryTechnicianId,
-      supportTechnicianIds: form.supportTechnicianIds,
-      workLines: cleanWorkLines,
-      latestApprovalRecordId: "",
-      deferredLineTitles: [],
-      backjobReferenceRoId: "",
-      findingRecommendationDecisions: [],
-      encodedBy: currentUser.fullName,
-      updatedBy: "",
-    };
-
-    setRepairOrders((prev) => [newRO, ...prev]);
-    setSelectedRoId(newRO.id);
-
-    if (creationMode === "Intake" && selectedIntake) {
-      setIntakeRecords((prev) =>
-        prev.map((row) =>
-          row.id === selectedIntake.id
-            ? { ...row, status: "Converted to RO", updatedAt: now }
-            : row
+    try {
+      const customerName = form.customerName.trim();
+      const companyName = form.companyName.trim();
+      const plateNumber = form.plateNumber.trim().toUpperCase();
+      const conductionNumber = form.conductionNumber.trim().toUpperCase();
+      const make = form.make.trim();
+      const model = form.model.trim();
+      const customerConcern = form.customerConcern.trim();
+      const advisorName = form.advisorName.trim() || currentUser.fullName;
+      const cleanWorkLines = form.workLines
+        .map((line) =>
+          recalculateWorkLine({
+            ...line,
+            title: line.title.trim(),
+            category: line.category.trim(),
+            notes: line.notes.trim(),
+          })
         )
-      );
-    }
+        .filter((line) => line.title);
 
-    setError("");
-    resetForm();
+      if (creationMode === "Intake" && !selectedIntake) {
+        setError("Select an intake first or switch to manual RO mode.");
+        return;
+      }
+
+      if (!plateNumber && !conductionNumber) {
+        setError("Plate number or conduction number is required.");
+        return;
+      }
+
+      if (!make || !model) {
+        setError("Vehicle make and model are required.");
+        return;
+      }
+
+      if (!customerConcern) {
+        setError("Customer concern is required.");
+        return;
+      }
+
+      if (form.accountType === "Personal" && !customerName) {
+        setError("Customer name is required for personal accounts.");
+        return;
+      }
+
+      if (form.accountType === "Company / Fleet" && !companyName) {
+        setError("Company / fleet name is required for company or fleet accounts.");
+        return;
+      }
+
+      if (cleanWorkLines.length === 0) {
+        setError("Add at least one work line before creating the RO.");
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const inspection = creationMode === "Intake" && selectedIntake
+        ? inspectionRecords.find((row) => row.intakeId === selectedIntake.id) ?? null
+        : null;
+
+      const newRO: RepairOrderRecord = {
+        id: uid("ro"),
+        roNumber: nextDailyNumber("RO"),
+        createdAt: now,
+        updatedAt: now,
+        workStartedAt: form.status === "In Progress" ? now : "",
+        sourceType: creationMode,
+        intakeId: creationMode === "Intake" && selectedIntake ? selectedIntake.id : "",
+        inspectionId: inspection?.id ?? "",
+        intakeNumber: creationMode === "Intake" && selectedIntake ? selectedIntake.intakeNumber : "",
+        inspectionNumber: inspection?.inspectionNumber ?? "",
+        customerName,
+        companyName,
+        accountType: form.accountType,
+        accountLabel: companyName || customerName || "Unknown Customer",
+        phone: form.phone.trim(),
+        email: form.email.trim(),
+        plateNumber,
+        conductionNumber,
+        make,
+        model,
+        year: form.year.trim(),
+        color: form.color.trim(),
+        odometerKm: form.odometerKm.trim(),
+        customerConcern,
+        advisorName,
+        status: form.status,
+        primaryTechnicianId: form.primaryTechnicianId,
+        supportTechnicianIds: form.supportTechnicianIds,
+        workLines: cleanWorkLines,
+        latestApprovalRecordId: "",
+        deferredLineTitles: [],
+        backjobReferenceRoId: "",
+        findingRecommendationDecisions: [],
+        encodedBy: currentUser.fullName,
+        updatedBy: "",
+      };
+
+      setRepairOrders((prev) => [newRO, ...prev]);
+      setSelectedRoId(newRO.id);
+
+      if (creationMode === "Intake" && selectedIntake) {
+        setIntakeRecords((prev) =>
+          prev.map((row) =>
+            row.id === selectedIntake.id
+              ? { ...row, status: "Converted to RO", updatedAt: now }
+              : row
+          )
+        );
+      }
+
+      setError("");
+      resetForm();
+    } finally {
+      setIsCreatingRO(false);
+    }
   };
 
   const updateRO = (id: string, patch: Partial<RepairOrderRecord>) => {
@@ -10597,7 +10818,7 @@ function RepairOrdersPage({
               {error ? <div style={styles.errorBox}>{error}</div> : null}
 
               <div style={isCompactLayout ? styles.stickyActionBar : styles.inlineActions}>
-                <button type="submit" style={styles.primaryButton}>Create RO</button>
+                <button type="submit" style={styles.primaryButton} disabled={isCreatingRO}>Create RO</button>
                 <button type="button" style={styles.secondaryButton} onClick={resetForm}>Reset</button>
               </div>
             </form>
@@ -10905,7 +11126,7 @@ function RepairOrdersPage({
                       )}
 
                       <div style={styles.inlineActions}>
-                        <button type="button" style={styles.smallButtonSuccess} onClick={saveSmsProviderSettings}>
+                        <button type="button" style={styles.smallButtonSuccess} disabled={isSavingSmsProviderSettings} onClick={saveSmsProviderSettings}>
                           Save Gateway Settings
                         </button>
                         <button
@@ -10932,7 +11153,20 @@ function RepairOrdersPage({
                         <div style={styles.formHint}>Generate a secure customer portal link for this RO. Password login still works, but this link enables one-tap access from text.</div>
                       </div>
                       <div style={styles.inlineActions}>
-                        <button type="button" style={styles.smallButtonSuccess} onClick={() => onGenerateSmsApprovalLink(selectedRO)}>
+                        <button
+                          type="button"
+                          style={styles.smallButtonSuccess}
+                          disabled={isGeneratingApprovalLink}
+                          onClick={() => {
+                            if (!selectedRO || isGeneratingApprovalLink) return;
+                            setIsGeneratingApprovalLink(true);
+                            try {
+                              onGenerateSmsApprovalLink(selectedRO);
+                            } finally {
+                              setIsGeneratingApprovalLink(false);
+                            }
+                          }}
+                        >
                           {activeApprovalLinkToken ? "Regenerate Customer Link" : "Generate Customer Link"}
                         </button>
                         <button type="button" style={styles.smallButton} onClick={() => onOpenDemoCustomerApprovalLink(selectedRO)}>
@@ -10973,6 +11207,62 @@ function RepairOrdersPage({
                         </div>
                       ))}
                     </div>
+                  </div>
+
+                  <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+                    <div style={styles.mobileDataCardHeader}>
+                      <div>
+                        <div style={styles.sectionTitle}>Due Service Reminders</div>
+                        <div style={styles.formHint}>Simple reminder queue with live status and last sent time pulled from the SMS log.</div>
+                      </div>
+                      <span style={serviceReminderRows.some((row) => row.status !== "Sent") ? styles.statusWarning : styles.statusOk}>
+                        {serviceReminderRows.length} Visible
+                      </span>
+                    </div>
+                    {serviceReminderRows.length === 0 ? (
+                      <div style={styles.emptyState}>No due or recently sent service reminders were found for this repair order.</div>
+                    ) : (
+                      <div style={styles.mobileCardList}>
+                        {serviceReminderRows.map((row) => (
+                          <div key={row.key} style={styles.mobileDataCard}>
+                            <div style={styles.mobileDataCardHeader}>
+                              <strong>{row.title}</strong>
+                              <span style={row.status === "Sent" ? styles.statusOk : row.status === "Overdue" ? styles.statusWarning : styles.statusInfo}>
+                                {row.status}
+                              </span>
+                            </div>
+                            <div style={styles.mobileDataSecondary}>RO: {row.roNumber}  |  {row.vehicleLabel}</div>
+                            <div style={styles.mobileDataSecondary}>{row.customerName}</div>
+                            <div style={styles.mobileMetaRow}>
+                              <span>Due</span>
+                              <strong>{formatDateTime(row.dueDate)}</strong>
+                            </div>
+                            {row.lastSentAt ? (
+                              <div style={styles.mobileMetaRow}>
+                                <span>Last sent</span>
+                                <strong>{formatDateTime(row.lastSentAt)}</strong>
+                              </div>
+                            ) : null}
+                            <div style={styles.formHint}>{row.dueReason}</div>
+                            <div style={styles.inlineActions}>
+                              <button
+                                type="button"
+                                style={styles.smallButton}
+                                onClick={async () => {
+                                  try {
+                                    await navigator.clipboard.writeText(row.body);
+                                  } catch {
+                                    // Clipboard fallback not required for this demo UI.
+                                  }
+                                }}
+                              >
+                                Copy Message
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
@@ -11239,12 +11529,41 @@ function RepairOrdersPage({
                               <strong>{row.provider || "Simulated"}</strong>
                             </div>
                             <div style={styles.mobileMetaRow}>
-                              <span>Time</span>
+                              <span>{row.status === "Sent" ? "Last sent" : "Attempted"}</span>
                               <strong>{formatDateTime(row.createdAt)}</strong>
                             </div>
                             <div style={styles.formHint}>{row.message}</div>
                             {row.providerResponse ? <div style={styles.formHint}>Provider response: {row.providerResponse}</div> : null}
                             {row.errorMessage ? <div style={styles.errorBox}>{row.errorMessage}</div> : null}
+                            {row.status === "Failed" ? (
+                              <div style={styles.inlineActions}>
+                                <button
+                                  type="button"
+                                  style={styles.smallButtonSuccess}
+                                  disabled={resendingSmsLogId === row.id}
+                                  onClick={async () => {
+                                    if (resendingSmsLogId === row.id) return;
+                                    setResendingSmsLogId(row.id);
+                                    try {
+                                      await onSendSmsTemplate({
+                                        roId: row.roId,
+                                        roNumber: row.roNumber,
+                                        customerId: row.customerId,
+                                        customerName: row.customerName,
+                                        phoneNumber: row.phoneNumber,
+                                        tokenId: row.tokenId,
+                                        messageType: row.messageType,
+                                        messageBody: row.message,
+                                      });
+                                    } finally {
+                                      setResendingSmsLogId("");
+                                    }
+                                  }}
+                                >
+                                  {resendingSmsLogId === row.id ? "Resending..." : "Resend"}
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -11694,6 +12013,7 @@ function UsersPage({
   });
 
   const [error, setError] = useState("");
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
 
   const resetForm = () => {
     setForm({
@@ -11709,33 +12029,39 @@ function UsersPage({
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canManageUsers) return;
+    if (isCreatingUser) return;
+    setIsCreatingUser(true);
 
-    const fullName = form.fullName.trim();
-    const username = form.username.trim().toLowerCase();
-    const password = form.password;
+    try {
+      const fullName = form.fullName.trim();
+      const username = form.username.trim().toLowerCase();
+      const password = form.password;
 
-    if (!fullName || !username || !password) {
-      setError("Full name, username, and password are required.");
-      return;
+      if (!fullName || !username || !password) {
+        setError("Full name, username, and password are required.");
+        return;
+      }
+
+      if (users.some((u) => u.username.toLowerCase() === username)) {
+        setError("Username already exists.");
+        return;
+      }
+
+      const newUser: UserAccount = {
+        id: uid("usr"),
+        fullName,
+        username,
+        password,
+        role: form.role,
+        active: form.active,
+        createdAt: new Date().toISOString(),
+      };
+
+      setUsers((prev) => [newUser, ...prev]);
+      resetForm();
+    } finally {
+      setIsCreatingUser(false);
     }
-
-    if (users.some((u) => u.username.toLowerCase() === username)) {
-      setError("Username already exists.");
-      return;
-    }
-
-    const newUser: UserAccount = {
-      id: uid("usr"),
-      fullName,
-      username,
-      password,
-      role: form.role,
-      active: form.active,
-      createdAt: new Date().toISOString(),
-    };
-
-    setUsers((prev) => [newUser, ...prev]);
-    resetForm();
   };
 
   const toggleUserActive = (id: string) => {
@@ -11828,7 +12154,7 @@ function UsersPage({
                     ...styles.primaryButton,
                     ...(canManageUsers ? {} : styles.buttonDisabled),
                   }}
-                  disabled={!canManageUsers}
+                  disabled={!canManageUsers || isCreatingUser}
                 >
                   Add User
                 </button>
@@ -12936,7 +13262,7 @@ function ModulePage({
   );
 }
 
-export default function App() {
+function AppInner() {
   const [roleDefinitions, setRoleDefinitions] = useState<RoleDefinition[]>(() => {
     const stored = readLocalStorage<RoleDefinition[]>(STORAGE_KEYS.rolePermissions, []);
     if (stored.length > 0) {
@@ -13048,6 +13374,7 @@ export default function App() {
     requestedDate: new Date().toISOString().slice(0, 10),
   }));
   const [publicBookingError, setPublicBookingError] = useState("");
+  const [isSubmittingPublicBooking, setIsSubmittingPublicBooking] = useState(false);
 
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(() =>
     readLocalStorage<SessionUser | null>(STORAGE_KEYS.session, null)
@@ -14169,6 +14496,9 @@ export default function App() {
 
   const handlePublicBookingSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingPublicBooking) return;
+    setIsSubmittingPublicBooking(true);
+    try {
     const customerName = publicBookingForm.customerName.trim();
     const concern = publicBookingForm.concern.trim();
     if (!customerName || !publicBookingForm.phone.trim() || !publicBookingForm.requestedDate || !publicBookingForm.requestedTime || !concern) {
@@ -14209,6 +14539,9 @@ export default function App() {
     });
     setPublicBookingError("");
     setLoginAudience("booking");
+    } finally {
+      setIsSubmittingPublicBooking(false);
+    }
   };
 
   const handleSupplierLogout = () => {
@@ -14681,6 +15014,7 @@ export default function App() {
           setPublicBookingForm={setPublicBookingForm}
           publicBookingError={publicBookingError}
           onPublicBookingSubmit={handlePublicBookingSubmit}
+          isPublicBookingSubmitting={isSubmittingPublicBooking}
           onQuickStaffLogin={quickStaffLogin}
           onLoadDemoData={loadSimulatedData}
           onOpenDemoCustomerPortal={openDemoCustomerPortal}
@@ -14776,6 +15110,14 @@ export default function App() {
         </div>
       </div>
     </>
+  );
+}
+
+export default function App() {
+  return (
+    <AppErrorBoundary>
+      <AppInner />
+    </AppErrorBoundary>
   );
 }
 
