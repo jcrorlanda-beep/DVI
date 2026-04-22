@@ -71,10 +71,18 @@ type ApprovalLinkToken = {
 type SmsApprovalDispatchLog = {
   id: string;
   roId: string;
+  roNumber: string;
   customerId: string;
+  customerName: string;
+  phoneNumber: string;
   tokenId: string;
   sentTo: string;
+  messageType: CustomerNotificationTemplateKey;
   message: string;
+  status: "Pending" | "Sent" | "Failed";
+  provider: "Simulated" | "Android SMS Gateway" | "Twilio";
+  providerResponse?: string;
+  errorMessage?: string;
   createdAt: string;
 };
 
@@ -462,6 +470,92 @@ type FindingToRORecommendation = {
   decidedAt?: string;
 };
 
+type CustomerNotificationTemplateKey =
+  | "approval-request"
+  | "waiting-parts"
+  | "ready-release"
+  | "pull-out-notice"
+  | "oil-reminder"
+  | "follow-up";
+
+type CustomerNotificationTemplate = {
+  key: CustomerNotificationTemplateKey;
+  title: string;
+  subtitle: string;
+  body: string;
+};
+
+type SmsProviderName = "Simulated" | "Android SMS Gateway" | "Twilio";
+type SmsProviderMode = "simulated" | "android" | "twilio";
+
+type SmsProviderConfig = {
+  provider: SmsProviderName;
+  mode: SmsProviderMode;
+  endpointLabel: string;
+  gatewayUrl: string;
+  authToken: string;
+  senderDeviceLabel: string;
+  twilioAccountSid: string;
+  twilioFromNumber: string;
+  isConfigured: boolean;
+};
+
+type SmsSendPayload = {
+  roId: string;
+  roNumber: string;
+  customerId: string;
+  customerName: string;
+  phoneNumber: string;
+  tokenId: string;
+  messageType: CustomerNotificationTemplateKey;
+  messageBody: string;
+};
+
+type SmsSendResult = {
+  provider: SmsProviderName;
+  status: "Sent" | "Failed";
+  errorMessage?: string;
+  providerResponse?: string;
+  detail: string;
+};
+
+type OilChangeReminderType = "Conventional" | "Fully Synthetic";
+
+type OilChangeReminder = {
+  vehicleKey: string;
+  roId: string;
+  roNumber: string;
+  customerName: string;
+  vehicleLabel: string;
+  plateNumber: string;
+  conductionNumber: string;
+  oilType: OilChangeReminderType;
+  serviceDate: string;
+  serviceOdometerKm: string;
+  currentOdometerKm: string;
+  dueDate: string;
+  dueOdometerKm: number;
+  isDue: boolean;
+  dueReason: string;
+  sourceLineTitle: string;
+  sourceLineNotes: string;
+};
+
+type ReleaseFollowUpReminder = {
+  vehicleKey: string;
+  roId: string;
+  roNumber: string;
+  releaseNumber: string;
+  customerName: string;
+  vehicleLabel: string;
+  plateNumber: string;
+  conductionNumber: string;
+  releaseDate: string;
+  dueDate: string;
+  isDue: boolean;
+  dueReason: string;
+};
+
 
 type BookingStatus = "New" | "Confirmed" | "Arrived" | "No Show" | "Rescheduled" | "Cancelled" | "Converted to Intake";
 type BookingServiceType =
@@ -677,7 +771,7 @@ type BookingForm = {
   status: BookingStatus;
 };
 
-const BUILD_VERSION = "Phase 17K.1 — Inspection UI Cleanup + Faster Encoding";
+const BUILD_VERSION = "Phase 17K.1  -  Inspection UI Cleanup + Faster Encoding";
 
 const STORAGE_KEYS = {
   users: "dvi_phase1_users_v2",
@@ -703,6 +797,12 @@ const STORAGE_KEYS = {
   customerSession: "dvi_phase15a_customer_session_v1",
   approvalLinkTokens: "dvi_phase15b_approval_link_tokens_v1",
   smsApprovalLogs: "dvi_phase15b_sms_approval_logs_v1",
+  smsProviderMode: "dvi_sms_provider_mode_v1",
+  smsAndroidGatewayUrl: "dvi_sms_android_gateway_url_v1",
+  smsAndroidGatewayApiKey: "dvi_sms_android_gateway_api_key_v1",
+  smsAndroidSenderDeviceLabel: "dvi_sms_android_sender_label_v1",
+  smsTwilioAccountSid: "dvi_sms_twilio_account_sid_v1",
+  smsTwilioFromNumber: "dvi_sms_twilio_from_number_v1",
   counters: "dvi_phase2_counters_v1",
 } as const;
 
@@ -737,30 +837,30 @@ const ALL_PERMISSIONS: Permission[] = [
 ];
 
 const NAV_ITEMS: NavItem[] = [
-  { key: "dashboard", label: "Dashboard", icon: "🏠", permission: "dashboard.view" },
-  { key: "bookings", label: "Bookings", icon: "📅", permission: "bookings.view" },
-  { key: "intake", label: "Intake", icon: "📝", permission: "intake.view" },
-  { key: "inspection", label: "Inspection", icon: "🔎", permission: "inspection.view" },
+  { key: "dashboard", label: "Dashboard", icon: "DB", permission: "dashboard.view" },
+  { key: "bookings", label: "Bookings", icon: "BK", permission: "bookings.view" },
+  { key: "intake", label: "Intake", icon: "IN", permission: "intake.view" },
+  { key: "inspection", label: "Inspection", icon: "IP", permission: "inspection.view" },
   {
     key: "repairOrders",
     label: "Repair Orders",
-    icon: "📋",
+    icon: "RO",
     permission: "repairOrders.view",
   },
-  { key: "shopFloor", label: "Shop Floor", icon: "🛠️", permission: "shopFloor.view" },
+  { key: "shopFloor", label: "Shop Floor", icon: "SF", permission: "shopFloor.view" },
   {
     key: "qualityControl",
     label: "Quality Control",
-    icon: "✅",
+    icon: "QC",
     permission: "qualityControl.view",
   },
-  { key: "release", label: "Release", icon: "🚗", permission: "release.view" },
-  { key: "parts", label: "Parts", icon: "📦", permission: "parts.view" },
-  { key: "backjobs", label: "Backjobs", icon: "↩️", permission: "backjobs.view" },
-  { key: "history", label: "History", icon: "🕘", permission: "history.view" },
-  { key: "users", label: "Users", icon: "👥", permission: "users.view" },
-  { key: "roles", label: "Roles & Permissions", icon: "🛡️", permission: "roles.view" },
-  { key: "settings", label: "Settings", icon: "⚙️", permission: "settings.view" },
+  { key: "release", label: "Release", icon: "RL", permission: "release.view" },
+  { key: "parts", label: "Parts", icon: "PT", permission: "parts.view" },
+  { key: "backjobs", label: "Backjobs", icon: "BJ", permission: "backjobs.view" },
+  { key: "history", label: "History", icon: "HI", permission: "history.view" },
+  { key: "users", label: "Users", icon: "US", permission: "users.view" },
+  { key: "roles", label: "Roles & Permissions", icon: "RP", permission: "roles.view" },
+  { key: "settings", label: "Settings", icon: "ST", permission: "settings.view" },
 ];
 
 const ROLE_COLORS: Record<UserRole, { bg: string; text: string }> = {
@@ -786,6 +886,269 @@ function getPortalTokenExpiry(hours = 72) {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
+function getApprovalLinkExpiryMs(token: ApprovalLinkToken) {
+  const expiry = new Date(token.expiresAt).getTime();
+  return Number.isNaN(expiry) ? 0 : expiry;
+}
+
+function isApprovalLinkActive(token: ApprovalLinkToken) {
+  return !token.revokedAt && getApprovalLinkExpiryMs(token) > Date.now();
+}
+
+function getLatestActiveApprovalLinkForRo(tokens: ApprovalLinkToken[], roId: string) {
+  return tokens
+    .filter((token) => token.roId === roId && isApprovalLinkActive(token))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null;
+}
+
+function readStoredSetting(key: string) {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(key)?.trim() || "";
+  } catch {
+    return "";
+  }
+}
+
+function getSmsProviderConfig(): SmsProviderConfig {
+  if (typeof window === "undefined") {
+    return {
+      provider: "Simulated",
+      mode: "simulated",
+      endpointLabel: "Frontend simulation",
+      gatewayUrl: "",
+      authToken: "",
+      senderDeviceLabel: "",
+      twilioAccountSid: "",
+      twilioFromNumber: "",
+      isConfigured: false,
+    };
+  }
+
+  const storedProvider = readStoredSetting(STORAGE_KEYS.smsProviderMode);
+  const normalized: SmsProviderMode = storedProvider === "android" || storedProvider === "twilio" ? storedProvider : "simulated";
+  const gatewayUrl = readStoredSetting(STORAGE_KEYS.smsAndroidGatewayUrl);
+  const authToken = readStoredSetting(STORAGE_KEYS.smsAndroidGatewayApiKey);
+  const senderDeviceLabel = readStoredSetting(STORAGE_KEYS.smsAndroidSenderDeviceLabel);
+  const twilioAccountSid = readStoredSetting(STORAGE_KEYS.smsTwilioAccountSid);
+  const twilioFromNumber = readStoredSetting(STORAGE_KEYS.smsTwilioFromNumber);
+
+  if (normalized === "android") {
+    return {
+      provider: "Android SMS Gateway",
+      mode: normalized,
+      endpointLabel: gatewayUrl || "Android gateway placeholder",
+      gatewayUrl,
+      authToken,
+      senderDeviceLabel,
+      twilioAccountSid,
+      twilioFromNumber,
+      isConfigured: !!gatewayUrl,
+    };
+  }
+
+  if (normalized === "twilio") {
+    return {
+      provider: "Twilio",
+      mode: normalized,
+      endpointLabel: twilioFromNumber || twilioAccountSid || "Twilio placeholder",
+      gatewayUrl,
+      authToken,
+      senderDeviceLabel,
+      twilioAccountSid,
+      twilioFromNumber,
+      isConfigured: !!twilioAccountSid && !!twilioFromNumber,
+    };
+  }
+
+  return {
+    provider: "Simulated",
+    mode: normalized,
+    endpointLabel: "No provider configured",
+    gatewayUrl,
+    authToken,
+    senderDeviceLabel,
+    twilioAccountSid,
+    twilioFromNumber,
+    isConfigured: false,
+  };
+}
+
+function formatProviderResponse(rawResponse: string) {
+  const trimmed = rawResponse.trim();
+  if (!trimmed) return "";
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    const pretty = typeof parsed === "string" ? parsed : JSON.stringify(parsed);
+    return pretty.length > 280 ? `${pretty.slice(0, 277)}...` : pretty;
+  } catch {
+    return trimmed.length > 280 ? `${trimmed.slice(0, 277)}...` : trimmed;
+  }
+}
+
+async function sendViaAndroidSmsGateway(config: SmsProviderConfig, payload: SmsSendPayload): Promise<SmsSendResult> {
+  if (!config.gatewayUrl) {
+    return {
+      provider: config.provider,
+      status: "Failed",
+      errorMessage: "Android SMS gateway URL is not configured.",
+      detail: "Android SMS gateway is not configured. Saved message was not sent.",
+    };
+  }
+
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timeoutId =
+    typeof window !== "undefined"
+      ? window.setTimeout(() => {
+          controller?.abort();
+        }, 10000)
+      : undefined;
+
+  try {
+    const response = await fetch(config.gatewayUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(config.authToken ? { Authorization: `Bearer ${config.authToken}` } : {}),
+        ...(config.authToken ? { "X-API-Key": config.authToken } : {}),
+        ...(config.senderDeviceLabel ? { "X-Sender-Device": config.senderDeviceLabel } : {}),
+      },
+      body: JSON.stringify({
+        app: "DVI",
+        channel: "android-sms",
+        customerId: payload.customerId,
+        customerName: payload.customerName,
+        message: payload.messageBody,
+        messageType: payload.messageType,
+        roId: payload.roId,
+        roNumber: payload.roNumber,
+        senderDeviceLabel: config.senderDeviceLabel,
+        templateKey: payload.messageType,
+        tokenId: payload.tokenId,
+        to: payload.phoneNumber,
+        timestamp: new Date().toISOString(),
+      }),
+      signal: controller?.signal,
+    });
+
+    const responseText = await response.text();
+    const providerResponse = formatProviderResponse(responseText);
+    let responseIndicatesFailure = false;
+    try {
+      const parsed = JSON.parse(responseText);
+      if (parsed && typeof parsed === "object") {
+        const responseObject = parsed as Record<string, unknown>;
+        const statusValue = String(responseObject.status ?? responseObject.state ?? "").toLowerCase();
+        responseIndicatesFailure =
+          responseObject.success === false ||
+          responseObject.ok === false ||
+          statusValue === "error" ||
+          statusValue === "failed";
+      }
+    } catch {
+      responseIndicatesFailure = false;
+    }
+
+    if (!response.ok || responseIndicatesFailure) {
+      return {
+        provider: config.provider,
+        status: "Failed",
+        errorMessage: response.ok ? "Gateway response indicated a failure." : `Gateway returned HTTP ${response.status}.`,
+        providerResponse: providerResponse || `HTTP ${response.status}`,
+        detail: response.ok
+          ? "Android SMS gateway returned a failure response."
+          : `Android SMS gateway returned HTTP ${response.status}.`,
+      };
+    }
+
+    return {
+      provider: config.provider,
+      status: "Sent",
+      providerResponse: providerResponse || `HTTP ${response.status}`,
+      detail: `Android SMS gateway accepted the message for ${config.senderDeviceLabel || config.endpointLabel}.`,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown gateway error.";
+    return {
+      provider: config.provider,
+      status: "Failed",
+      errorMessage: message,
+      detail: "Android SMS gateway send failed.",
+      providerResponse: message,
+    };
+  } finally {
+    if (typeof window !== "undefined" && timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+    }
+  }
+}
+
+async function dispatchSmsTemplateMessage(payload: SmsSendPayload): Promise<SmsSendResult> {
+  const config = getSmsProviderConfig();
+  const hasMessage = payload.messageBody.trim().length > 0;
+  const hasPhone = sanitizePhone(payload.phoneNumber).length > 0;
+
+  if (!hasMessage) {
+    return {
+      provider: config.provider,
+      status: "Failed",
+      errorMessage: "Message body is empty.",
+      detail: "Failed: empty message body.",
+    };
+  }
+
+  if (!hasPhone) {
+    return {
+      provider: config.provider,
+      status: "Failed",
+      errorMessage: "Customer phone number is missing.",
+      detail: "Failed: missing customer phone number.",
+    };
+  }
+
+  if (config.provider === "Simulated") {
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+    return {
+      provider: config.provider,
+      status: "Sent",
+      providerResponse: "Simulated local dispatch completed.",
+      detail: "Simulated SMS send completed locally.",
+    };
+  }
+
+  if (config.provider === "Android SMS Gateway") {
+    if (!config.isConfigured) {
+      return {
+        provider: config.provider,
+        status: "Failed",
+        errorMessage: "Android SMS gateway settings are missing.",
+        providerResponse: "Android SMS gateway is not configured.",
+        detail: "Android SMS gateway is not configured. Saved message was not sent.",
+      };
+    }
+
+    return sendViaAndroidSmsGateway(config, payload);
+  }
+
+  if (!config.isConfigured) {
+    return {
+      provider: config.provider,
+      status: "Failed",
+      errorMessage: `${config.provider} settings are missing.`,
+      providerResponse: `${config.provider} is not configured.`,
+      detail: `${config.provider} is not configured. Saved message was not sent.`,
+    };
+  }
+
+  return {
+    provider: config.provider,
+    status: "Sent",
+    providerResponse: `${config.provider} placeholder queue accepted.`,
+    detail: `${config.provider} ready. Message queued to ${config.endpointLabel}.`,
+  };
+}
+
 function getEffectiveTokenExpiry(token: ApprovalLinkToken, ro: RepairOrderRecord | undefined): number {
   if (!ro || !["Released", "Closed"].includes(ro.status)) {
     return Infinity;
@@ -794,8 +1157,99 @@ function getEffectiveTokenExpiry(token: ApprovalLinkToken, ro: RepairOrderRecord
   return Number.isNaN(releaseTime) ? Infinity : releaseTime + 30 * 24 * 60 * 60 * 1000;
 }
 
+function buildCustomerApprovalLinkUrl(token: string) {
+  if (typeof window === "undefined") return `/customer-view?token=${token}`;
+  return `${window.location.origin}/customer-view?token=${token}`;
+}
+
+function buildCustomerSmsLinkLabel(token: string) {
+  return buildCustomerApprovalLinkUrl(token);
+}
+
 function buildCustomerPortalUrl(token: string) {
-  return `?portal=customer&token=${token}`;
+  return buildCustomerApprovalLinkUrl(token);
+}
+
+function buildCustomerBookingUrl() {
+  if (typeof window === "undefined") return "?portal=booking";
+  return `${window.location.origin}${window.location.pathname}?portal=booking`;
+}
+
+function addMonthsToDate(dateValue: string, months: number) {
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return new Date();
+  date.setMonth(date.getMonth() + months);
+  return date;
+}
+
+function addDaysToDate(dateValue: string, days: number) {
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return new Date();
+  date.setDate(date.getDate() + days);
+  return date;
+}
+
+function parseOdometerValue(value: string) {
+  const parsed = Number(String(value ?? "").replace(/,/g, "").trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getOilChangePolicy(oilType: OilChangeReminderType) {
+  return oilType === "Fully Synthetic"
+    ? { months: 12, kilometers: 10000 }
+    : { months: 6, kilometers: 5000 };
+}
+
+function isOilChangeServiceLine(line: RepairOrderWorkLine) {
+  const text = [line.title, line.customerDescription, line.category, line.notes, line.recommendationSource]
+    .map((value) => String(value ?? "").toLowerCase())
+    .join(" ");
+  return (
+    text.includes("oil change") ||
+    text.includes("oil service") ||
+    text.includes("engine oil") ||
+    text.includes("oil and filter") ||
+    text.includes("oil only")
+  );
+}
+
+function inferOilChangeTypeFromText(...texts: Array<string | null | undefined>): OilChangeReminderType {
+  const combined = texts.map((value) => String(value ?? "").toLowerCase()).join(" ");
+  if (combined.includes("fully synthetic") || combined.includes("full synthetic") || combined.includes("synthetic")) {
+    return "Fully Synthetic";
+  }
+  return "Conventional";
+}
+
+function buildOilChangeReminderMessage(reminder: OilChangeReminder) {
+  return [
+    `Hi ${reminder.customerName},`,
+    "",
+    `Your vehicle ${reminder.vehicleLabel} (${reminder.plateNumber || reminder.conductionNumber || "-"}) has an oil change reminder.`,
+    "",
+    `Last service: ${formatDateTime(reminder.serviceDate)} | Odometer: ${reminder.serviceOdometerKm || "-"}`,
+    `Current odometer: ${reminder.currentOdometerKm || "-"}`,
+    `Reminder rule: ${reminder.oilType === "Fully Synthetic" ? "12 months or 10,000 km" : "6 months or 5,000 km"}`,
+    `Due status: ${reminder.dueReason}`,
+    "",
+    `Book your next visit here: ${buildCustomerBookingUrl()}`,
+    "DVI Workshop | Please contact your service advisor for assistance.",
+  ].join("\n");
+}
+
+function buildReleaseFollowUpMessage(reminder: ReleaseFollowUpReminder) {
+  return [
+    `Hi ${reminder.customerName},`,
+    "",
+    `We hope your vehicle ${reminder.vehicleLabel} (${reminder.plateNumber || reminder.conductionNumber || "-"}) is doing well after your recent release.`,
+    "",
+    `This is a follow-up for RO ${reminder.roNumber}${reminder.releaseNumber ? ` / Release ${reminder.releaseNumber}` : ""}.`,
+    `Released on: ${formatDateTime(reminder.releaseDate)}`,
+    "",
+    "How has your experience been since the service? Please let us know if everything is working as expected or if there is anything we can help with.",
+    "",
+    "DVI Workshop | Please contact your service advisor if you need assistance.",
+  ].join("\n");
 }
 
 function todayStamp(date = new Date()) {
@@ -1370,7 +1824,7 @@ function printCustomerSummary(ro: RepairOrderRecord) {
   const html = `
     <html>
       <head>
-        <title>Customer Summary – ${esc(ro.roNumber)}</title>
+        <title>Customer Summary  -  ${esc(ro.roNumber)}</title>
         <style>
           body { font-family: Arial, sans-serif; padding: 32px; color: #0f172a; max-width: 760px; margin: 0 auto; }
           h1 { font-size: 22px; margin: 0 0 4px; }
@@ -1403,8 +1857,8 @@ function printCustomerSummary(ro: RepairOrderRecord) {
         </div>
 
         ${table("Approved Work", "#15803d", approvedLines, approvedTotal)}
-        ${deferredLines.length > 0 ? table("Deferred – Decide Later", "#b45309", deferredLines, deferredTotal) : ""}
-        ${declinedLines.length > 0 ? table("Declined – Not Proceeding", "#b91c1c", declinedLines, declinedTotal) : ""}
+        ${deferredLines.length > 0 ? table("Deferred  -  Decide Later", "#b45309", deferredLines, deferredTotal) : ""}
+        ${declinedLines.length > 0 ? table("Declined  -  Not Proceeding", "#b91c1c", declinedLines, declinedTotal) : ""}
 
         <div class="totals">
           <table>
@@ -2162,10 +2616,11 @@ type CustomerInspectionSection = {
   findings: CustomerInspectionFinding[];
 };
 
-function getCustomerInspectionStatus(value: string): CustomerInspectionStatus | null {
-  if (value === "Good" || value === "OK") return "Good";
-  if (value === "Monitor" || value === "Needs Attention") return "Needs Attention";
-  if (value === "Replace" || value === "Needs Replacement") return "Critical";
+function getCustomerInspectionStatus(value: string | null | undefined): CustomerInspectionStatus | null {
+  const normalized = String(value ?? "").trim();
+  if (normalized === "Good" || normalized === "OK") return "Good";
+  if (normalized === "Monitor" || normalized === "Needs Attention") return "Needs Attention";
+  if (normalized === "Replace" || normalized === "Needs Replacement") return "Critical";
   return null;
 }
 
@@ -2179,21 +2634,35 @@ function joinInspectionNotes(...notes: Array<string | number | null | undefined>
   return notes
     .map((note) => String(note ?? "").trim())
     .filter(Boolean)
-    .join(" • ");
+    .join("  |  ");
 }
 
 function buildCustomerInspectionSections(record: InspectionRecord): CustomerInspectionSection[] {
   const sections: CustomerInspectionSection[] = [];
+  const coolingAdditionalFindings = Array.isArray(record.coolingAdditionalFindings) ? record.coolingAdditionalFindings : [];
+  const steeringAdditionalFindings = Array.isArray(record.steeringAdditionalFindings) ? record.steeringAdditionalFindings : [];
+  const enginePerformanceAdditionalFindings = Array.isArray(record.enginePerformanceAdditionalFindings) ? record.enginePerformanceAdditionalFindings : [];
+  const roadTestAdditionalFindings = Array.isArray(record.roadTestAdditionalFindings) ? record.roadTestAdditionalFindings : [];
+  const scanUploadNames = Array.isArray(record.scanUploadNames) ? record.scanUploadNames : [];
+  const electricalBatteryVoltage = String(record.electricalBatteryVoltage ?? "");
+  const electricalChargingVoltage = String(record.electricalChargingVoltage ?? "");
+  const scanNotes = String(record.scanNotes ?? "");
+  const scanToolUsed = String(record.scanToolUsed ?? "");
+  const alignmentConcernNotes = String(record.alignmentConcernNotes ?? "");
+  const alignmentBeforePrintoutName = String(record.alignmentBeforePrintoutName ?? "");
+  const alignmentAfterPrintoutName = String(record.alignmentAfterPrintoutName ?? "");
+  const inspectionNotes = String(record.inspectionNotes ?? "");
 
-  const pushSection = (label: string, findings: CustomerInspectionFinding[], note = "") => {
-    if (!findings.length && !note.trim()) return;
-    sections.push({ label, note: note.trim(), findings });
+  const pushSection = (label: string, findings: CustomerInspectionFinding[], note?: string | null) => {
+    const safeNote = String(note ?? "").trim();
+    if (!findings.length && !safeNote) return;
+    sections.push({ label, note: safeNote, findings });
   };
 
-  const pushFinding = (findings: CustomerInspectionFinding[], title: string, value: string, note = "") => {
+  const pushFinding = (findings: CustomerInspectionFinding[], title: string, value: string | null | undefined, note?: string | null) => {
     const status = getCustomerInspectionStatus(value);
     if (!status) return;
-    findings.push({ title, status, note: note.trim() });
+    findings.push({ title, status, note: String(note ?? "").trim() });
   };
 
   const arrivalFindings: CustomerInspectionFinding[] = [];
@@ -2268,13 +2737,13 @@ function buildCustomerInspectionSections(record: InspectionRecord): CustomerInsp
   pushFinding(coolingFindings, "Thermostat condition", record.thermostatConditionState, record.coolingSystemNotes);
   pushFinding(coolingFindings, "Overflow reservoir condition", record.overflowReservoirConditionState, record.coolingSystemNotes);
   pushFinding(coolingFindings, "Cooling system pressure", record.coolingSystemPressureState, record.coolingSystemNotes);
-  record.coolingAdditionalFindings.forEach((finding) => {
+  coolingAdditionalFindings.forEach((finding) => {
     const status = getCustomerInspectionStatus(finding.status);
     if (!status) return;
     coolingFindings.push({
       title: finding.title.trim() || "Cooling finding",
       status,
-      note: joinInspectionNotes(finding.note, finding.photoNotes.join(" • ")),
+      note: joinInspectionNotes(finding.note, finding.photoNotes.join("  |  ")),
     });
   });
   pushSection("Cooling System", coolingFindings, record.coolingSystemNotes);
@@ -2286,13 +2755,13 @@ function buildCustomerInspectionSections(record: InspectionRecord): CustomerInsp
   pushFinding(steeringFindings, "Steering hose condition", record.steeringHoseConditionState, record.steeringSystemNotes);
   pushFinding(steeringFindings, "Steering column condition", record.steeringColumnConditionState, record.steeringSystemNotes);
   pushFinding(steeringFindings, "Road feel", record.steeringRoadFeelState, record.steeringSystemNotes);
-  record.steeringAdditionalFindings.forEach((finding) => {
+  steeringAdditionalFindings.forEach((finding) => {
     const status = getCustomerInspectionStatus(finding.status);
     if (!status) return;
     steeringFindings.push({
       title: finding.title.trim() || "Steering finding",
       status,
-      note: joinInspectionNotes(finding.note, finding.photoNotes.join(" • ")),
+      note: joinInspectionNotes(finding.note, finding.photoNotes.join("  |  ")),
     });
   });
   pushSection("Steering", steeringFindings, record.steeringSystemNotes);
@@ -2304,13 +2773,13 @@ function buildCustomerInspectionSections(record: InspectionRecord): CustomerInsp
   pushFinding(engineFindings, "Misfire", record.engineMisfireState, record.enginePerformanceNotes);
   pushFinding(engineFindings, "Smoke", record.engineSmokeState, record.enginePerformanceNotes);
   pushFinding(engineFindings, "Fuel efficiency concern", record.fuelEfficiencyConcernState, record.enginePerformanceNotes);
-  record.enginePerformanceAdditionalFindings.forEach((finding) => {
+  enginePerformanceAdditionalFindings.forEach((finding) => {
     const status = getCustomerInspectionStatus(finding.status);
     if (!status) return;
     engineFindings.push({
       title: finding.title.trim() || "Engine performance finding",
       status,
-      note: joinInspectionNotes(finding.note, finding.photoNotes.join(" • ")),
+      note: joinInspectionNotes(finding.note, finding.photoNotes.join("  |  ")),
     });
   });
   pushSection("Engine Performance", engineFindings, record.enginePerformanceNotes);
@@ -2322,13 +2791,13 @@ function buildCustomerInspectionSections(record: InspectionRecord): CustomerInsp
   pushFinding(roadTestFindings, "Ride quality", record.roadTestRideQualityState, record.roadTestNotes);
   pushFinding(roadTestFindings, "Acceleration", record.roadTestAccelerationState, record.roadTestNotes);
   pushFinding(roadTestFindings, "Transmission shift quality", record.roadTestTransmissionShiftState, record.roadTestNotes);
-  record.roadTestAdditionalFindings.forEach((finding) => {
+  roadTestAdditionalFindings.forEach((finding) => {
     const status = getCustomerInspectionStatus(finding.status);
     if (!status) return;
     roadTestFindings.push({
       title: finding.title.trim() || "Road test finding",
       status,
-      note: joinInspectionNotes(finding.note, finding.photoNotes.join(" • ")),
+      note: joinInspectionNotes(finding.note, finding.photoNotes.join("  |  ")),
     });
   });
   pushSection("Road Test", roadTestFindings, record.roadTestNotes);
@@ -2348,11 +2817,11 @@ function buildCustomerInspectionSections(record: InspectionRecord): CustomerInsp
   pushFinding(electricalFindings, "Fuse / relay", record.electricalFuseRelayState, record.electricalNotes);
   pushFinding(electricalFindings, "Wiring", record.electricalWiringState, record.electricalNotes);
   pushFinding(electricalFindings, "Warning light", record.electricalWarningLightState, record.electricalNotes);
-  if (record.electricalBatteryVoltage.trim()) {
-    electricalFindings.push({ title: "Battery voltage", status: "Good", note: record.electricalBatteryVoltage.trim() });
+  if (electricalBatteryVoltage.trim()) {
+    electricalFindings.push({ title: "Battery voltage", status: "Good", note: electricalBatteryVoltage.trim() });
   }
-  if (record.electricalChargingVoltage.trim()) {
-    electricalFindings.push({ title: "Charging voltage", status: "Good", note: record.electricalChargingVoltage.trim() });
+  if (electricalChargingVoltage.trim()) {
+    electricalFindings.push({ title: "Charging voltage", status: "Good", note: electricalChargingVoltage.trim() });
   }
   pushSection("Electrical", electricalFindings, record.electricalNotes);
 
@@ -2394,56 +2863,118 @@ function buildCustomerInspectionSections(record: InspectionRecord): CustomerInsp
   pushSection("Suspension", suspensionFindings, joinInspectionNotes(record.rearSuspensionType, record.frontSuspensionNotes, record.rearSuspensionNotes, record.steeringFeelNotes, record.suspensionRoadTestNotes));
 
   const scanFindings: CustomerInspectionFinding[] = [];
-  if (record.scanPerformed || record.scanNotes.trim() || record.scanUploadNames.length > 0) {
+  if (record.scanPerformed || scanNotes.trim() || scanUploadNames.length > 0) {
     scanFindings.push({
       title: "Scan performed",
       status: record.scanPerformed ? "Good" : "Needs Attention",
       note: joinInspectionNotes(record.scanToolUsed, record.scanNotes),
     });
   }
-  if (record.scanUploadNames.length > 0) {
+  if (scanUploadNames.length > 0) {
     scanFindings.push({
       title: "Scan file uploads",
       status: "Good",
-      note: record.scanUploadNames.join(" • "),
+      note: scanUploadNames.join("  |  "),
     });
   }
-  pushSection("Scan / Diagnostics", scanFindings, joinInspectionNotes(record.scanToolUsed, record.scanNotes));
+  pushSection("Scan / Diagnostics", scanFindings, joinInspectionNotes(scanToolUsed, scanNotes));
 
   const alignmentFindings: CustomerInspectionFinding[] = [];
-  if (record.alignmentRecommended || record.alignmentConcernNotes.trim() || record.alignmentBeforePrintoutName.trim() || record.alignmentAfterPrintoutName.trim()) {
+  if (record.alignmentRecommended || alignmentConcernNotes.trim() || alignmentBeforePrintoutName.trim() || alignmentAfterPrintoutName.trim()) {
     alignmentFindings.push({
       title: "Alignment check",
       status: record.alignmentRecommended ? "Needs Attention" : "Good",
       note: joinInspectionNotes(
-        record.alignmentConcernNotes,
-        record.alignmentBeforePrintoutName ? `Before printout: ${record.alignmentBeforePrintoutName}` : "",
-        record.alignmentAfterPrintoutName ? `After printout: ${record.alignmentAfterPrintoutName}` : ""
+        alignmentConcernNotes,
+        alignmentBeforePrintoutName ? `Before printout: ${alignmentBeforePrintoutName}` : "",
+        alignmentAfterPrintoutName ? `After printout: ${alignmentAfterPrintoutName}` : ""
       ),
     });
   }
-  pushSection("Alignment", alignmentFindings, record.alignmentConcernNotes);
+  pushSection("Alignment", alignmentFindings, alignmentConcernNotes);
 
-  if (record.inspectionNotes.trim()) {
+  if (inspectionNotes.trim()) {
     pushSection("Inspection Notes", [{
       title: "Overall notes",
       status: "Good",
-      note: record.inspectionNotes.trim(),
+      note: inspectionNotes.trim(),
     }], "");
   }
 
   return sections;
 }
 
-function groupInspectionMediaBySection(items: InspectionEvidenceRecord[]) {
+function groupInspectionMediaBySection(items?: InspectionEvidenceRecord[] | null) {
   const grouped = new Map<string, InspectionEvidenceRecord[]>();
-  items.forEach((item) => {
-    const key = item.section.trim() || "General";
+  (items ?? []).forEach((item) => {
+    if (!item || typeof item !== "object") return;
+    const key = String(item?.section ?? "").trim() || "General";
     const current = grouped.get(key) ?? [];
     current.push(item);
     grouped.set(key, current);
   });
   return Array.from(grouped.entries()).map(([section, media]) => ({ section, media }));
+}
+
+type CustomerPortalErrorBoundaryProps = {
+  onReset: () => void;
+  children: React.ReactNode;
+};
+
+type CustomerPortalErrorBoundaryState = {
+  hasError: boolean;
+  errorMessage: string;
+};
+
+class CustomerPortalErrorBoundary extends React.Component<CustomerPortalErrorBoundaryProps, CustomerPortalErrorBoundaryState> {
+  state: CustomerPortalErrorBoundaryState = {
+    hasError: false,
+    errorMessage: "",
+  };
+
+  static getDerivedStateFromError(error: Error): CustomerPortalErrorBoundaryState {
+    return {
+      hasError: true,
+      errorMessage: error.message || "Customer portal could not be rendered.",
+    };
+  }
+
+  componentDidCatch(error: Error, _errorInfo: React.ErrorInfo) {
+    console.error("Customer portal render error:", error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <>
+          <style>{globalCss}</style>
+          <div style={styles.appShell}>
+            <div style={styles.mainArea}>
+              <div style={styles.pageContent}>
+                <div style={styles.grid}>
+                  <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+                    <Card title="Customer Portal" subtitle="Recovery view">
+                      <div style={styles.errorBox}>Customer portal failed to load.</div>
+                      <div style={styles.formHint}>
+                        {this.state.errorMessage || "A legacy record or inspection item caused the customer portal to crash. The rest of the app is still available."}
+                      </div>
+                      <div style={styles.inlineActions}>
+                        <button type="button" style={styles.smallButtonSuccess} onClick={this.props.onReset}>
+                          Return to Staff Login
+                        </button>
+                      </div>
+                    </Card>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    return this.props.children;
+  }
 }
 
 function isAttentionOrReplacement(value: InspectionCheckValue) {
@@ -2804,7 +3335,7 @@ function buildCustomerApprovalMessage(ro: RepairOrderRecord | null) {
   const summaryLines = lines.map((line, index) => {
     const decision = line.approvalDecision ?? "Pending";
     const amount = formatCurrency(parseMoneyInput(line.totalEstimate));
-    return `${index + 1}. ${line.title || "Untitled Work Line"} — ${amount} — ${decision}`;
+    return `${index + 1}. ${line.title || "Untitled Work Line"}  -  ${amount}  -  ${decision}`;
   });
 
   return [
@@ -2821,6 +3352,186 @@ function buildCustomerApprovalMessage(ro: RepairOrderRecord | null) {
     `Declined: ${declined.length}`,
     `Pending: ${pending.length}`,
   ].join("\n");
+}
+
+function buildCustomerNotificationTemplates({
+  ro,
+  inspection,
+  approvalRecord,
+  approvalLinkToken,
+  oilReminder,
+  followUpReminder,
+  partsRequests,
+  releaseRecord,
+  backjobRecord,
+}: {
+  ro: RepairOrderRecord | null;
+  inspection: InspectionRecord | null;
+  approvalRecord: ApprovalRecord | null;
+  approvalLinkToken: ApprovalLinkToken | null;
+  oilReminder: OilChangeReminder | null;
+  followUpReminder: ReleaseFollowUpReminder | null;
+  partsRequests: PartsRequestRecord[];
+  releaseRecord: ReleaseRecord | null;
+  backjobRecord: BackjobRecord | null;
+}): CustomerNotificationTemplate[] {
+  if (!ro) return [];
+
+  const customerName = ro.accountLabel || ro.customerName || "Customer";
+  const vehicleLabel = [ro.make, ro.model, ro.year].filter(Boolean).join(" ") || ro.plateNumber || ro.conductionNumber || "your vehicle";
+  const plateLabel = ro.plateNumber || ro.conductionNumber || "-";
+  const portalLink = approvalLinkToken ? `${buildCustomerPortalUrl(approvalLinkToken.token)}` : "";
+  const estimateTotal = ro.workLines.reduce((sum, line) => sum + parseMoneyInput(line.totalEstimate), 0);
+  const inspectionSections = inspection ? buildCustomerInspectionSections(inspection) : [];
+  const inspectionFindings = inspectionSections.flatMap((section) =>
+    section.findings.map((finding) => ({
+      section: section.label,
+      title: finding.title,
+      status: finding.status,
+      note: finding.note,
+    }))
+  );
+  const notableFindings = inspectionFindings.filter((finding) => finding.status !== "Good").slice(0, 4);
+  const findingLines = notableFindings.length
+    ? notableFindings.map((finding) => `- ${finding.section}: ${finding.title} - ${finding.status}${finding.note ? ` - ${finding.note}` : ""}`)
+    : inspectionFindings.slice(0, 3).map((finding) => `- ${finding.section}: ${finding.title} - ${finding.status}${finding.note ? ` - ${finding.note}` : ""}`);
+  const approvalLines = ro.workLines
+    .filter((line) => (line.approvalDecision ?? "Pending") === "Pending" || line.approvalDecision === "Deferred")
+    .slice(0, 4)
+    .map((line) => {
+      const amount = formatCurrency(parseMoneyInput(line.totalEstimate));
+      const note = line.notes || getCustomerFriendlyLineDescription(line);
+      return `- ${line.title || "Untitled Work Item"} (${amount}) - ${note}`;
+    });
+  const partsLines = partsRequests
+    .filter((request) => request.roId === ro.id && !["Closed", "Cancelled"].includes(request.status))
+    .slice(0, 4)
+    .map((request) => `- ${request.partName || "Part request"} x${request.quantity || "1"} - ${request.status}`);
+  const releaseChecklist = releaseRecord
+    ? [
+        `- Final total: ${formatCurrency(parseMoneyInput(releaseRecord.finalTotalAmount))}`,
+        `- Payment settled: ${releaseRecord.paymentSettled ? "Yes" : "No"}`,
+        `- Documents ready: ${releaseRecord.documentsReady ? "Yes" : "No"}`,
+        `- Vehicle clean: ${releaseRecord.cleanVehicle ? "Yes" : "No"}`,
+      ]
+    : [
+        `- Final total: ${formatCurrency(estimateTotal)}`,
+        `- Payment settled: Pending`,
+        `- Documents ready: Pending`,
+        `- Vehicle clean: Pending`,
+      ];
+  const pullOutReason = ro.pullOutReason || backjobRecord?.findings || backjobRecord?.complaint || ro.customerConcern || "Work has been stopped for review.";
+  const backjobLine = backjobRecord
+    ? `- Backjob ${backjobRecord.backjobNumber}: ${backjobRecord.responsibility} | ${backjobRecord.status}`
+    : "- No backjob record has been logged yet.";
+  const bookingLink = buildCustomerBookingUrl();
+
+  return [
+    {
+      key: "approval-request",
+      title: "Approval Request",
+      subtitle: "Send when the RO is ready for customer decision",
+      body: [
+        `Hi ${customerName},`,
+        "",
+        `Your repair order ${ro.roNumber} for ${vehicleLabel} (${plateLabel}) is ready for your approval.`,
+        "",
+        "Inspection highlights:",
+        ...(findingLines.length ? findingLines : ["- No major inspection concerns recorded."]),
+        "",
+        "Recommended work items:",
+        ...(approvalLines.length ? approvalLines : ["- Review the current estimate in the customer portal."]),
+        "",
+        portalLink ? `Open customer portal: ${portalLink}` : "Open customer portal from the SMS approval link system.",
+        approvalRecord ? `Approval record: ${approvalRecord.approvalNumber} | ${approvalRecord.items.length} item(s)` : "Approval record: Not yet generated",
+        "",
+        "Reply if you want us to explain any item before you decide.",
+      ].join("\n"),
+    },
+    {
+      key: "waiting-parts",
+      title: "Waiting Parts Update",
+      subtitle: "Send when work is blocked by parts availability",
+      body: [
+        `Hi ${customerName},`,
+        "",
+        `Your repair order ${ro.roNumber} for ${vehicleLabel} is currently waiting for parts before work can continue.`,
+        "",
+        "Current parts update:",
+        ...(partsLines.length ? partsLines : ["- No active parts request is currently linked to this RO."]),
+        "",
+        `RO status: ${ro.status}`,
+        "We will update you again once the needed parts arrive and the job can resume.",
+      ].join("\n"),
+    },
+    {
+      key: "ready-release",
+      title: "Ready for Release",
+      subtitle: "Send when the vehicle is cleared for handover",
+      body: [
+        `Hi ${customerName},`,
+        "",
+        `Your vehicle ${vehicleLabel} (${plateLabel}) under RO ${ro.roNumber} is ready for release.`,
+        "",
+        ...releaseChecklist,
+        "",
+        releaseRecord?.releaseSummary || "Release checklist is complete and the vehicle is ready for pickup.",
+        "",
+        "Please visit the workshop for handover and final release.",
+      ].join("\n"),
+    },
+    {
+      key: "pull-out-notice",
+      title: "Pull-Out or Stopped Work Notice",
+      subtitle: "Send when a job is stopped or pulled out",
+      body: [
+        `Hi ${customerName},`,
+        "",
+        `Work on RO ${ro.roNumber} for ${vehicleLabel} has been stopped.`,
+        "",
+        `Reason: ${pullOutReason}`,
+        `Current status: ${ro.status}`,
+        backjobLine,
+        "",
+        "Please contact your service advisor if you want to review the next steps or resume the job later.",
+      ].join("\n"),
+    },
+    {
+      key: "oil-reminder",
+      title: "Oil Change Reminder",
+      subtitle: "Send when the next oil change is due or due soon",
+      body: oilReminder
+        ? buildOilChangeReminderMessage(oilReminder)
+        : [
+            `Hi ${customerName},`,
+            "",
+            `This is a friendly oil change reminder for ${vehicleLabel} (${plateLabel}).`,
+            "",
+            "We review the latest oil change record and trigger reminders based on the service date and odometer interval.",
+            "",
+            `Book your next visit here: ${bookingLink}`,
+            "DVI Workshop | Please contact your service advisor for assistance.",
+          ].join("\n"),
+    },
+    {
+      key: "follow-up",
+      title: "Follow-up (3 days after release)",
+      subtitle: "Send three days after the vehicle is marked as Released",
+      body: followUpReminder && followUpReminder.isDue
+        ? buildReleaseFollowUpMessage(followUpReminder)
+        : [
+            `Hi ${customerName},`,
+            "",
+            "A post-release follow-up becomes available 3 days after the vehicle is marked as Released.",
+            "",
+            `RO: ${ro.roNumber}`,
+            `Vehicle: ${vehicleLabel} (${plateLabel})`,
+            `Release: ${releaseRecord?.releaseNumber || "-"}`,
+            "",
+            "Once the follow-up is due, you can copy the ready-to-send message from this panel.",
+          ].join("\n"),
+    },
+  ];
 }
 
 function hasInspectionCriticalState(record: InspectionRecord) {
@@ -3467,6 +4178,7 @@ function LoginScreen({
   onPublicBookingSubmit,
   onQuickStaffLogin,
   onLoadDemoData,
+  onOpenDemoCustomerPortal,
 }: {
   audience: LoginAudience;
   setAudience: React.Dispatch<React.SetStateAction<LoginAudience>>;
@@ -3488,6 +4200,7 @@ function LoginScreen({
   onPublicBookingSubmit: (e: React.FormEvent) => void;
   onQuickStaffLogin: (username: string) => void;
   onLoadDemoData: () => void;
+  onOpenDemoCustomerPortal: () => void;
 }) {
   const isStaff = audience === "staff";
   const isCustomer = audience === "customer";
@@ -3598,6 +4311,7 @@ function LoginScreen({
             <div style={styles.updateNoteBox}><div style={styles.updateNoteTitle}>Latest Build Update</div><div style={styles.updateNoteText}>Phase 17K.1 refines the Inspection module with cleaner navigation, faster encoding cues, stronger edit visibility, and a clearer action layout while preserving the current full system branch.</div></div><div style={styles.demoBox}>
               <div style={styles.demoTitle}>Quick Demo Access</div>
               <div style={styles.inlineActions}>
+                <button type="button" style={styles.smallButtonSuccess} onClick={onOpenDemoCustomerPortal}>Open Demo Customer Portal</button>
                 <button type="button" style={styles.smallButton} onClick={onLoadDemoData}>Load Simulated Data</button>
                 <button type="button" style={styles.smallButtonMuted} onClick={() => onQuickStaffLogin("admin")}>Admin</button>
                 <button type="button" style={styles.smallButtonMuted} onClick={() => onQuickStaffLogin("advisor")}>Advisor</button>
@@ -3653,8 +4367,8 @@ function LoginScreen({
               <div style={styles.demoGrid}>
                 <div>Customer accounts are generated from intake and repair-order records.</div>
                 <div>Default portal password uses the last 4 digits of the customer phone number.</div>
-                <div>Sample portal login: Miguel Santos — 09171234567 / 4567</div>
-                <div>Sample portal login: Andrea Lim — fleet@primemovers.example.com / 6543</div>
+                <div>Sample portal login: Miguel Santos  -  09171234567 / 4567</div>
+                <div>Sample portal login: Andrea Lim  -  fleet@primemovers.example.com / 6543</div>
                 <div>Customers can review active jobs, see approval items, track progress, and browse their vehicles.</div>
               </div>
             </div>
@@ -3811,6 +4525,10 @@ function CustomerPortalPage({
   setCustomerSession,
   onLogout,
   isCompactLayout,
+  isDemoMode,
+  portalLaunchView,
+  sharedLinkRoId,
+  sharedLinkMode,
 }: {
   customer: CustomerAccount;
   repairOrders: RepairOrderRecord[];
@@ -3831,16 +4549,22 @@ function CustomerPortalPage({
   setCustomerSession: React.Dispatch<React.SetStateAction<CustomerAccount | null>>;
   onLogout: () => void;
   isCompactLayout: boolean;
+  isDemoMode: boolean;
+  portalLaunchView?: CustomerPortalView;
+  sharedLinkRoId?: string;
+  sharedLinkMode?: boolean;
 }) {
-  const [portalView, setPortalView] = useState<CustomerPortalView>("dashboard");
+  const [portalView, setPortalView] = useState<CustomerPortalView>(portalLaunchView ?? "dashboard");
   const [selectedVehicleKey, setSelectedVehicleKey] = useState("");
 
-  const customerPhone = sanitizePhone(customer.phone);
+  const customerLinkedPlateNumbers = Array.isArray(customer.linkedPlateNumbers) ? customer.linkedPlateNumbers : [];
+  const customerLinkedRoIds = Array.isArray(customer.linkedRoIds) ? customer.linkedRoIds : [];
+  const customerPhone = sanitizePhone(customer.phone || "");
   const customerEmail = (customer.email || "").trim().toLowerCase();
 
   const linkedRepairOrders = useMemo(() => {
-    const linkedPlates = new Set(customer.linkedPlateNumbers || []);
-    const linkedRoIds = new Set(customer.linkedRoIds || []);
+    const linkedPlates = new Set(customerLinkedPlateNumbers);
+    const linkedRoIds = new Set(customerLinkedRoIds);
 
     return repairOrders.filter((row) => {
       const rowPhone = sanitizePhone(row.phone || "");
@@ -3853,11 +4577,11 @@ function CustomerPortalPage({
         (!!customerEmail && rowEmail === customerEmail)
       );
     });
-  }, [customer, repairOrders, customerPhone, customerEmail]);
+  }, [customerLinkedPlateNumbers, customerLinkedRoIds, repairOrders, customerPhone, customerEmail]);
 
   const linkedVehicleKeys = useMemo(() => {
     const keys = new Set<string>();
-    (customer.linkedPlateNumbers || []).forEach((plate) => {
+    customerLinkedPlateNumbers.forEach((plate) => {
       keys.add(normalizeVehicleKey(plate, ""));
     });
 
@@ -3877,7 +4601,7 @@ function CustomerPortalPage({
     });
 
     return keys;
-  }, [customer.linkedPlateNumbers, intakeRecords, linkedRepairOrders, customerPhone, customerEmail]);
+  }, [customerLinkedPlateNumbers, intakeRecords, linkedRepairOrders, customerPhone, customerEmail]);
 
   const portalVehicleGroups = useMemo(() => {
     const groups = buildVehicleHistoryGroups({
@@ -3898,7 +4622,7 @@ function CustomerPortalPage({
       if (existingKeys.has(key)) return;
       filtered.push({
         vehicleKey: key,
-        plateNumber: customer.linkedPlateNumbers.find((item) => normalizeVehicleKey(item, "") === key) || "",
+        plateNumber: customerLinkedPlateNumbers.find((item) => normalizeVehicleKey(item, "") === key) || "",
         conductionNumber: "",
         vehicleLabel: "Customer-added vehicle",
         latestOdometerKm: "",
@@ -3934,6 +4658,12 @@ function CustomerPortalPage({
     }
   }, [selectedVehicleGroup, selectedVehicleKey]);
 
+  useEffect(() => {
+    if (portalLaunchView) {
+      setPortalView(portalLaunchView);
+    }
+  }, [portalLaunchView]);
+
   const pendingApprovalCount = linkedRepairOrders.reduce(
     (sum, row) => sum + row.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length,
     0
@@ -3955,11 +4685,27 @@ function CustomerPortalPage({
     return rows;
   }, [inspectionRecords, linkedRepairOrders]);
 
-  const activePortalLinks = approvalLinkTokens.filter((row) => {
-    if (row.customerId !== customer.id || row.revokedAt) return false;
-    const ro = repairOrders.find((r) => r.id === row.roId);
-    return getEffectiveTokenExpiry(row, ro) > Date.now();
-  }).length;
+  const approvalReviewRows = useMemo(
+    () =>
+      portalInspectionRows.map(({ row, inspection }) => ({
+        row,
+        inspection,
+        sections: buildCustomerInspectionSections(inspection),
+        mediaGroups: groupInspectionMediaBySection(inspection.evidenceItems ?? []),
+      })),
+    [portalInspectionRows]
+  );
+
+  const displayedApprovalReviewRows = useMemo(() => {
+    if (!sharedLinkRoId) return approvalReviewRows;
+    return [...approvalReviewRows].sort((a, b) => {
+      if (a.row.id === sharedLinkRoId) return -1;
+      if (b.row.id === sharedLinkRoId) return 1;
+      return a.row.roNumber.localeCompare(b.row.roNumber);
+    });
+  }, [approvalReviewRows, sharedLinkRoId]);
+
+  const activePortalLinks = approvalLinkTokens.filter((row) => row.customerId === customer.id && isApprovalLinkActive(row)).length;
   const [bookingForm, setBookingForm] = useState(() => getDefaultBookingForm(customer.fullName));
   const [bookingError, setBookingError] = useState("");
   const [portalVehicleForm, setPortalVehicleForm] = useState({
@@ -4135,7 +4881,9 @@ function CustomerPortalPage({
             </div>
 
             <div style={styles.topBarRight}>
-              <span style={styles.statusInfo}>Pending approvals: {pendingApprovalCount} • Active links: {activePortalLinks}</span>
+              {isDemoMode ? <span style={styles.statusWarning}>Demo Mode</span> : null}
+              {sharedLinkMode ? <span style={styles.statusInfo}>Customer View</span> : null}
+              <span style={styles.statusInfo}>Pending approvals: {pendingApprovalCount}  |  Active links: {activePortalLinks}</span>
               <div style={styles.topBarName}>{customer.fullName}</div>
               <button type="button" onClick={onLogout} style={styles.logoutButtonCompact}>
                 Sign Out
@@ -4233,7 +4981,7 @@ function CustomerPortalPage({
                       <div style={styles.quickAccessRow}><span>Name</span><strong>{customer.fullName}</strong></div>
                       <div style={styles.quickAccessRow}><span>Phone</span><strong>{customer.phone || "-"}</strong></div>
                       <div style={styles.quickAccessRow}><span>Email</span><strong>{customer.email || "-"}</strong></div>
-                      <div style={styles.quickAccessRow}><span>Vehicles</span><strong>{customer.linkedPlateNumbers.join(", ") || portalVehicleGroups.map((group) => group.plateNumber || group.conductionNumber).filter(Boolean).join(", ") || "-"}</strong></div>
+                      <div style={styles.quickAccessRow}><span>Vehicles</span><strong>{customerLinkedPlateNumbers.join(", ") || portalVehicleGroups.map((group) => group.plateNumber || group.conductionNumber).filter(Boolean).join(", ") || "-"}</strong></div>
                       <div style={styles.quickAccessRow}><span>Open Jobs</span><strong>{activeJobCount}</strong></div>
                       <div style={styles.quickAccessRow}><span>Pending Decisions</span><strong>{pendingApprovalCount}</strong></div>
                       <div style={styles.quickAccessRow}><span>SMS Approval Links</span><strong>{activePortalLinks}</strong></div>
@@ -4257,7 +5005,7 @@ function CustomerPortalPage({
                       <div style={styles.mobileDataSecondary}>Advisor: {row.advisorName || "-"}</div>
                       <div style={styles.mobileMetaRow}>
                         <span>Approval Snapshot</span>
-                        <strong>{row.workLines.filter((line) => line.approvalDecision === "Approved").length} approved • {row.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length} pending</strong>
+                        <strong>{row.workLines.filter((line) => line.approvalDecision === "Approved").length} approved  |  {row.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length} pending</strong>
                       </div>
                       <div style={styles.mobileMetaRow}>
                         <span>Concern</span>
@@ -4290,15 +5038,14 @@ function CustomerPortalPage({
                 ) : (
                   portalInspectionRows.map(({ row, inspection }) => {
                     const sections = buildCustomerInspectionSections(inspection);
-                    const allFindings = sections.flatMap((section) => section.findings);
-                    const statusTotals = allFindings.reduce(
+                    const totals = sections.flatMap((section) => section.findings).reduce(
                       (acc, finding) => {
                         acc[finding.status] += 1;
                         return acc;
                       },
                       { Good: 0, "Needs Attention": 0, Critical: 0 } as Record<CustomerInspectionStatus, number>
                     );
-                    const mediaGroups = groupInspectionMediaBySection(inspection.evidenceItems);
+                    const mediaGroups = groupInspectionMediaBySection(inspection.evidenceItems ?? []);
                     const mediaCount = mediaGroups.reduce((sum, group) => sum + group.media.length, 0);
 
                     return (
@@ -4308,23 +5055,23 @@ function CustomerPortalPage({
                             <strong style={{ color: "#f8fafc", fontSize: 15 }}>{inspection.inspectionNumber}</strong>
                             <span style={getInspectionStatusStyle(inspection.status)}>{inspection.status}</span>
                           </div>
-                          <div style={{ color: "#94a3b8", fontSize: 13, marginTop: 2 }}>{row.roNumber} â€¢ {inspection.accountLabel}</div>
-                          <div style={{ color: "#64748b", fontSize: 12 }}>{inspection.plateNumber || inspection.conductionNumber || "-"} â€¢ {[inspection.make, inspection.model, inspection.year].filter(Boolean).join(" ") || "-"}</div>
-                          <div style={{ color: "#94a3b8", fontSize: 12 }}>Created {formatDateTime(inspection.createdAt)} â€¢ Updated {formatDateTime(inspection.updatedAt)}</div>
+                          <div style={{ color: "#94a3b8", fontSize: 13, marginTop: 2 }}>{row.roNumber}  |  {inspection.accountLabel}</div>
+                          <div style={{ color: "#64748b", fontSize: 12 }}>{inspection.plateNumber || inspection.conductionNumber || "-"}  |  {[inspection.make, inspection.model, inspection.year].filter(Boolean).join(" ") || "-"}</div>
+                          <div style={{ color: "#94a3b8", fontSize: 12 }}>Created {formatDateTime(inspection.createdAt)}  |  Updated {formatDateTime(inspection.updatedAt)}</div>
                         </div>
 
                         <div style={{ padding: "12px 14px" }}>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
                             <div style={{ background: "#dcfce7", borderRadius: 6, padding: "8px 10px", textAlign: "center" as const }}>
-                              <div style={{ fontSize: 20, fontWeight: 700, color: "#15803d" }}>{statusTotals.Good}</div>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: "#15803d" }}>{totals.Good}</div>
                               <div style={{ fontSize: 11, color: "#15803d" }}>Good</div>
                             </div>
                             <div style={{ background: "#fef3c7", borderRadius: 6, padding: "8px 10px", textAlign: "center" as const }}>
-                              <div style={{ fontSize: 20, fontWeight: 700, color: "#b45309" }}>{statusTotals["Needs Attention"]}</div>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: "#b45309" }}>{totals["Needs Attention"]}</div>
                               <div style={{ fontSize: 11, color: "#b45309" }}>Needs Attention</div>
                             </div>
                             <div style={{ background: "#fee2e2", borderRadius: 6, padding: "8px 10px", textAlign: "center" as const }}>
-                              <div style={{ fontSize: 20, fontWeight: 700, color: "#b91c1c" }}>{statusTotals.Critical}</div>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: "#b91c1c" }}>{totals.Critical}</div>
                               <div style={{ fontSize: 11, color: "#b91c1c" }}>Critical</div>
                             </div>
                             <div style={{ background: "#e2e8f0", borderRadius: 6, padding: "8px 10px", textAlign: "center" as const }}>
@@ -4349,11 +5096,7 @@ function CustomerPortalPage({
                                         <strong style={{ fontSize: 14 }}>{finding.title}</strong>
                                         <span style={getCustomerInspectionStatusStyle(finding.status)}>{finding.status}</span>
                                       </div>
-                                      {finding.note ? (
-                                        <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>
-                                          {finding.note}
-                                        </div>
-                                      ) : null}
+                                      {finding.note ? <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>{finding.note}</div> : null}
                                     </div>
                                   ))}
                                 </div>
@@ -4376,17 +5119,9 @@ function CustomerPortalPage({
                                       {media.map((item) => (
                                         <div key={item.id} style={{ borderRadius: 6, overflow: "hidden", border: "1px solid #e2e8f0", background: "#fff" }}>
                                           {item.previewDataUrl && item.type === "Photo" ? (
-                                            <img
-                                              src={item.previewDataUrl}
-                                              alt={item.itemLabel || item.section || "Inspection photo"}
-                                              style={{ width: "100%", aspectRatio: "1", objectFit: "cover" as const, display: "block" }}
-                                            />
+                                            <img src={item.previewDataUrl} alt={item.itemLabel || item.section || "Inspection photo"} style={{ width: "100%", aspectRatio: "1", objectFit: "cover" as const, display: "block" }} />
                                           ) : item.previewDataUrl && item.type === "Video" ? (
-                                            <video
-                                              src={item.previewDataUrl}
-                                              controls
-                                              style={{ width: "100%", aspectRatio: "1", objectFit: "cover" as const, display: "block", background: "#0f172a" }}
-                                            />
+                                            <video src={item.previewDataUrl} controls style={{ width: "100%", aspectRatio: "1", objectFit: "cover" as const, display: "block", background: "#0f172a" }} />
                                           ) : (
                                             <div style={{ minHeight: 92, padding: "10px 8px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 4, background: "#f8fafc" }}>
                                               <strong style={{ fontSize: 12, color: "#0f172a" }}>{item.type}</strong>
@@ -4409,146 +5144,7 @@ function CustomerPortalPage({
                     );
                   })
                 )}
-                {linkedRepairOrders.length === 0 ? (
-                  <div style={styles.emptyState}>No inspection records available.</div>
-                ) : (
-                  linkedRepairOrders.map((row) => {
-                    const linkedInspection = inspectionRecords.find(
-                      (r) => r.id === row.inspectionId || r.intakeId === row.intakeId
-                    ) ?? null;
-
-                    const conditionOf = (line: RepairOrderWorkLine) => {
-                      const raw = getCustomerConditionLabelFromWorkLine(line);
-                      return raw === "Needs Replacement" ? "Critical" : raw === "Monitor" ? "Needs Attention" : raw;
-                    };
-
-                    const cardStyleFor = (cond: string): React.CSSProperties => {
-                      if (cond === "Good") return { borderLeft: "4px solid #15803d", background: "#f0fdf4", borderRadius: 6, padding: "10px 12px", marginBottom: 6 };
-                      if (cond === "Needs Attention") return { borderLeft: "4px solid #b45309", background: "#fffbeb", borderRadius: 6, padding: "10px 12px", marginBottom: 6 };
-                      return { borderLeft: "4px solid #b91c1c", background: "#fff1f2", borderRadius: 6, padding: "10px 12px", marginBottom: 6 };
-                    };
-
-                    const badgeFor = (cond: string): React.CSSProperties => {
-                      if (cond === "Good") return { background: "#dcfce7", color: "#15803d", borderRadius: 4, padding: "2px 8px", fontWeight: 700, fontSize: 11 };
-                      if (cond === "Needs Attention") return { background: "#fef3c7", color: "#b45309", borderRadius: 4, padding: "2px 8px", fontWeight: 700, fontSize: 11 };
-                      return { background: "#fee2e2", color: "#b91c1c", borderRadius: 4, padding: "2px 8px", fontWeight: 700, fontSize: 11 };
-                    };
-
-                    const allLines = row.workLines;
-                    const criticalLines = allLines.filter((l) => conditionOf(l) === "Critical");
-                    const needsAttentionLines = allLines.filter((l) => conditionOf(l) === "Needs Attention");
-                    const goodLines = allLines.filter((l) => conditionOf(l) === "Good");
-
-                    const grouped = allLines.reduce((acc, line) => {
-                      const key = line.category || "General";
-                      if (!acc[key]) acc[key] = [];
-                      acc[key].push(line);
-                      return acc;
-                    }, {} as Record<string, RepairOrderWorkLine[]>);
-
-                    const evidencePhotos = linkedInspection
-                      ? linkedInspection.evidenceItems.filter((e) => e.type === "Photo" && e.previewDataUrl)
-                      : [];
-
-                    const FindingCard = ({ line }: { line: RepairOrderWorkLine }) => {
-                      const cond = conditionOf(line);
-                      return (
-                        <div style={cardStyleFor(cond)}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" as const }}>
-                            <strong style={{ fontSize: 14 }}>{line.title || "Untitled"}</strong>
-                            <span style={badgeFor(cond)}>{cond}</span>
-                          </div>
-                          {(line.customerDescription || line.notes) ? (
-                            <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>
-                              {line.customerDescription || line.notes}
-                            </div>
-                          ) : null}
-                          {line.customerDescription && line.notes ? (
-                            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Note: {line.notes}</div>
-                          ) : null}
-                          <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 12, color: "#64748b", flexWrap: "wrap" as const }}>
-                            <span>Estimate: <strong style={{ color: "#0f172a" }}>{formatCurrency(parseMoneyInput(line.totalEstimate))}</strong></span>
-                            <span>Decision: <strong style={{ color: "#0f172a" }}>{line.approvalDecision ?? "Pending"}</strong></span>
-                          </div>
-                        </div>
-                      );
-                    };
-
-                    return (
-                      <div key={row.id} style={{ ...styles.mobileDataCard, padding: 0, overflow: "hidden" }}>
-                        <div style={{ background: "#1e293b", padding: "12px 14px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" as const, gap: 6 }}>
-                            <strong style={{ color: "#f8fafc", fontSize: 15 }}>{row.roNumber}</strong>
-                            <span style={{ background: "#334155", color: "#cbd5e1", borderRadius: 4, padding: "2px 8px", fontSize: 12 }}>{row.status}</span>
-                          </div>
-                          <div style={{ color: "#94a3b8", fontSize: 13, marginTop: 2 }}>{row.accountLabel}</div>
-                          <div style={{ color: "#64748b", fontSize: 12 }}>{row.plateNumber || row.conductionNumber || "-"} • {[row.make, row.model, row.year].filter(Boolean).join(" ")}</div>
-                        </div>
-
-                        <div style={{ padding: "12px 14px" }}>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
-                            <div style={{ background: "#dcfce7", borderRadius: 6, padding: "8px 10px", textAlign: "center" as const }}>
-                              <div style={{ fontSize: 20, fontWeight: 700, color: "#15803d" }}>{goodLines.length}</div>
-                              <div style={{ fontSize: 11, color: "#15803d" }}>Good</div>
-                            </div>
-                            <div style={{ background: "#fef3c7", borderRadius: 6, padding: "8px 10px", textAlign: "center" as const }}>
-                              <div style={{ fontSize: 20, fontWeight: 700, color: "#b45309" }}>{needsAttentionLines.length}</div>
-                              <div style={{ fontSize: 11, color: "#b45309" }}>Needs Attention</div>
-                            </div>
-                            <div style={{ background: "#fee2e2", borderRadius: 6, padding: "8px 10px", textAlign: "center" as const }}>
-                              <div style={{ fontSize: 20, fontWeight: 700, color: "#b91c1c" }}>{criticalLines.length}</div>
-                              <div style={{ fontSize: 11, color: "#b91c1c" }}>Critical</div>
-                            </div>
-                          </div>
-
-                          {criticalLines.length > 0 ? (
-                            <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
-                              <div style={{ fontWeight: 700, color: "#b91c1c", fontSize: 13, marginBottom: 8 }}>Critical — Requires Immediate Attention</div>
-                              {criticalLines.map((line) => <FindingCard key={`crit_${line.id}`} line={line} />)}
-                            </div>
-                          ) : null}
-
-                          {Object.entries(grouped).length === 0 ? (
-                            <div style={styles.emptyState}>No findings recorded.</div>
-                          ) : (
-                            Object.entries(grouped).map(([category, lines]) => (
-                              <div key={category} style={{ marginBottom: 14 }}>
-                                <div style={{ fontWeight: 600, fontSize: 13, color: "#334155", borderBottom: "1px solid #e2e8f0", paddingBottom: 4, marginBottom: 8 }}>
-                                  {category} <span style={{ fontWeight: 400, color: "#94a3b8", fontSize: 12 }}>({lines.length})</span>
-                                </div>
-                                {lines.map((line) => <FindingCard key={`grp_${line.id}`} line={line} />)}
-                              </div>
-                            ))
-                          )}
-
-                          {evidencePhotos.length > 0 ? (
-                            <div style={{ marginTop: 12 }}>
-                              <div style={{ fontWeight: 600, fontSize: 13, color: "#334155", borderBottom: "1px solid #e2e8f0", paddingBottom: 4, marginBottom: 8 }}>
-                                Inspection Photos ({evidencePhotos.length})
-                              </div>
-                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: 6 }}>
-                                {evidencePhotos.map((photo) => (
-                                  <div key={photo.id} style={{ borderRadius: 6, overflow: "hidden", border: "1px solid #e2e8f0" }}>
-                                    <img
-                                      src={photo.previewDataUrl}
-                                      alt={photo.itemLabel || photo.section || "Inspection photo"}
-                                      style={{ width: "100%", aspectRatio: "1", objectFit: "cover" as const, display: "block" }}
-                                    />
-                                    {photo.itemLabel ? (
-                                      <div style={{ padding: "3px 5px", fontSize: 10, color: "#64748b", background: "#f8fafc" }}>{photo.itemLabel}</div>
-                                    ) : null}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            ) : portalView === "bookings" ? (
+              </div>            ) : portalView === "bookings" ? (
               <div style={styles.grid}>
                 <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(5, isCompactLayout) }}>
                   <Card title="My Booking Requests" subtitle="Track customer-submitted service requests and appointment status">
@@ -4563,7 +5159,7 @@ function CustomerPortalPage({
                               <span style={getBookingStatusStyle(row.status)}>{row.status}</span>
                             </div>
                             <div style={styles.mobileDataPrimary}>{row.plateNumber || row.conductionNumber || "-"}</div>
-                            <div style={styles.mobileDataSecondary}>{row.serviceType} • {row.serviceDetail || "-"} • {row.requestedDate} {row.requestedTime}</div>
+                            <div style={styles.mobileDataSecondary}>{row.serviceType}  |  {row.serviceDetail || "-"}  |  {row.requestedDate} {row.requestedTime}</div>
                             <div style={styles.formHint}>{row.concern || row.notes || "Booking request"}</div>
                           </div>
                         ))}
@@ -4578,7 +5174,7 @@ function CustomerPortalPage({
                         <label style={styles.label}>Vehicle</label>
                         <select style={styles.select} value={selectedVehicleKey} onChange={(e) => setSelectedVehicleKey(e.target.value)}>
                           {portalVehicleGroups.map((group) => (
-                            <option key={group.vehicleKey} value={group.vehicleKey}>{group.plateNumber || group.conductionNumber || "No plate"} • {group.vehicleLabel}</option>
+                            <option key={group.vehicleKey} value={group.vehicleKey}>{group.plateNumber || group.conductionNumber || "No plate"}  |  {group.vehicleLabel}</option>
                           ))}
                           <option value="__new__">+ Add New Vehicle for This Booking</option>
                         </select>
@@ -4676,48 +5272,152 @@ function CustomerPortalPage({
             ) : portalView === "approvals" ? (
               <div style={styles.mobileCardList}>
                 <div style={styles.sectionCardMuted}>
-                  <div style={styles.sectionTitle}>Approval Guide</div>
+                  <div style={styles.sectionTitle}>Customer Approval Review</div>
                   <div style={styles.formHint}>
-                    Approve work you want done now, choose decide later for items you want to postpone, or decline work you do not want included in the current repair order.
+                    Review the inspection findings by category, then approve, defer, or decline the linked recommendations for each repair order.
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, marginTop: 10 }}>
+                    <span style={{ background: "#dcfce7", color: "#15803d", borderRadius: 4, padding: "2px 10px", fontWeight: 600, fontSize: 12 }}>Good</span>
+                    <span style={{ background: "#fef3c7", color: "#b45309", borderRadius: 4, padding: "2px 10px", fontWeight: 600, fontSize: 12 }}>Needs Attention</span>
+                    <span style={{ background: "#fee2e2", color: "#b91c1c", borderRadius: 4, padding: "2px 10px", fontWeight: 600, fontSize: 12 }}>Critical</span>
                   </div>
                 </div>
-                {linkedRepairOrders.every((row) => row.workLines.every((line) => (line.approvalDecision ?? "Pending") !== "Pending")) ? (
-                  <div style={styles.emptyState}>No pending approvals right now.</div>
+
+                {sharedLinkRoId ? (
+                  <div style={{ ...styles.sectionCardMuted, marginBottom: 8 }}>
+                    <div style={styles.sectionTitle}>Shared Approval Link</div>
+                    <div style={styles.formHint}>
+                      This is a simulated customer-facing approval link opened from the staff app for internal demo testing.
+                    </div>
+                    <div style={styles.quickAccessList}>
+                      <div style={styles.quickAccessRow}>
+                        <span>Mode</span>
+                        <strong>Customer-facing demo link</strong>
+                      </div>
+                      <div style={styles.quickAccessRow}>
+                        <span>Focus RO</span>
+                        <strong>{sharedLinkRoId}</strong>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {displayedApprovalReviewRows.length === 0 ? (
+                  <div style={styles.emptyState}>No inspection-linked recommendations available for approval review.</div>
                 ) : (
-                  linkedRepairOrders.map((row) => (
+                  displayedApprovalReviewRows.map(({ row, inspection, sections, mediaGroups }) => (
                     <div key={row.id} style={styles.mobileDataCard}>
                       <div style={styles.mobileDataCardHeader}>
                         <strong>{row.roNumber}</strong>
-                        <span style={styles.statusInfo}>{row.plateNumber || row.conductionNumber || "-"}</span>
+                        <ROStatusBadge status={row.status} />
                       </div>
+                      <div style={styles.mobileDataPrimary}>{row.plateNumber || row.conductionNumber || "-"}</div>
                       <div style={styles.mobileDataSecondary}>{row.accountLabel}</div>
-                      <div style={styles.quickAccessList}>
-                        {row.workLines.map((line) => (
-                          <div key={line.id} style={styles.sectionCardMuted}>
-                            <div style={styles.mobileDataCardHeader}>
-                              <strong>{line.customerDescription || line.title || "Work Item"}</strong>
-                              <span style={getApprovalDecisionStyle(line.approvalDecision ?? "Pending")}>
-                                {line.approvalDecision ?? "Pending"}
-                              </span>
-                            </div>
-                            <div style={styles.formHint}>{line.notes || getCustomerFriendlyLineDescription(line)}</div>
-                            <div style={styles.mobileMetaRow}>
-                              <span>Total</span>
-                              <strong>{formatCurrency(parseMoneyInput(line.totalEstimate))}</strong>
-                            </div>
-                            <div style={styles.inlineActions}>
-                              <button type="button" style={styles.smallButtonSuccess} onClick={() => setCustomerDecision(row.id, line.id, "Approved")}>
-                                Approve Work
-                              </button>
-                              <button type="button" style={styles.smallButtonMuted} onClick={() => setCustomerDecision(row.id, line.id, "Deferred")}>
-                                Decide Later
-                              </button>
-                              <button type="button" style={styles.smallButtonDanger} onClick={() => setCustomerDecision(row.id, line.id, "Declined")}>
-                                Decline Work
-                              </button>
-                            </div>
+                      <div style={styles.mobileDataSecondary}>{[row.make, row.model, row.year].filter(Boolean).join(" ") || "-"}</div>
+                      <div style={styles.mobileMetaRow}>
+                        <span>Inspection</span>
+                        <strong>{inspection.inspectionNumber}</strong>
+                      </div>
+                      <div style={styles.mobileMetaRow}>
+                        <span>Pending decisions</span>
+                        <strong>{row.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length}</strong>
+                      </div>
+
+                      <div style={{ marginTop: 12 }}>
+                        <div style={styles.sectionTitle}>Inspection Findings</div>
+                        {sections.length === 0 ? (
+                          <div style={styles.emptyState}>No inspection findings recorded.</div>
+                        ) : (
+                          <div style={styles.formStack}>
+                            {sections.map((section) => {
+                              const sectionMedia = mediaGroups.find((group) => group.section === section.label)?.media ?? [];
+                              return (
+                                <div key={section.label} style={styles.sectionCardMuted}>
+                                  <div style={styles.mobileDataCardHeader}>
+                                    <strong>{section.label}</strong>
+                                    <span style={styles.statusInfo}>{section.findings.length} items</span>
+                                  </div>
+                                  {section.note ? <div style={styles.formHint}>{section.note}</div> : null}
+                                  <div style={styles.formStack}>
+                                    {section.findings.map((finding, findingIndex) => (
+                                      <div key={`${section.label}_${finding.title}_${findingIndex}`} style={styles.sectionCardMuted}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" as const }}>
+                                          <strong style={{ fontSize: 14 }}>{finding.title}</strong>
+                                          <span style={getCustomerInspectionStatusStyle(finding.status)}>{finding.status}</span>
+                                        </div>
+                                        {finding.note ? <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>{finding.note}</div> : null}
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  {sectionMedia.length > 0 ? (
+                                    <div style={{ marginTop: 10 }}>
+                                      <div style={{ fontWeight: 600, fontSize: 13, color: "#334155", marginBottom: 8 }}>
+                                        Media ({sectionMedia.length})
+                                      </div>
+                                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 8 }}>
+                                        {sectionMedia.map((item) => (
+                                          <div key={item.id} style={{ borderRadius: 6, overflow: "hidden", border: "1px solid #e2e8f0", background: "#fff" }}>
+                                            {item.previewDataUrl && item.type === "Photo" ? (
+                                              <img src={item.previewDataUrl} alt={item.itemLabel || item.section || "Inspection photo"} style={{ width: "100%", aspectRatio: "1", objectFit: "cover" as const, display: "block" }} />
+                                            ) : item.previewDataUrl && item.type === "Video" ? (
+                                              <video src={item.previewDataUrl} controls style={{ width: "100%", aspectRatio: "1", objectFit: "cover" as const, display: "block", background: "#0f172a" }} />
+                                            ) : (
+                                              <div style={{ minHeight: 92, padding: "10px 8px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 4, background: "#f8fafc" }}>
+                                                <strong style={{ fontSize: 12, color: "#0f172a" }}>{item.type}</strong>
+                                                <span style={{ fontSize: 11, color: "#64748b" }}>{item.fileName}</span>
+                                              </div>
+                                            )}
+                                            <div style={{ padding: "4px 6px", fontSize: 10, color: "#64748b", background: "#f8fafc" }}>
+                                              {item.itemLabel || item.section || item.fileName}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
                           </div>
-                        ))}
+                        )}
+                      </div>
+
+                      <div style={{ marginTop: 12 }}>
+                        <div style={styles.sectionTitle}>Recommendations</div>
+                        {row.workLines.length === 0 ? (
+                          <div style={styles.emptyState}>No recommendations linked to this repair order.</div>
+                        ) : (
+                          <div style={styles.formStack}>
+                            {row.workLines.map((line) => (
+                              <div key={line.id} style={styles.sectionCardMuted}>
+                                <div style={styles.mobileDataCardHeader}>
+                                  <strong>{line.customerDescription || line.title || "Work Item"}</strong>
+                                  <span style={getApprovalDecisionStyle(line.approvalDecision ?? "Pending")}>
+                                    {line.approvalDecision ?? "Pending"}
+                                  </span>
+                                </div>
+                                <div style={styles.mobileDataSecondary}>{line.category || "General"}  |  {line.priority} priority</div>
+                                <div style={styles.formHint}>{line.notes || getCustomerFriendlyLineDescription(line)}</div>
+                                <div style={styles.mobileMetaRow}>
+                                  <span>Total</span>
+                                  <strong>{formatCurrency(parseMoneyInput(line.totalEstimate))}</strong>
+                                </div>
+                                <div style={styles.inlineActions}>
+                                  <button type="button" style={styles.smallButtonSuccess} onClick={() => setCustomerDecision(row.id, line.id, "Approved")}>
+                                    Approve
+                                  </button>
+                                  <button type="button" style={styles.smallButtonMuted} onClick={() => setCustomerDecision(row.id, line.id, "Deferred")}>
+                                    Defer
+                                  </button>
+                                  <button type="button" style={styles.smallButtonDanger} onClick={() => setCustomerDecision(row.id, line.id, "Declined")}>
+                                    Decline
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))
@@ -4794,7 +5494,7 @@ function CustomerPortalPage({
 
                 <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(8, isCompactLayout) }}>
                   <Card
-                    title={selectedVehicleGroup ? `Vehicle Timeline — ${selectedVehicleGroup.plateNumber || selectedVehicleGroup.conductionNumber || selectedVehicleGroup.vehicleKey}` : "Vehicle Timeline"}
+                    title={selectedVehicleGroup ? `Vehicle Timeline  -  ${selectedVehicleGroup.plateNumber || selectedVehicleGroup.conductionNumber || selectedVehicleGroup.vehicleKey}` : "Vehicle Timeline"}
                     subtitle="Newest transaction first with odometer and status shown"
                     right={selectedVehicleGroup ? <span style={styles.statusInfo}>{selectedVehicleGroup.vehicleLabel}</span> : undefined}
                   >
@@ -5052,7 +5752,7 @@ function SupplierPortalPage({
             </div>
 
             <div style={styles.topBarRight}>
-              <span style={styles.statusInfo}>Open requests: {openRequests.length} • My bids: {myBids.length}</span>
+              <span style={styles.statusInfo}>Open requests: {openRequests.length}  |  My bids: {myBids.length}</span>
               <div style={styles.topBarName}>{supplier.supplierName}</div>
               <button type="button" onClick={onLogout} style={styles.logoutButtonCompact}>
                 Sign Out
@@ -5121,7 +5821,7 @@ function SupplierPortalPage({
                             </div>
                             <div style={styles.mobileDataPrimary}>{request.partName}</div>
                             <div style={styles.mobileDataSecondary}>{request.partNumber || "No part number"}</div>
-                            <div style={styles.mobileDataSecondary}>{request.vehicleLabel} • {request.plateNumber || "-"}</div>
+                            <div style={styles.mobileDataSecondary}>{request.vehicleLabel}  |  {request.plateNumber || "-"}</div>
                             <div style={styles.mobileMetaRow}><span>Workshop Photos</span><strong>{request.workshopPhotos.length}</strong></div>
                             <div style={styles.mobileMetaRow}><span>Bids</span><strong>{request.bids.length}</strong></div>
                           </button>
@@ -5267,7 +5967,7 @@ function SupplierPortalPage({
                           <span style={getPartsRequestStatusStyle(request.status)}>{request.status}</span>
                         </div>
                         <div style={styles.mobileDataPrimary}>{request.partName}</div>
-                        <div style={styles.mobileDataSecondary}>{bid.brand || "No brand"} • {bid.condition}</div>
+                        <div style={styles.mobileDataSecondary}>{bid.brand || "No brand"}  |  {bid.condition}</div>
                         <div style={styles.mobileMetaRow}><span>Total Bid</span><strong>{formatCurrency(parseMoneyInput(bid.totalCost))}</strong></div>
                         <div style={styles.mobileMetaRow}><span>Delivery</span><strong>{bid.deliveryTime || "-"}</strong></div>
                         <div style={styles.mobileMetaRow}><span>Tracking</span><strong>{bid.trackingNumber || "-"}</strong></div>
@@ -5601,7 +6301,7 @@ function DashboardPage({
           <div style={styles.statCard}>
             <div style={styles.statLabel}>Payments Today</div>
             <div style={styles.statValue}>{formatCurrency(paymentsToday)}</div>
-            <div style={styles.statNote}>{unpaidInvoices} unpaid • {partialInvoices} partial</div>
+            <div style={styles.statNote}>{unpaidInvoices} unpaid  |  {partialInvoices} partial</div>
           </div>
         </div>
 
@@ -5609,7 +6309,7 @@ function DashboardPage({
           <div style={styles.statCard}>
             <div style={styles.statLabel}>Open ROs</div>
             <div style={styles.statValue}>{openROs}</div>
-            <div style={styles.statNote}>{inProgressCount} in progress • {qcQueueCount} in QC</div>
+            <div style={styles.statNote}>{inProgressCount} in progress  |  {qcQueueCount} in QC</div>
           </div>
         </div>
 
@@ -5665,7 +6365,7 @@ function DashboardPage({
           <div style={styles.statCard}>
             <div style={styles.statLabel}>QC Pass Rate</div>
             <div style={styles.statValue}>{reportQcSummary.passRatePct}%</div>
-            <div style={styles.statNote}>{reportQcSummary.passed} passed • {reportQcSummary.failed} failed of {reportQcSummary.total}</div>
+            <div style={styles.statNote}>{reportQcSummary.passed} passed  |  {reportQcSummary.failed} failed of {reportQcSummary.total}</div>
           </div>
         </div>
 
@@ -5736,7 +6436,7 @@ function DashboardPage({
               {techRevenueMap.map(({ user, total, completed, active, qcFailed, bookedMinutes, activeTimers, laborProduced, efficiency }) => (
                 <div key={user.id} style={styles.quickAccessRow}>
                   <span>{user.fullName}</span>
-                  <strong>{formatCurrency(laborProduced || total)} • {formatMinutesAsHours(bookedMinutes)} • {completed} done • {active} active • {activeTimers} live • {qcFailed} QC fail • {efficiency}% eff.</strong>
+                  <strong>{formatCurrency(laborProduced || total)}  |  {formatMinutesAsHours(bookedMinutes)}  |  {completed} done  |  {active} active  |  {activeTimers} live  |  {qcFailed} QC fail  |  {efficiency}% eff.</strong>
                 </div>
               ))}
             </div>
@@ -5750,8 +6450,8 @@ function DashboardPage({
               ) : (
                 roProfitMap.map(({ ro, grossProfit, margin, laborRevenue, partsRevenue, partsCost }) => (
                   <div key={ro.id} style={styles.quickAccessRow}>
-                    <span>{ro.roNumber} • {ro.plateNumber || ro.conductionNumber || "-"}</span>
-                    <strong>{formatCurrency(grossProfit)} • {margin}% margin • L {formatCurrency(laborRevenue)} • P {formatCurrency(partsRevenue)} • Cost {formatCurrency(partsCost)}</strong>
+                    <span>{ro.roNumber}  |  {ro.plateNumber || ro.conductionNumber || "-"}</span>
+                    <strong>{formatCurrency(grossProfit)}  |  {margin}% margin  |  L {formatCurrency(laborRevenue)}  |  P {formatCurrency(partsRevenue)}  |  Cost {formatCurrency(partsCost)}</strong>
                   </div>
                 ))
               )}
@@ -7235,7 +7935,7 @@ function InspectionPage({
                         </div>
                         <div style={styles.queueLine}>{row.plateNumber || row.conductionNumber || "-"}</div>
                         <div style={styles.queueLineMuted}>{row.companyName || row.customerName || "-"}</div>
-                        <div style={styles.queueLineMuted}>{[row.make, row.model, row.year].filter(Boolean).join(" • ")}</div>
+                        <div style={styles.queueLineMuted}>{[row.make, row.model, row.year].filter(Boolean).join("  |  ")}</div>
                       </button>
                     );
                   })}
@@ -7451,7 +8151,7 @@ function InspectionPage({
                         <div style={styles.sectionCardMuted}>
                           <div style={styles.sectionTitle}>Edit Mode</div>
                           <div style={styles.formHint}>
-                            Editing {selectedInspection.inspectionNumber} • Created {formatDateTime(selectedInspection.createdAt)} • Last updated {formatDateTime(selectedInspection.updatedAt)}{selectedInspection.lastUpdatedBy ? ` by ${selectedInspection.lastUpdatedBy}` : ""}
+                            Editing {selectedInspection.inspectionNumber}  |  Created {formatDateTime(selectedInspection.createdAt)}  |  Last updated {formatDateTime(selectedInspection.updatedAt)}{selectedInspection.lastUpdatedBy ? ` by ${selectedInspection.lastUpdatedBy}` : ""}
                           </div>
                         </div>
                       ) : null}
@@ -7462,7 +8162,7 @@ function InspectionPage({
                           <div style={styles.quickAccessList}>
                             {relatedInspectionHistory.map((row) => (
                               <div key={row.id} style={styles.quickAccessRow}>
-                                <span>{row.inspectionNumber} • {row.plateNumber || row.conductionNumber || "-"}</span>
+                                <span>{row.inspectionNumber}  |  {row.plateNumber || row.conductionNumber || "-"}</span>
                                 <strong>{formatDateTime(row.updatedAt)}</strong>
                               </div>
                             ))}
@@ -8409,7 +9109,7 @@ function InspectionPage({
                     <div style={styles.mobileDataPrimary}>{row.plateNumber || row.conductionNumber || "-"}</div>
                     <div style={styles.mobileDataSecondary}>{row.accountLabel}</div>
                     <div style={styles.mobileDataSecondary}>
-                      {[row.make, row.model, row.year, row.color].filter(Boolean).join(" • ") || "-"}
+                      {[row.make, row.model, row.year, row.color].filter(Boolean).join("  |  ") || "-"}
                     </div>
                     <div style={styles.formHint}>Evidence: {(row as any).evidenceItems?.length || 0}</div>
                     <div style={styles.concernCard}>{row.underHoodSummary || "No under the hood summary."}</div>
@@ -8447,7 +9147,7 @@ function InspectionPage({
                         </td>
                         <td style={styles.td}>
                           <div style={styles.tablePrimary}>{[row.make, row.model].filter(Boolean).join(" ") || "-"}</div>
-                          <div style={styles.tableSecondary}>{[row.year, row.color, row.odometerKm && `${row.odometerKm} km`].filter(Boolean).join(" • ")}</div>
+                          <div style={styles.tableSecondary}>{[row.year, row.color, row.odometerKm && `${row.odometerKm} km`].filter(Boolean).join("  |  ")}</div>
                         </td>
                         <td style={styles.td}>
                           <div style={styles.concernCell}>{row.underHoodSummary}</div>
@@ -8482,9 +9182,14 @@ function RepairOrdersPage({
   setApprovalRecords,
   backjobRecords,
   setBackjobRecords,
+  partsRequests,
+  releaseRecords,
   approvalLinkTokens,
   autoPortalMessage,
+  smsApprovalLogs,
   onGenerateSmsApprovalLink,
+  onOpenDemoCustomerApprovalLink,
+  onSendSmsTemplate,
   onRevokeApprovalLink,
   isCompactLayout,
 }: {
@@ -8499,9 +9204,14 @@ function RepairOrdersPage({
   setApprovalRecords: React.Dispatch<React.SetStateAction<ApprovalRecord[]>>;
   backjobRecords: BackjobRecord[];
   setBackjobRecords: React.Dispatch<React.SetStateAction<BackjobRecord[]>>;
+  partsRequests: PartsRequestRecord[];
+  releaseRecords: ReleaseRecord[];
   approvalLinkTokens: ApprovalLinkToken[];
   autoPortalMessage: string;
+  smsApprovalLogs: SmsApprovalDispatchLog[];
   onGenerateSmsApprovalLink: (ro: RepairOrderRecord) => void;
+  onOpenDemoCustomerApprovalLink: (ro: RepairOrderRecord) => void;
+  onSendSmsTemplate: (payload: SmsSendPayload) => Promise<SmsSendResult>;
   onRevokeApprovalLink: (tokenId: string) => void;
   isCompactLayout: boolean;
 }) {
@@ -8518,6 +9228,14 @@ function RepairOrdersPage({
   const [backjobRootCause, setBackjobRootCause] = useState("");
   const [backjobOutcome, setBackjobOutcome] = useState<BackjobOutcome>("Customer Pay");
   const [backjobResolutionNotes, setBackjobResolutionNotes] = useState("");
+  const smsProviderDefaults = getSmsProviderConfig();
+  const [smsProviderMode, setSmsProviderMode] = useState<SmsProviderMode>(smsProviderDefaults.mode);
+  const [smsAndroidGatewayUrl, setSmsAndroidGatewayUrl] = useState(smsProviderDefaults.gatewayUrl);
+  const [smsAndroidGatewayApiKey, setSmsAndroidGatewayApiKey] = useState(smsProviderDefaults.authToken);
+  const [smsAndroidSenderDeviceLabel, setSmsAndroidSenderDeviceLabel] = useState(smsProviderDefaults.senderDeviceLabel);
+  const [smsTwilioAccountSid, setSmsTwilioAccountSid] = useState(smsProviderDefaults.twilioAccountSid);
+  const [smsTwilioFromNumber, setSmsTwilioFromNumber] = useState(smsProviderDefaults.twilioFromNumber);
+  const [smsProviderConfigFeedback, setSmsProviderConfigFeedback] = useState("");
 
   const sortedRepairOrders = useMemo(() => repairOrders, [repairOrders]);
 
@@ -8559,6 +9277,199 @@ function RepairOrdersPage({
             .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         : [],
     [backjobRecords, selectedRO]
+  );
+
+  const selectedPartsRequests = useMemo(
+    () =>
+      selectedRO
+        ? partsRequests
+            .filter((row) => row.roId === selectedRO.id)
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        : [],
+    [partsRequests, selectedRO]
+  );
+
+  const selectedReleaseRecord = useMemo(
+    () =>
+      selectedRO
+        ? releaseRecords.find((row) => row.roId === selectedRO.id) ?? null
+        : null,
+    [releaseRecords, selectedRO]
+  );
+
+  const latestVehicleOdometerByKey = useMemo(() => {
+    const latest = new Map<string, { date: string; odometerKm: string }>();
+    const remember = (vehicleKey: string, date: string, odometerKm: string) => {
+      const key = vehicleKey.trim();
+      const odo = odometerKm.trim();
+      if (!key || !odo) return;
+      const existing = latest.get(key);
+      if (!existing || date >= existing.date) {
+        latest.set(key, { date, odometerKm: odo });
+      }
+    };
+
+    intakeRecords.forEach((row) => {
+      remember(normalizeVehicleKey(row.plateNumber, row.conductionNumber), row.updatedAt || row.createdAt, row.odometerKm);
+    });
+
+    repairOrders.forEach((row) => {
+      remember(normalizeVehicleKey(row.plateNumber, row.conductionNumber), row.updatedAt || row.createdAt, row.odometerKm);
+    });
+
+    return latest;
+  }, [intakeRecords, repairOrders]);
+
+  const oilChangeReminders = useMemo(() => {
+    const reminders: OilChangeReminder[] = [];
+
+    repairOrders.forEach((ro) => {
+      const vehicleKey = normalizeVehicleKey(ro.plateNumber, ro.conductionNumber);
+      if (!vehicleKey) return;
+
+      const oilChangeLines = ro.workLines.filter(isOilChangeServiceLine);
+      if (!oilChangeLines.length) return;
+
+      const latestLine = oilChangeLines
+        .slice()
+        .sort((a, b) => (b.completedAt || b.approvalAt || ro.updatedAt || ro.createdAt).localeCompare(a.completedAt || a.approvalAt || ro.updatedAt || ro.createdAt))[0];
+
+      if (!latestLine) return;
+
+      const serviceDate = latestLine.completedAt || latestLine.approvalAt || ro.updatedAt || ro.createdAt;
+      const serviceOdometer = parseOdometerValue(ro.odometerKm);
+      if (serviceOdometer == null) return;
+
+      const oilType = inferOilChangeTypeFromText(
+        latestLine.title,
+        latestLine.customerDescription,
+        latestLine.category,
+        latestLine.notes,
+        ro.customerConcern
+      );
+      const policy = getOilChangePolicy(oilType);
+      const dueDate = addMonthsToDate(serviceDate, policy.months);
+      const currentOdometer = parseOdometerValue(latestVehicleOdometerByKey.get(vehicleKey)?.odometerKm ?? ro.odometerKm) ?? serviceOdometer;
+      const dueOdometerKm = serviceOdometer + policy.kilometers;
+      const dueByDate = Date.now() >= dueDate.getTime();
+      const dueByDistance = currentOdometer >= dueOdometerKm;
+      const reminderDue = dueByDate || dueByDistance;
+
+      reminders.push({
+        vehicleKey,
+        roId: ro.id,
+        roNumber: ro.roNumber,
+        customerName: ro.accountLabel || ro.customerName || "Customer",
+        vehicleLabel: [ro.make, ro.model, ro.year].filter(Boolean).join(" ") || ro.plateNumber || ro.conductionNumber || "Vehicle",
+        plateNumber: ro.plateNumber || "",
+        conductionNumber: ro.conductionNumber || "",
+        oilType,
+        serviceDate,
+        serviceOdometerKm: ro.odometerKm,
+        currentOdometerKm: String(currentOdometer),
+        dueDate: dueDate.toISOString(),
+        dueOdometerKm,
+        isDue: reminderDue,
+        dueReason: reminderDue
+          ? dueByDate && dueByDistance
+            ? `Due by date and mileage`
+            : dueByDate
+              ? `Due by date`
+              : `Due by mileage`
+          : `Due on ${formatDateTime(dueDate.toISOString())} or at ${dueOdometerKm.toLocaleString()} km`,
+        sourceLineTitle: latestLine.title || "Oil Change",
+        sourceLineNotes: latestLine.notes || latestLine.customerDescription || "",
+      });
+    });
+
+    return reminders.sort((a, b) => Number(b.isDue) - Number(a.isDue) || b.serviceDate.localeCompare(a.serviceDate));
+  }, [latestVehicleOdometerByKey, repairOrders]);
+
+  const releaseFollowUpReminders = useMemo(() => {
+    const reminders: ReleaseFollowUpReminder[] = [];
+    const latestReleaseByRoId = new Map<string, ReleaseRecord>();
+
+    releaseRecords.forEach((row) => {
+      const existing = latestReleaseByRoId.get(row.roId);
+      if (!existing || row.createdAt > existing.createdAt) {
+        latestReleaseByRoId.set(row.roId, row);
+      }
+    });
+
+    latestReleaseByRoId.forEach((release) => {
+      const ro = repairOrders.find((row) => row.id === release.roId);
+      if (!ro || ro.status !== "Released") return;
+
+      const vehicleKey = normalizeVehicleKey(ro.plateNumber, ro.conductionNumber);
+      if (!vehicleKey) return;
+
+      const releaseDate = release.createdAt || ro.updatedAt || ro.createdAt;
+      const dueDate = addDaysToDate(releaseDate, 3);
+      if (Number.isNaN(dueDate.getTime())) return;
+
+      const hasNewerJob = repairOrders.some(
+        (candidate) =>
+          candidate.id !== ro.id &&
+          normalizeVehicleKey(candidate.plateNumber, candidate.conductionNumber) === vehicleKey &&
+          candidate.createdAt > releaseDate
+      );
+      if (hasNewerJob) return;
+
+      const isDue = Date.now() >= dueDate.getTime();
+
+      reminders.push({
+        vehicleKey,
+        roId: ro.id,
+        roNumber: ro.roNumber,
+        releaseNumber: release.releaseNumber,
+        customerName: ro.accountLabel || ro.customerName || "Customer",
+        vehicleLabel: [ro.make, ro.model, ro.year].filter(Boolean).join(" ") || ro.plateNumber || ro.conductionNumber || "Vehicle",
+        plateNumber: ro.plateNumber || "",
+        conductionNumber: ro.conductionNumber || "",
+        releaseDate,
+        dueDate: dueDate.toISOString(),
+        isDue,
+        dueReason: isDue
+          ? "Due now"
+          : `Available on ${formatDateTime(dueDate.toISOString())}`,
+      });
+    });
+
+    return reminders.sort((a, b) => Number(b.isDue) - Number(a.isDue) || b.releaseDate.localeCompare(a.releaseDate));
+  }, [repairOrders, releaseRecords]);
+
+  const [selectedOilReminderVehicleKey, setSelectedOilReminderVehicleKey] = useState("");
+  const [selectedFollowUpVehicleKey, setSelectedFollowUpVehicleKey] = useState("");
+
+  const activeOilChangeReminder = useMemo(
+    () => {
+      if (selectedOilReminderVehicleKey) {
+        return oilChangeReminders.find((reminder) => reminder.vehicleKey === selectedOilReminderVehicleKey) ?? oilChangeReminders[0] ?? null;
+      }
+      if (selectedRO) {
+        return oilChangeReminders.find((reminder) => reminder.roId === selectedRO.id) ?? oilChangeReminders[0] ?? null;
+      }
+      return oilChangeReminders[0] ?? null;
+    },
+    [oilChangeReminders, selectedOilReminderVehicleKey, selectedRO]
+  );
+
+  const activeReleaseFollowUpReminder = useMemo(
+    () => {
+      if (selectedFollowUpVehicleKey) {
+        return releaseFollowUpReminders.find((reminder) => reminder.vehicleKey === selectedFollowUpVehicleKey) ?? releaseFollowUpReminders[0] ?? null;
+      }
+      if (selectedRO) {
+        return releaseFollowUpReminders.find((reminder) => reminder.roId === selectedRO.id) ?? releaseFollowUpReminders[0] ?? null;
+      }
+      return releaseFollowUpReminders[0] ?? null;
+    },
+    [releaseFollowUpReminders, selectedFollowUpVehicleKey, selectedRO]
+  );
+
+  const activeApprovalLinkToken = useMemo(
+    () => (selectedRO ? getLatestActiveApprovalLinkForRo(approvalLinkTokens, selectedRO.id) : null),
+    [approvalLinkTokens, selectedRO]
   );
 
   const selectedROInspection = useMemo(
@@ -8617,6 +9528,119 @@ function RepairOrdersPage({
     () => buildCustomerApprovalMessage(selectedRO),
     [selectedRO]
   );
+
+  const [notificationTemplateKey, setNotificationTemplateKey] = useState<CustomerNotificationTemplateKey>("approval-request");
+  const [sendingSmsKey, setSendingSmsKey] = useState<CustomerNotificationTemplateKey | "">("");
+  const [smsSendFeedback, setSmsSendFeedback] = useState("");
+
+  const customerNotificationTemplates = useMemo(
+    () =>
+      buildCustomerNotificationTemplates({
+        ro: selectedRO,
+        inspection: selectedROInspection,
+        approvalRecord: selectedApproval,
+        approvalLinkToken: activeApprovalLinkToken,
+        oilReminder: activeOilChangeReminder,
+        followUpReminder: activeReleaseFollowUpReminder,
+        partsRequests: selectedPartsRequests,
+        releaseRecord: selectedReleaseRecord,
+        backjobRecord: selectedBackjobs[0] ?? null,
+      }),
+    [activeApprovalLinkToken, activeOilChangeReminder, activeReleaseFollowUpReminder, selectedApproval, selectedBackjobs, selectedPartsRequests, selectedRO, selectedROInspection, selectedReleaseRecord]
+  );
+
+  const activeCustomerNotificationTemplate =
+    customerNotificationTemplates.find((template) => template.key === notificationTemplateKey) ?? customerNotificationTemplates[0] ?? null;
+  const notificationPreviewRoNumber =
+    activeCustomerNotificationTemplate?.key === "oil-reminder" && activeOilChangeReminder
+      ? activeOilChangeReminder.roNumber
+      : activeCustomerNotificationTemplate?.key === "follow-up" && activeReleaseFollowUpReminder
+        ? activeReleaseFollowUpReminder.roNumber
+      : selectedRO?.roNumber ?? "";
+  const notificationPreviewVehicleLabel =
+    activeCustomerNotificationTemplate?.key === "oil-reminder" && activeOilChangeReminder
+      ? activeOilChangeReminder.vehicleLabel
+      : activeCustomerNotificationTemplate?.key === "follow-up" && activeReleaseFollowUpReminder
+        ? activeReleaseFollowUpReminder.vehicleLabel
+      : [selectedRO?.make, selectedRO?.model, selectedRO?.year].filter(Boolean).join(" ") || selectedRO?.plateNumber || selectedRO?.conductionNumber || "-";
+  const notificationPreviewCustomerName =
+    activeCustomerNotificationTemplate?.key === "oil-reminder" && activeOilChangeReminder
+      ? activeOilChangeReminder.customerName
+      : activeCustomerNotificationTemplate?.key === "follow-up" && activeReleaseFollowUpReminder
+        ? activeReleaseFollowUpReminder.customerName
+      : selectedRO?.accountLabel ?? "";
+  const notificationPreviewPhoneNumber = selectedRO?.phone || "";
+  const activeCustomerNotificationTemplateSendable = useMemo(() => {
+    if (!activeCustomerNotificationTemplate || !selectedRO) return false;
+    if (!notificationPreviewPhoneNumber.trim()) return false;
+    if (activeCustomerNotificationTemplate.key === "approval-request") return !!activeApprovalLinkToken;
+    if (activeCustomerNotificationTemplate.key === "oil-reminder") return !!activeOilChangeReminder?.isDue;
+    if (activeCustomerNotificationTemplate.key === "follow-up") return !!activeReleaseFollowUpReminder?.isDue;
+    return true;
+  }, [
+    activeApprovalLinkToken,
+    activeCustomerNotificationTemplate,
+    activeOilChangeReminder,
+    activeReleaseFollowUpReminder,
+    notificationPreviewPhoneNumber,
+    selectedRO,
+  ]);
+
+  const activeCustomerNotificationSmsPayload = useMemo<SmsSendPayload | null>(() => {
+    if (!selectedRO || !activeCustomerNotificationTemplate || !activeCustomerNotificationTemplateSendable) return null;
+    return {
+      roId: selectedRO.id,
+      roNumber: notificationPreviewRoNumber,
+      customerId: "",
+      customerName: notificationPreviewCustomerName,
+      phoneNumber: notificationPreviewPhoneNumber,
+      tokenId: activeApprovalLinkToken?.id ?? "",
+      messageType: activeCustomerNotificationTemplate.key,
+      messageBody: activeCustomerNotificationTemplate.body,
+    };
+  }, [
+    activeApprovalLinkToken,
+    activeCustomerNotificationTemplate,
+    activeCustomerNotificationTemplateSendable,
+    notificationPreviewCustomerName,
+    notificationPreviewPhoneNumber,
+    notificationPreviewRoNumber,
+    selectedRO,
+  ]);
+  const smsProviderConfig = getSmsProviderConfig();
+  const recentSmsAttempts = useMemo(
+    () =>
+      (selectedRO
+        ? smsApprovalLogs.filter((row) => row.roId === selectedRO.id)
+        : smsApprovalLogs
+      ).slice(0, 5),
+    [smsApprovalLogs, selectedRO]
+  );
+
+  const saveSmsProviderSettings = () => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(STORAGE_KEYS.smsProviderMode, smsProviderMode);
+      window.localStorage.setItem(STORAGE_KEYS.smsAndroidGatewayUrl, smsAndroidGatewayUrl.trim());
+      window.localStorage.setItem(STORAGE_KEYS.smsAndroidGatewayApiKey, smsAndroidGatewayApiKey.trim());
+      window.localStorage.setItem(STORAGE_KEYS.smsAndroidSenderDeviceLabel, smsAndroidSenderDeviceLabel.trim());
+      window.localStorage.setItem(STORAGE_KEYS.smsTwilioAccountSid, smsTwilioAccountSid.trim());
+      window.localStorage.setItem(STORAGE_KEYS.smsTwilioFromNumber, smsTwilioFromNumber.trim());
+      setSmsProviderConfigFeedback(
+        smsProviderMode === "android"
+          ? smsAndroidGatewayUrl.trim()
+            ? "Android SMS gateway settings saved."
+            : "Android SMS gateway is not configured yet. Save the URL to enable sending."
+          : smsProviderMode === "twilio"
+            ? smsTwilioAccountSid.trim() && smsTwilioFromNumber.trim()
+              ? "Twilio settings saved."
+              : "Twilio settings are incomplete."
+            : "Simulated SMS mode selected."
+      );
+    } catch {
+      setSmsProviderConfigFeedback("SMS provider settings could not be saved in this browser.");
+    }
+  };
 
   const primaryTechnicians = useMemo(
     () =>
@@ -9309,7 +10333,7 @@ function RepairOrdersPage({
                     <option value="">Select intake record</option>
                     {availableIntakes.map((row) => (
                       <option key={row.id} value={row.id}>
-                        {row.intakeNumber} • {row.plateNumber || row.conductionNumber || "No Plate"} • {row.companyName || row.customerName || "Unknown"}
+                        {row.intakeNumber}  |  {row.plateNumber || row.conductionNumber || "No Plate"}  |  {row.companyName || row.customerName || "Unknown"}
                       </option>
                     ))}
                   </select>
@@ -9545,7 +10569,7 @@ function RepairOrdersPage({
                       <option value="">Unassigned</option>
                       {primaryTechnicians.map((user) => (
                         <option key={user.id} value={user.id}>
-                          {user.fullName} • {user.role}
+                          {user.fullName}  |  {user.role}
                         </option>
                       ))}
                     </select>
@@ -9562,7 +10586,7 @@ function RepairOrdersPage({
                             checked={form.supportTechnicianIds.includes(user.id)}
                             onChange={() => handleSupportToggle(user.id)}
                           />
-                          <span>{user.fullName} • {user.role}</span>
+                          <span>{user.fullName}  |  {user.role}</span>
                         </label>
                       ))}
                     </div>
@@ -9700,7 +10724,7 @@ function RepairOrdersPage({
                 ) : null}
                 {selectedRO.workLines.some((l) => l.status === "Waiting Parts") ? (
                   <div style={{ ...styles.statusWarning, marginBottom: 8 }}>
-                    Waiting Parts — {selectedRO.workLines.filter((l) => l.status === "Waiting Parts").map((l) => l.title || "Untitled").join(", ")}
+                    Waiting Parts  -  {selectedRO.workLines.filter((l) => l.status === "Waiting Parts").map((l) => l.title || "Untitled").join(", ")}
                   </div>
                 ) : null}
 
@@ -9735,7 +10759,7 @@ function RepairOrdersPage({
                       <option value="">Unassigned</option>
                       {primaryTechnicians.map((user) => (
                         <option key={user.id} value={user.id}>
-                          {user.fullName} • {user.role}
+                          {user.fullName}  |  {user.role}
                         </option>
                       ))}
                     </select>
@@ -9800,12 +10824,119 @@ function RepairOrdersPage({
                   <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
                     <div style={styles.mobileDataCardHeader}>
                       <div>
+                        <div style={styles.sectionTitle}>SMS Provider Settings</div>
+                        <div style={styles.formHint}>Choose a provider and store gateway credentials locally for the demo send flow.</div>
+                      </div>
+                      <span style={smsProviderConfig.isConfigured ? styles.statusOk : styles.statusWarning}>
+                        {smsProviderConfig.provider}
+                      </span>
+                    </div>
+                    <div style={styles.formStack}>
+                      <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                        <div style={styles.formGroup}>
+                          <label style={styles.label}>Provider Mode</label>
+                          <select style={styles.select} value={smsProviderMode} onChange={(e) => setSmsProviderMode(e.target.value as SmsProviderMode)}>
+                            <option value="simulated">Simulated</option>
+                            <option value="android">Android SMS Gateway</option>
+                            <option value="twilio">Twilio</option>
+                          </select>
+                        </div>
+                        <div style={styles.formGroup}>
+                          <label style={styles.label}>Provider State</label>
+                          <div style={styles.concernCard}>
+                            {smsProviderConfig.provider} {smsProviderConfig.isConfigured ? `(${smsProviderConfig.endpointLabel})` : "(not configured)"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {smsProviderMode === "android" ? (
+                        <div style={isCompactLayout ? styles.formStack : styles.formGrid3}>
+                          <div style={styles.formGroup}>
+                            <label style={styles.label}>Gateway URL</label>
+                            <input
+                              style={styles.input}
+                              value={smsAndroidGatewayUrl}
+                              onChange={(e) => setSmsAndroidGatewayUrl(e.target.value)}
+                              placeholder="https://gateway.example.com/send"
+                            />
+                          </div>
+                          <div style={styles.formGroup}>
+                            <label style={styles.label}>API Key / Auth Token</label>
+                            <input
+                              style={styles.input}
+                              value={smsAndroidGatewayApiKey}
+                              onChange={(e) => setSmsAndroidGatewayApiKey(e.target.value)}
+                              placeholder="Optional auth token"
+                            />
+                          </div>
+                          <div style={styles.formGroup}>
+                            <label style={styles.label}>Sender Device Label</label>
+                            <input
+                              style={styles.input}
+                              value={smsAndroidSenderDeviceLabel}
+                              onChange={(e) => setSmsAndroidSenderDeviceLabel(e.target.value)}
+                              placeholder="Front Desk Android"
+                            />
+                          </div>
+                        </div>
+                      ) : smsProviderMode === "twilio" ? (
+                        <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                          <div style={styles.formGroup}>
+                            <label style={styles.label}>Account SID</label>
+                            <input
+                              style={styles.input}
+                              value={smsTwilioAccountSid}
+                              onChange={(e) => setSmsTwilioAccountSid(e.target.value)}
+                              placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                            />
+                          </div>
+                          <div style={styles.formGroup}>
+                            <label style={styles.label}>From Number</label>
+                            <input
+                              style={styles.input}
+                              value={smsTwilioFromNumber}
+                              onChange={(e) => setSmsTwilioFromNumber(e.target.value)}
+                              placeholder="+63..."
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={styles.formHint}>Simulated mode keeps the send flow local while the provider integration is being prepared.</div>
+                      )}
+
+                      <div style={styles.inlineActions}>
+                        <button type="button" style={styles.smallButtonSuccess} onClick={saveSmsProviderSettings}>
+                          Save Gateway Settings
+                        </button>
+                        <button
+                          type="button"
+                          style={styles.smallButtonMuted}
+                          onClick={() => {
+                            setSmsProviderMode("simulated");
+                            setSmsProviderConfigFeedback("Simulated SMS mode selected.");
+                            window.localStorage.setItem(STORAGE_KEYS.smsProviderMode, "simulated");
+                          }}
+                        >
+                          Use Simulated
+                        </button>
+                      </div>
+
+                      {smsProviderConfigFeedback ? <div style={styles.concernCard}>{smsProviderConfigFeedback}</div> : null}
+                    </div>
+                  </div>
+
+                  <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+                    <div style={styles.mobileDataCardHeader}>
+                      <div>
                         <div style={styles.sectionTitle}>SMS Approval Link System</div>
                         <div style={styles.formHint}>Generate a secure customer portal link for this RO. Password login still works, but this link enables one-tap access from text.</div>
                       </div>
                       <div style={styles.inlineActions}>
                         <button type="button" style={styles.smallButtonSuccess} onClick={() => onGenerateSmsApprovalLink(selectedRO)}>
-                          Generate SMS Link
+                          {activeApprovalLinkToken ? "Regenerate Customer Link" : "Generate Customer Link"}
+                        </button>
+                        <button type="button" style={styles.smallButton} onClick={() => onOpenDemoCustomerApprovalLink(selectedRO)}>
+                          Open Demo Approval View
                         </button>
                       </div>
                     </div>
@@ -9815,20 +10946,309 @@ function RepairOrdersPage({
                         <div key={row.id} style={styles.mobileDataCard}>
                           <div style={styles.mobileDataCardHeader}>
                             <strong>{row.channel} Link</strong>
-                            <span style={row.revokedAt ? styles.statusLocked : getEffectiveTokenExpiry(row, selectedRO ?? undefined) > Date.now() ? styles.statusOk : styles.statusWarning}>
-                              {row.revokedAt ? "Revoked" : getEffectiveTokenExpiry(row, selectedRO ?? undefined) > Date.now() ? "Active" : "Expired"}
+                            <span style={row.revokedAt ? styles.statusLocked : isApprovalLinkActive(row) ? styles.statusOk : styles.statusWarning}>
+                              {row.revokedAt ? "Revoked" : isApprovalLinkActive(row) ? "Active" : "Expired"}
                             </span>
                           </div>
-                          <div style={styles.formHint}>URL: {buildCustomerPortalUrl(row.token)}</div>
-                          <div style={styles.formHint}>Expires: {formatDateTime(row.expiresAt)} • Last opened: {row.lastUsedAt ? formatDateTime(row.lastUsedAt) : "Not yet used"}</div>
+                          <div style={styles.formHint}>URL: {buildCustomerApprovalLinkUrl(row.token)}</div>
+                          <div style={styles.formHint}>Expires: {formatDateTime(row.expiresAt)}  |  Last opened: {row.lastUsedAt ? formatDateTime(row.lastUsedAt) : "Not yet used"}</div>
                           {!row.revokedAt ? (
                             <div style={styles.inlineActions}>
+                              <button
+                                type="button"
+                                style={styles.smallButton}
+                                onClick={async () => {
+                                  try {
+                                    await navigator.clipboard.writeText(buildCustomerApprovalLinkUrl(row.token));
+                                  } catch {
+                                    // Clipboard fallback not required for this demo UI.
+                                  }
+                                }}
+                              >
+                                Copy Link
+                              </button>
                               <button type="button" style={styles.smallButtonDanger} onClick={() => onRevokeApprovalLink(row.id)}>Revoke Link</button>
                             </div>
                           ) : null}
                         </div>
                       ))}
                     </div>
+                  </div>
+
+                  <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+                    <div style={styles.mobileDataCardHeader}>
+                      <div>
+                        <div style={styles.sectionTitle}>Oil Change Reminders</div>
+                        <div style={styles.formHint}>Latest valid oil change per vehicle. Conventional: 6 months or 5,000 km. Fully synthetic: 12 months or 10,000 km.</div>
+                      </div>
+                      <span style={oilChangeReminders.some((row) => row.isDue) ? styles.statusWarning : styles.statusOk}>
+                        {oilChangeReminders.filter((row) => row.isDue).length} Due
+                      </span>
+                    </div>
+
+                    {oilChangeReminders.length === 0 ? (
+                      <div style={styles.emptyState}>No oil change service records were found for this workshop history yet.</div>
+                    ) : (
+                      <div style={styles.mobileCardList}>
+                        {oilChangeReminders.map((reminder) => (
+                          <div key={reminder.vehicleKey} style={styles.mobileDataCard}>
+                            <div style={styles.mobileDataCardHeader}>
+                              <strong>{reminder.vehicleLabel}</strong>
+                              <span style={reminder.isDue ? styles.statusWarning : styles.statusOk}>{reminder.isDue ? "Due" : "Not Due Yet"}</span>
+                            </div>
+                            <div style={styles.mobileDataSecondary}>{reminder.plateNumber || reminder.conductionNumber || "-"}</div>
+                            <div style={styles.mobileDataSecondary}>Customer: {reminder.customerName}</div>
+                            <div style={styles.mobileMetaRow}>
+                              <span>Last oil change</span>
+                              <strong>{formatDateTime(reminder.serviceDate)}</strong>
+                            </div>
+                            <div style={styles.mobileMetaRow}>
+                              <span>Service odometer</span>
+                              <strong>{reminder.serviceOdometerKm || "-"}</strong>
+                            </div>
+                            <div style={styles.mobileMetaRow}>
+                              <span>Current odometer</span>
+                              <strong>{reminder.currentOdometerKm || "-"}</strong>
+                            </div>
+                            <div style={styles.mobileMetaRow}>
+                              <span>Due threshold</span>
+                              <strong>{reminder.oilType === "Fully Synthetic" ? "12 months / 10,000 km" : "6 months / 5,000 km"}</strong>
+                            </div>
+                            <div style={styles.formHint}>{reminder.dueReason}</div>
+                            <div style={styles.inlineActions}>
+                              <button
+                                type="button"
+                                style={styles.smallButton}
+                                onClick={() => {
+                                  setNotificationTemplateKey("oil-reminder");
+                                  setSelectedOilReminderVehicleKey(reminder.vehicleKey);
+                                }}
+                              >
+                                View Template
+                              </button>
+                              <button
+                                type="button"
+                                style={styles.smallButtonSuccess}
+                                onClick={async () => {
+                                  try {
+                                    await navigator.clipboard.writeText(buildOilChangeReminderMessage(reminder));
+                                  } catch {
+                                    // Clipboard fallback not required for this demo UI.
+                                  }
+                                }}
+                              >
+                                Copy Reminder
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+                    <div style={styles.mobileDataCardHeader}>
+                      <div>
+                        <div style={styles.sectionTitle}>Release Follow-Up Reminders</div>
+                        <div style={styles.formHint}>Triggers 3 days after release if the RO is still released and no newer job has been opened for the same vehicle.</div>
+                      </div>
+                      <span style={releaseFollowUpReminders.some((row) => row.isDue) ? styles.statusWarning : styles.statusOk}>
+                        {releaseFollowUpReminders.filter((row) => row.isDue).length} Due
+                      </span>
+                    </div>
+
+                    {releaseFollowUpReminders.length === 0 ? (
+                      <div style={styles.emptyState}>No post-release follow-ups are due yet.</div>
+                    ) : (
+                      <div style={styles.mobileCardList}>
+                        {releaseFollowUpReminders.map((reminder) => (
+                          <div key={reminder.vehicleKey} style={styles.mobileDataCard}>
+                            <div style={styles.mobileDataCardHeader}>
+                              <strong>Follow-up (3 days after release)</strong>
+                              <span style={reminder.isDue ? styles.statusWarning : styles.statusOk}>{reminder.isDue ? "Due" : "Not Due Yet"}</span>
+                            </div>
+                            <div style={styles.mobileDataSecondary}>RO: {reminder.roNumber}  |  Release: {reminder.releaseNumber}</div>
+                            <div style={styles.mobileDataSecondary}>{reminder.vehicleLabel} {reminder.plateNumber || reminder.conductionNumber ? `(${reminder.plateNumber || reminder.conductionNumber})` : ""}</div>
+                            <div style={styles.mobileMetaRow}>
+                              <span>Released</span>
+                              <strong>{formatDateTime(reminder.releaseDate)}</strong>
+                            </div>
+                            <div style={styles.mobileMetaRow}>
+                              <span>Follow-up due</span>
+                              <strong>{formatDateTime(reminder.dueDate)}</strong>
+                            </div>
+                            <div style={styles.formHint}>{reminder.dueReason}</div>
+                            <div style={styles.inlineActions}>
+                              <button
+                                type="button"
+                                style={styles.smallButton}
+                                onClick={() => {
+                                  setNotificationTemplateKey("follow-up");
+                                  setSelectedFollowUpVehicleKey(reminder.vehicleKey);
+                                }}
+                              >
+                                View Template
+                              </button>
+                              <button
+                                type="button"
+                                style={reminder.isDue ? styles.smallButtonSuccess : styles.smallButtonMuted}
+                                onClick={async () => {
+                                  if (!reminder.isDue) return;
+                                  try {
+                                    await navigator.clipboard.writeText(buildReleaseFollowUpMessage(reminder));
+                                  } catch {
+                                    // Clipboard fallback not required for this demo UI.
+                                  }
+                                }}
+                              >
+                                Copy Message
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+                    <div style={styles.mobileDataCardHeader}>
+                      <div>
+                        <div style={styles.sectionTitle}>Customer Notification Templates</div>
+                        <div style={styles.formHint}>Preview and copy SMS-ready text generated from the live RO, inspection, parts, release, and pull-out records.</div>
+                      </div>
+                      <div style={styles.inlineActions}>
+                        <button type="button" style={notificationTemplateKey === "approval-request" ? styles.smallButtonSuccess : styles.smallButtonMuted} onClick={() => setNotificationTemplateKey("approval-request")}>
+                          Approval Request
+                        </button>
+                        <button type="button" style={notificationTemplateKey === "waiting-parts" ? styles.smallButtonSuccess : styles.smallButtonMuted} onClick={() => setNotificationTemplateKey("waiting-parts")}>
+                          Waiting Parts
+                        </button>
+                        <button type="button" style={notificationTemplateKey === "ready-release" ? styles.smallButtonSuccess : styles.smallButtonMuted} onClick={() => setNotificationTemplateKey("ready-release")}>
+                          Ready Release
+                        </button>
+                        <button type="button" style={notificationTemplateKey === "pull-out-notice" ? styles.smallButtonSuccess : styles.smallButtonMuted} onClick={() => setNotificationTemplateKey("pull-out-notice")}>
+                          Pull-Out Notice
+                        </button>
+                        <button type="button" style={notificationTemplateKey === "oil-reminder" ? styles.smallButtonSuccess : styles.smallButtonMuted} onClick={() => setNotificationTemplateKey("oil-reminder")}>
+                          Oil Reminder
+                        </button>
+                        <button type="button" style={notificationTemplateKey === "follow-up" ? styles.smallButtonSuccess : styles.smallButtonMuted} onClick={() => setNotificationTemplateKey("follow-up")}>
+                          Follow-Up
+                        </button>
+                      </div>
+                    </div>
+
+                    {activeCustomerNotificationTemplate ? (
+                      <div style={styles.formStack}>
+                        <div style={styles.formHint}>{activeCustomerNotificationTemplate.subtitle}</div>
+                        <div style={styles.summaryGrid}>
+                          <div><strong>Template:</strong> {activeCustomerNotificationTemplate.title}</div>
+                          <div><strong>RO:</strong> {notificationPreviewRoNumber}</div>
+                          <div><strong>Vehicle:</strong> {notificationPreviewVehicleLabel}</div>
+                          <div><strong>Customer:</strong> {notificationPreviewCustomerName}</div>
+                        </div>
+                        <textarea
+                          style={{ ...styles.textarea, minHeight: 260, fontFamily: "monospace" }}
+                          readOnly
+                          value={activeCustomerNotificationTemplate.body}
+                        />
+                        <div style={styles.inlineActions}>
+                          <button
+                            type="button"
+                            style={styles.smallButton}
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(activeCustomerNotificationTemplate.body);
+                              } catch {
+                                // Clipboard fallback not required for this demo UI.
+                              }
+                            }}
+                          >
+                            Copy Template
+                          </button>
+                          <button
+                            type="button"
+                            style={activeCustomerNotificationTemplateSendable ? styles.smallButtonSuccess : styles.smallButtonMuted}
+                            disabled={!activeCustomerNotificationTemplateSendable || sendingSmsKey === activeCustomerNotificationTemplate.key}
+                            onClick={async () => {
+                              if (!activeCustomerNotificationSmsPayload) return;
+                              setSendingSmsKey(activeCustomerNotificationTemplate.key);
+                              setSmsSendFeedback("");
+                              try {
+                                const result = await onSendSmsTemplate(activeCustomerNotificationSmsPayload);
+                                setSmsSendFeedback(`${result.provider}  |  ${result.detail}`);
+                              } catch {
+                                setSmsSendFeedback("SMS send failed unexpectedly.");
+                              } finally {
+                                setSendingSmsKey("");
+                              }
+                            }}
+                          >
+                            {sendingSmsKey === activeCustomerNotificationTemplate.key ? "Sending..." : "Send SMS"}
+                          </button>
+                        </div>
+                        <div style={styles.formHint}>
+                          SMS provider: {smsProviderConfig.provider}{" "}
+                          {smsProviderConfig.isConfigured
+                            ? `(${smsProviderConfig.endpointLabel})`
+                            : smsProviderConfig.provider === "Simulated"
+                              ? "(simulated placeholder)"
+                              : "(not configured)"}.
+                          {!activeCustomerNotificationTemplateSendable
+                            ? " This template is not ready to send yet."
+                            : smsProviderConfig.provider === "Android SMS Gateway" && !smsProviderConfig.isConfigured
+                              ? " Android gateway sends will fail safely until the gateway URL is saved."
+                              : " Ready to send from the current live record."}
+                        </div>
+                        {smsSendFeedback ? <div style={styles.concernCard}>{smsSendFeedback}</div> : null}
+                      </div>
+                    ) : (
+                      <div style={styles.emptyState}>Select a repair order to preview customer notification templates.</div>
+                    )}
+                  </div>
+
+                  <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
+                    <div style={styles.mobileDataCardHeader}>
+                      <div>
+                        <div style={styles.sectionTitle}>SMS Attempt Log</div>
+                        <div style={styles.formHint}>Pending, sent, and failed attempts are stored locally so the send flow can be verified without a backend.</div>
+                      </div>
+                      <span style={recentSmsAttempts.some((row) => (row.status ?? "Sent") === "Failed") ? styles.statusWarning : styles.statusOk}>
+                        {recentSmsAttempts.length} Recent
+                      </span>
+                    </div>
+                    {recentSmsAttempts.length === 0 ? (
+                      <div style={styles.emptyState}>No SMS attempts have been logged for this repair order yet.</div>
+                    ) : (
+                      <div style={styles.mobileCardList}>
+                        {recentSmsAttempts.map((row) => (
+                          <div key={row.id} style={styles.mobileDataCard}>
+                            <div style={styles.mobileDataCardHeader}>
+                              <strong>{row.messageType}</strong>
+                              <span style={row.status === "Failed" ? styles.statusWarning : row.status === "Pending" ? styles.statusNeutral : styles.statusOk}>
+                                {row.status ?? "Sent"}
+                              </span>
+                            </div>
+                            <div style={styles.mobileDataSecondary}>{row.customerName || selectedRO.accountLabel}</div>
+                            <div style={styles.mobileMetaRow}>
+                              <span>Phone</span>
+                              <strong>{row.phoneNumber || row.sentTo || "-"}</strong>
+                            </div>
+                            <div style={styles.mobileMetaRow}>
+                              <span>Provider</span>
+                              <strong>{row.provider || "Simulated"}</strong>
+                            </div>
+                            <div style={styles.mobileMetaRow}>
+                              <span>Time</span>
+                              <strong>{formatDateTime(row.createdAt)}</strong>
+                            </div>
+                            <div style={styles.formHint}>{row.message}</div>
+                            {row.providerResponse ? <div style={styles.formHint}>Provider response: {row.providerResponse}</div> : null}
+                            {row.errorMessage ? <div style={styles.errorBox}>{row.errorMessage}</div> : null}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div style={styles.summaryGrid}>
@@ -9870,10 +11290,10 @@ function RepairOrdersPage({
                     <div style={{ ...styles.sectionCardMuted, marginTop: 12 }}>
                       <div style={styles.sectionTitle}>Approval Summary</div>
                       <div style={{ ...styles.summaryGrid, marginBottom: 10 }}>
-                        <div><strong style={{ color: "#15803d" }}>Approved</strong><div>{approvedWorkLines.length} line{approvedWorkLines.length !== 1 ? "s" : ""} • {formatCurrency(approvedEstimateTotal)}</div></div>
-                        <div><strong style={{ color: "#b45309" }}>Deferred</strong><div>{deferredWorkLines.length} line{deferredWorkLines.length !== 1 ? "s" : ""} • {formatCurrency(deferredEstimateTotal)}</div></div>
-                        <div><strong style={{ color: "#b91c1c" }}>Declined</strong><div>{declinedWorkLines.length} line{declinedWorkLines.length !== 1 ? "s" : ""} • {formatCurrency(declinedEstimateTotal)}</div></div>
-                        <div><strong>Pending</strong><div>{pendingWorkLines.length} line{pendingWorkLines.length !== 1 ? "s" : ""} • {formatCurrency(pendingEstimateTotal)}</div></div>
+                        <div><strong style={{ color: "#15803d" }}>Approved</strong><div>{approvedWorkLines.length} line{approvedWorkLines.length !== 1 ? "s" : ""}  |  {formatCurrency(approvedEstimateTotal)}</div></div>
+                        <div><strong style={{ color: "#b45309" }}>Deferred</strong><div>{deferredWorkLines.length} line{deferredWorkLines.length !== 1 ? "s" : ""}  |  {formatCurrency(deferredEstimateTotal)}</div></div>
+                        <div><strong style={{ color: "#b91c1c" }}>Declined</strong><div>{declinedWorkLines.length} line{declinedWorkLines.length !== 1 ? "s" : ""}  |  {formatCurrency(declinedEstimateTotal)}</div></div>
+                        <div><strong>Pending</strong><div>{pendingWorkLines.length} line{pendingWorkLines.length !== 1 ? "s" : ""}  |  {formatCurrency(pendingEstimateTotal)}</div></div>
                       </div>
 
                       {approvedWorkLines.length > 0 ? (
@@ -9885,7 +11305,7 @@ function RepairOrdersPage({
                                 <strong>{line.title || "Untitled"}</strong>
                                 <span>{formatCurrency(parseMoneyInput(line.totalEstimate))}</span>
                               </div>
-                              <div style={styles.mobileDataSecondary}>{line.category || "General"} • {line.priority} priority • {line.status}</div>
+                              <div style={styles.mobileDataSecondary}>{line.category || "General"}  |  {line.priority} priority  |  {line.status}</div>
                             </div>
                           ))}
                         </div>
@@ -9900,7 +11320,7 @@ function RepairOrdersPage({
                                 <strong>{line.title || "Untitled"}</strong>
                                 <span>{formatCurrency(parseMoneyInput(line.totalEstimate))}</span>
                               </div>
-                              <div style={styles.mobileDataSecondary}>{line.category || "General"} • {line.priority} priority</div>
+                              <div style={styles.mobileDataSecondary}>{line.category || "General"}  |  {line.priority} priority</div>
                               {line.notes ? <div style={styles.formHint}>{line.notes}</div> : null}
                             </div>
                           ))}
@@ -9916,7 +11336,7 @@ function RepairOrdersPage({
                                 <strong>{line.title || "Untitled"}</strong>
                                 <span>{formatCurrency(parseMoneyInput(line.totalEstimate))}</span>
                               </div>
-                              <div style={styles.mobileDataSecondary}>{line.category || "General"} • {line.priority} priority</div>
+                              <div style={styles.mobileDataSecondary}>{line.category || "General"}  |  {line.priority} priority</div>
                               {line.notes ? <div style={styles.formHint}>{line.notes}</div> : null}
                             </div>
                           ))}
@@ -9977,10 +11397,10 @@ function RepairOrdersPage({
                               </span>
                             </div>
                             <div style={styles.mobileDataSecondary}>
-                              {item.category} • Source finding: {item.title}
+                              {item.category}  |  Source finding: {item.title}
                             </div>
                             {item.note ? <div style={styles.concernCard}>{item.note}</div> : null}
-                            {item.photoNotes.length ? <div style={styles.formHint}>Photo notes: {item.photoNotes.join(" • ")}</div> : null}
+                            {item.photoNotes.length ? <div style={styles.formHint}>Photo notes: {item.photoNotes.join("  |  ")}</div> : null}
                             {item.decidedAt ? <div style={styles.formHint}>Decision Time: {formatDateTime(item.decidedAt)}</div> : null}
                             <div style={styles.inlineActions}>
                               <button type="button" style={styles.smallButtonSuccess} onClick={() => setFindingRecommendationDecision(item, "Approved")} disabled={item.decision === "Approved"}>
@@ -10019,7 +11439,7 @@ function RepairOrdersPage({
                                 <span style={getApprovalDecisionStyle(decision)}>{decision}</span>
                               </div>
                               <div style={styles.mobileDataSecondary}>
-                                {line.category || "General"} • {formatCurrency(parseMoneyInput(line.totalEstimate))}
+                                {line.category || "General"}  |  {formatCurrency(parseMoneyInput(line.totalEstimate))}
                               </div>
                               <div style={styles.concernCard}>{getCustomerFriendlyLineDescription(line)}</div>
                               {line.notes ? <div style={styles.formHint}>Tech notes: {line.notes}</div> : null}
@@ -10061,7 +11481,7 @@ function RepairOrdersPage({
                               <span style={getApprovalDecisionStyle(decision)}>{decision}</span>
                             </div>
                             <div style={styles.mobileDataSecondary}>
-                              {line.category || "General"} • {formatCurrency(parseMoneyInput(line.totalEstimate))}
+                              {line.category || "General"}  |  {formatCurrency(parseMoneyInput(line.totalEstimate))}
                             </div>
                             {line.recommendationSource ? (
                               <div style={styles.formHint}>Source: {line.recommendationSource}</div>
@@ -10081,7 +11501,7 @@ function RepairOrdersPage({
 
                   {selectedApproval ? (
                     <div style={styles.formHint}>
-                      Last approval record: {selectedApproval.approvalNumber} • {formatDateTime(selectedApproval.createdAt)} • Deferred: {selectedRO.deferredLineTitles.length ? selectedRO.deferredLineTitles.join(", ") : "None"} • Hook: {selectedApproval.communicationHook}
+                      Last approval record: {selectedApproval.approvalNumber}  |  {formatDateTime(selectedApproval.createdAt)}  |  Deferred: {selectedRO.deferredLineTitles.length ? selectedRO.deferredLineTitles.join(", ") : "None"}  |  Hook: {selectedApproval.communicationHook}
                     </div>
                   ) : null}
                 </div>
@@ -10227,7 +11647,7 @@ function RepairOrdersPage({
                           </div>
 
                           {line.recommendationSource ? <div style={styles.formHint}>Source: {line.recommendationSource}</div> : null}
-                          <div style={styles.formHint}>Labor: {formatCurrency(getWorkLinePricing(line).laborAmount)} • Parts: {formatCurrency(getWorkLinePricing(line).partsAmount)} • Total: {formatCurrency(getWorkLinePricing(line).totalAmount)}</div>
+                          <div style={styles.formHint}>Labor: {formatCurrency(getWorkLinePricing(line).laborAmount)}  |  Parts: {formatCurrency(getWorkLinePricing(line).partsAmount)}  |  Total: {formatCurrency(getWorkLinePricing(line).totalAmount)}</div>
                           {(line.approvalDecision ?? "Pending") !== "Approved" ? (
                             <div style={styles.formHint}>Execution status is locked until this line is approved.</div>
                           ) : (
@@ -10977,8 +12397,8 @@ function ShopFloorPage({
                       {assignedJobs.length
                         ? assignedJobs
                             .slice(0, 3)
-                            .map((job) => `${job.roNumber} • ${job.status}`)
-                            .join(" • ")
+                            .map((job) => `${job.roNumber}  |  ${job.status}`)
+                            .join("  |  ")
                         : "No assigned jobs."}
                     </div>
                   </div>
@@ -11044,7 +12464,7 @@ function ShopFloorPage({
                           <span style={getROStatusStyle(row.status)}>{row.status}</span>
                         </div>
                         <div style={styles.mobileDataSecondary}>
-                          {row.plateNumber || row.conductionNumber || "No plate yet"} • {row.make} {row.model}
+                          {row.plateNumber || row.conductionNumber || "No plate yet"}  |  {row.make} {row.model}
                         </div>
                         <div style={styles.mobileDataSecondary}>{row.accountLabel}</div>
                         <div style={styles.mobileMetaRow}>
@@ -11075,7 +12495,7 @@ function ShopFloorPage({
                       </div>
                       <div style={styles.queueLine}>{row.plateNumber || row.conductionNumber || "No plate yet"}</div>
                       <div style={styles.queueLineMuted}>
-                        {row.accountLabel} • {row.make} {row.model}
+                        {row.accountLabel}  |  {row.make} {row.model}
                       </div>
                       <div style={styles.queueLineMuted}>
                         Primary: {row.primaryTechnicianId ? getUserName(row.primaryTechnicianId) : "Unassigned"}
@@ -11245,7 +12665,7 @@ function ShopFloorPage({
                           <option value="">Select primary technician</option>
                           {primaryTechnicians.map((user) => (
                             <option key={user.id} value={user.id}>
-                              {user.fullName} — {user.role}
+                              {user.fullName}  -  {user.role}
                             </option>
                           ))}
                         </select>
@@ -11264,7 +12684,7 @@ function ShopFloorPage({
                                 onChange={() => handleSupportToggle(selectedRO.id, user.id)}
                               />
                               <span>
-                                {user.fullName} — {user.role}
+                                {user.fullName}  -  {user.role}
                               </span>
                             </label>
                           ))}
@@ -11280,7 +12700,7 @@ function ShopFloorPage({
                       <div style={styles.sectionTitle}>Technician Work Logs</div>
                       <div style={styles.formHint}>Start and stop technician timers per work line. These logs feed the dashboard productivity view.</div>
                     </div>
-                    <span style={styles.statusInfo}>{roWorkLogs.length} logs • {activeRoWorkLogs.length} live</span>
+                    <span style={styles.statusInfo}>{roWorkLogs.length} logs  |  {activeRoWorkLogs.length} live</span>
                   </div>
                   <div style={{ ...styles.mobileCardList, marginTop: 12 }}>
                     {selectedRO.workLines.length === 0 ? (
@@ -11295,9 +12715,9 @@ function ShopFloorPage({
                               <strong>{line.title || "Untitled Work Line"}</strong>
                               <span style={getWorkLineStatusStyle(line.status)}>{line.status}</span>
                             </div>
-                            <div style={styles.mobileDataSecondary}>{line.category} • Logged Time: {formatMinutesAsHours(lineMinutesMap.get(line.id) ?? 0)}</div>
+                            <div style={styles.mobileDataSecondary}>{line.category}  |  Logged Time: {formatMinutesAsHours(lineMinutesMap.get(line.id) ?? 0)}</div>
                             {activeLineLogs.length ? (
-                              <div style={styles.formHint}>Live: {activeLineLogs.map((log) => `${getUserName(log.technicianId)} (${formatElapsedTime(log.startedAt)})`).join(" • ")}</div>
+                              <div style={styles.formHint}>Live: {activeLineLogs.map((log) => `${getUserName(log.technicianId)} (${formatElapsedTime(log.startedAt)})`).join("  |  ")}</div>
                             ) : (
                               <div style={styles.formHint}>No active timer on this work line.</div>
                             )}
@@ -11350,7 +12770,7 @@ function ShopFloorPage({
                   {Array.from(techMinutesMap.entries()).length ? (
                     <div style={{ ...styles.inlineActions, marginTop: 12, flexWrap: "wrap" }}>
                       {Array.from(techMinutesMap.entries()).map(([techId, minutes]) => (
-                        <span key={techId} style={styles.statusNeutral}>{getUserName(techId)} • {formatMinutesAsHours(minutes)}</span>
+                        <span key={techId} style={styles.statusNeutral}>{getUserName(techId)}  |  {formatMinutesAsHours(minutes)}</span>
                       ))}
                     </div>
                   ) : null}
@@ -11376,7 +12796,7 @@ function ShopFloorPage({
                               <span style={styles.statusInfo}>{formatElapsedTime(log.startedAt)}</span>
                             </div>
                             <div style={styles.mobileDataSecondary}>
-                              {ro?.roNumber || "-"} • {ro?.plateNumber || ro?.conductionNumber || "-"}
+                              {ro?.roNumber || "-"}  |  {ro?.plateNumber || ro?.conductionNumber || "-"}
                             </div>
                             <div style={styles.inlineActions}>
                               <button type="button" style={styles.smallButtonDanger} onClick={() => stopWorkLog(log.id)}>
@@ -11403,7 +12823,7 @@ function ShopFloorPage({
                             <span style={getWorkLineStatusStyle(line.status)}>{line.status}</span>
                           </div>
                           <div style={styles.mobileDataSecondary}>
-                            {line.category} • Priority {line.priority}
+                            {line.category}  |  Priority {line.priority}
                           </div>
                           <div style={styles.mobileMetaRow}>
                             <span>Assigned Tech</span>
@@ -11428,7 +12848,7 @@ function ShopFloorPage({
                           {line.notes ? <div style={styles.formHint}>{line.notes}</div> : null}
                           {activeLineLogs.length ? (
                             <div style={styles.formHint}>
-                              Live timer: {activeLineLogs.map((log) => `${getUserName(log.technicianId)} (${formatElapsedTime(log.startedAt)})`).join(" • ")}
+                              Live timer: {activeLineLogs.map((log) => `${getUserName(log.technicianId)} (${formatElapsedTime(log.startedAt)})`).join("  |  ")}
                             </div>
                           ) : null}
                           <div style={styles.inlineActions}>
@@ -11594,6 +13014,11 @@ export default function App() {
   const [customerSession, setCustomerSession] = useState<CustomerAccount | null>(() =>
     readLocalStorage<CustomerAccount | null>(STORAGE_KEYS.customerSession, null)
   );
+  const [customerPortalMode, setCustomerPortalMode] = useState<"real" | "demo">("real");
+  const [customerPortalLaunchView, setCustomerPortalLaunchView] = useState<CustomerPortalView>("dashboard");
+  const [customerPortalSharedRoId, setCustomerPortalSharedRoId] = useState("");
+  const [customerApprovalLinkError, setCustomerApprovalLinkError] = useState("");
+  const [pendingDemoCustomerPortal, setPendingDemoCustomerPortal] = useState(false);
   const [supplierSession, setSupplierSession] = useState<SupplierSession | null>(null);
 
   const [approvalLinkTokens, setApprovalLinkTokens] = useState<ApprovalLinkToken[]>(() =>
@@ -11771,6 +13196,10 @@ export default function App() {
     const fresh = customerAccounts.find((account) => account.id === customerSession.id);
     if (!fresh) {
       setCustomerSession(null);
+      setCustomerPortalMode("real");
+      setCustomerPortalLaunchView("dashboard");
+      setCustomerPortalSharedRoId("");
+      setCustomerApprovalLinkError("");
       return;
     }
     if (JSON.stringify(fresh) !== JSON.stringify(customerSession)) {
@@ -11779,33 +13208,65 @@ export default function App() {
   }, [customerAccounts, customerSession]);
 
   useEffect(() => {
+    if (!pendingDemoCustomerPortal) return;
+    const demoCustomer =
+      customerAccounts.find((account) => account.email.toLowerCase() === "miguel.santos@example.com") ??
+      customerAccounts.find((account) => account.fullName === "Miguel Santos") ??
+      customerAccounts.find((account) => sanitizePhone(account.phone) === "09171234567") ??
+      null;
+
+    if (!demoCustomer) return;
+
+    setCustomerSession(demoCustomer);
+    setCustomerPortalMode("demo");
+    setPendingDemoCustomerPortal(false);
+  }, [customerAccounts, pendingDemoCustomerPortal]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
+    const isCustomerApprovalPath = url.pathname.toLowerCase().includes("/customer-view");
     const portal = url.searchParams.get("portal");
     const tokenValue = url.searchParams.get("token");
-    if (portal !== "customer" || !tokenValue) return;
+    if (!isCustomerApprovalPath && portal !== "customer") return;
+    if (!tokenValue) {
+      setCustomerApprovalLinkError("Invalid or expired link");
+      return;
+    }
 
     const tokenRecord = approvalLinkTokens.find((row) => row.token === tokenValue);
-    if (!tokenRecord || tokenRecord.revokedAt) {
-      setLoginAudience("customer");
-      setCustomerLoginError("This approval link is invalid or has been revoked.");
+    if (!tokenRecord || !isApprovalLinkActive(tokenRecord)) {
+      setCustomerSession(null);
+      setCustomerPortalMode("real");
+      setCustomerPortalLaunchView("dashboard");
+      setCustomerPortalSharedRoId("");
+      setCustomerApprovalLinkError("Invalid or expired link");
       return;
     }
     const tokenRo = repairOrders.find((ro) => ro.id === tokenRecord.roId);
-    if (getEffectiveTokenExpiry(tokenRecord, tokenRo) <= Date.now()) {
-      setLoginAudience("customer");
-      setCustomerLoginError("This approval link has expired.");
+    if (!tokenRo) {
+      setCustomerSession(null);
+      setCustomerPortalMode("real");
+      setCustomerPortalLaunchView("dashboard");
+      setCustomerPortalSharedRoId("");
+      setCustomerApprovalLinkError("Invalid or expired link");
       return;
     }
-
     const customer = customerAccounts.find((row) => row.id === tokenRecord.customerId);
     if (!customer) {
-      setLoginAudience("customer");
-      setCustomerLoginError("Customer account for this link was not found.");
+      setCustomerSession(null);
+      setCustomerPortalMode("real");
+      setCustomerPortalLaunchView("dashboard");
+      setCustomerPortalSharedRoId("");
+      setCustomerApprovalLinkError("Invalid or expired link");
       return;
     }
 
     setCustomerSession(customer);
+    setCustomerPortalMode("demo");
+    setCustomerPortalLaunchView("approvals");
+    setCustomerPortalSharedRoId(tokenRo.id);
+    setCustomerApprovalLinkError("");
     setLoginAudience("customer");
     setCustomerLoginError("");
     setApprovalLinkTokens((prev) =>
@@ -11838,6 +13299,9 @@ export default function App() {
     setLoginForm({ username: "", password: "" });
     setLoginError("");
     setCustomerSession(null);
+    setCustomerPortalMode("real");
+    setCustomerPortalLaunchView("dashboard");
+    setCustomerPortalSharedRoId("");
   };
 
   const loadSimulatedData = () => {
@@ -11868,6 +13332,8 @@ export default function App() {
     const parts1Id = uid("pr");
     const invoice1Id = uid("inv");
     const payment1Id = uid("pay");
+    const backjob1Id = uid("bj");
+    const backjob2Id = uid("bj");
     const customer1Id = uid("cust");
     const customer2Id = uid("cust");
     const customer3Id = uid("cust");
@@ -12298,6 +13764,55 @@ export default function App() {
       },
     ];
 
+    const backjobRecordsSeed: BackjobRecord[] = [
+      {
+        id: backjob1Id,
+        backjobNumber: nextDailyNumber("BJ"),
+        linkedRoId: ro2Id,
+        linkedRoNumber: repairOrdersSeed[1].roNumber,
+        createdAt: iso(1.5),
+        updatedAt: iso(0.5),
+        plateNumber: "ABJ-9087",
+        customerLabel: "Prime Movers Logistics",
+        originalInvoiceNumber: invoiceRecordsSeed[0].invoiceNumber,
+        comebackInvoiceNumber: nextDailyNumber("INV"),
+        originalPrimaryTechnicianId: seniorUser.id,
+        comebackPrimaryTechnicianId: mechanicUser.id,
+        supportingTechnicianIds: [mechanicUser.id],
+        complaint: "Customer reported a faint A/C odor after the release inspection.",
+        findings: "Cabin filter contamination returned quickly and the evaporator housing needed cleaning.",
+        rootCause: "Heavy dust buildup in the HVAC box and an overdue filter change interval.",
+        responsibility: "Goodwill",
+        actionTaken: "Replaced the cabin filter, cleaned the evaporator housing, and performed odor treatment.",
+        resolutionNotes: "Vehicle was released after a monitored road test and cooler vent temperature.",
+        status: "Closed",
+        createdBy: officeUser.fullName,
+      },
+      {
+        id: backjob2Id,
+        backjobNumber: nextDailyNumber("BJ"),
+        linkedRoId: ro1Id,
+        linkedRoNumber: repairOrdersSeed[0].roNumber,
+        createdAt: iso(0.8),
+        updatedAt: iso(0.2),
+        plateNumber: "NEX-2451",
+        customerLabel: "Miguel Santos",
+        originalInvoiceNumber: nextDailyNumber("INV"),
+        comebackInvoiceNumber: nextDailyNumber("INV"),
+        originalPrimaryTechnicianId: chiefUser.id,
+        comebackPrimaryTechnicianId: chiefUser.id,
+        supportingTechnicianIds: [mechanicUser.id],
+        complaint: "Customer asked for a recheck after hearing a light clunk on rough roads.",
+        findings: "Stabilizer link play and alignment drift were still present under load.",
+        rootCause: "Wear on the suspension linkage remained after the first visit.",
+        responsibility: "Warranty",
+        actionTaken: "Scheduled repeat suspension work and alignment verification.",
+        resolutionNotes: "Open comeback case for follow-up after parts arrival.",
+        status: "In Progress",
+        createdBy: advisorUser.fullName,
+      },
+    ];
+
     const workLogsSeed: WorkLog[] = [
       { id: uid("wlog"), roId: ro2Id, workLineId: workLine3Id, technicianId: seniorUser.id, startedAt: iso(7), endedAt: iso(5), totalMinutes: 95, note: "Completed basic PMS package" },
       { id: uid("wlog"), roId: ro2Id, workLineId: workLine4Id, technicianId: mechanicUser.id, startedAt: iso(6.5), endedAt: iso(6), totalMinutes: 35, note: "Replaced cabin air filter" },
@@ -12438,10 +13953,16 @@ export default function App() {
       {
         id: uid("sms"),
         roId: ro1Id,
+        roNumber: repairOrdersSeed[0].roNumber,
         customerId: customer1Id,
+        customerName: "Miguel Santos",
+        phoneNumber: "09171234567",
         tokenId: token1Id,
         sentTo: "09171234567",
-        message: `Demo approval link for ${repairOrdersSeed[0].roNumber}: ${buildCustomerPortalUrl(approvalLinkTokensSeed[0].token)}`,
+        messageType: "approval-request",
+        message: `Demo approval link for ${repairOrdersSeed[0].roNumber}: ${buildCustomerApprovalLinkUrl(approvalLinkTokensSeed[0].token)}`,
+        status: "Sent",
+        provider: "Simulated",
         createdAt: iso(20),
       },
     ];
@@ -12459,7 +13980,7 @@ export default function App() {
     setPaymentRecords(paymentRecordsSeed);
     setWorkLogs(workLogsSeed);
     setBookings(bookingsSeed);
-    setBackjobRecords([]);
+    setBackjobRecords(backjobRecordsSeed);
     setCustomerAccounts(customerAccountsSeed);
     setApprovalLinkTokens(approvalLinkTokensSeed);
     setSmsApprovalLogs(smsApprovalLogsSeed);
@@ -12469,6 +13990,80 @@ export default function App() {
     setSupplierLoginError("");
     setPublicBookingError("");
     setCustomerSession(null);
+    setCustomerPortalMode("real");
+    setPendingDemoCustomerPortal(false);
+  };
+
+  const openDemoCustomerPortal = () => {
+    loadSimulatedData();
+    setLoginError("");
+    setCustomerLoginError("");
+    setCustomerApprovalLinkError("");
+    setCustomerPortalMode("demo");
+    setCustomerPortalLaunchView("dashboard");
+    setCustomerPortalSharedRoId("");
+    setPendingDemoCustomerPortal(true);
+    setLoginAudience("customer");
+  };
+
+  const openDemoCustomerApprovalLink = (ro: RepairOrderRecord) => {
+    const customer =
+      customerAccounts.find((account) => Array.isArray(account.linkedRoIds) && account.linkedRoIds.includes(ro.id)) ||
+      customerAccounts.find((account) => sanitizePhone(account.phone) && sanitizePhone(account.phone) === sanitizePhone(ro.phone || "")) ||
+      customerAccounts.find((account) => !!account.email && !!ro.email && account.email.toLowerCase() === ro.email.toLowerCase()) ||
+      null;
+
+    if (!customer) {
+      setAutoPortalMessage("No customer account is linked to this RO yet.");
+      return;
+    }
+
+    const createdAt = new Date().toISOString();
+    const token: ApprovalLinkToken = {
+      id: uid("apt"),
+      roId: ro.id,
+      customerId: customer.id,
+      token: createSecurePortalToken(),
+      createdAt,
+      expiresAt: getPortalTokenExpiry(72),
+      lastUsedAt: "",
+      revokedAt: "",
+      channel: "Manual",
+    };
+
+    const link = buildCustomerPortalUrl(token.token);
+    const message = `Demo approval link for RO ${ro.roNumber}: ${link}`;
+    setApprovalLinkTokens((prev) => [
+      token,
+      ...prev.map((row) => (row.roId === ro.id && !row.revokedAt ? { ...row, revokedAt: createdAt } : row)),
+    ]);
+    setSmsApprovalLogs((prev) => [
+      {
+        id: uid("sms"),
+        roId: ro.id,
+        roNumber: ro.roNumber,
+        customerId: customer.id,
+        customerName: customer.fullName,
+        phoneNumber: customer.phone || "",
+        tokenId: token.id,
+        sentTo: customer.phone || customer.email || "",
+        messageType: "approval-request",
+        message,
+        status: "Sent",
+        provider: "Simulated",
+        createdAt,
+      },
+      ...prev,
+    ]);
+    setCustomerSession(customer);
+    setCustomerPortalMode("demo");
+    setCustomerPortalLaunchView("approvals");
+    setCustomerPortalSharedRoId(ro.id);
+    setCustomerApprovalLinkError("");
+    setPendingDemoCustomerPortal(false);
+    setLoginAudience("customer");
+    setCustomerLoginError("");
+    setAutoPortalMessage(message);
   };
 
   const quickStaffLogin = (username: string) => {
@@ -12511,6 +14106,10 @@ export default function App() {
     setCurrentView(getDefaultViewForRole(found.role, roleDefinitions));
     setLoginForm({ username: "", password: "" });
     setLoginError("");
+    setCustomerPortalMode("real");
+    setCustomerPortalLaunchView("dashboard");
+    setCustomerPortalSharedRoId("");
+    setCustomerApprovalLinkError("");
   };
 
 
@@ -12539,10 +14138,20 @@ export default function App() {
     setCustomerSession(found);
     setCustomerLoginForm({ identifier: "", password: "" });
     setCustomerLoginError("");
+    setCustomerPortalMode("real");
+    setCustomerPortalLaunchView("dashboard");
+    setCustomerPortalSharedRoId("");
+    setCustomerApprovalLinkError("");
+    setPendingDemoCustomerPortal(false);
   };
 
   const handleCustomerLogout = () => {
     setCustomerSession(null);
+    setCustomerPortalMode("real");
+    setCustomerPortalLaunchView("dashboard");
+    setCustomerPortalSharedRoId("");
+    setCustomerApprovalLinkError("");
+    setPendingDemoCustomerPortal(false);
     setCustomerLoginError("");
   };
 
@@ -12608,7 +14217,7 @@ export default function App() {
   };
 
   const generateSmsApprovalLink = (ro: RepairOrderRecord) => {
-    const customer = customerAccounts.find((account) => account.linkedRoIds.includes(ro.id)) ||
+    const customer = customerAccounts.find((account) => Array.isArray(account.linkedRoIds) && account.linkedRoIds.includes(ro.id)) ||
       customerAccounts.find((account) => sanitizePhone(account.phone) && sanitizePhone(account.phone) === sanitizePhone(ro.phone || "")) ||
       customerAccounts.find((account) => !!account.email && !!ro.email && account.email.toLowerCase() === ro.email.toLowerCase()) ||
       null;
@@ -12618,12 +14227,13 @@ export default function App() {
       return;
     }
 
+    const createdAt = new Date().toISOString();
     const token: ApprovalLinkToken = {
       id: uid("apt"),
       roId: ro.id,
       customerId: customer.id,
       token: createSecurePortalToken(),
-      createdAt: new Date().toISOString(),
+      createdAt,
       expiresAt: getPortalTokenExpiry(72),
       lastUsedAt: "",
       revokedAt: "",
@@ -12632,20 +14242,71 @@ export default function App() {
 
     const link = buildCustomerPortalUrl(token.token);
     const message = `Northeast Car Care Centre: Review and approve RO ${ro.roNumber} here ${link}`;
-    setApprovalLinkTokens((prev) => [token, ...prev]);
+    setApprovalLinkTokens((prev) => [
+      token,
+      ...prev.map((row) => (row.roId === ro.id && !row.revokedAt ? { ...row, revokedAt: createdAt } : row)),
+    ]);
     setSmsApprovalLogs((prev) => [
       {
         id: uid("sms"),
         roId: ro.id,
+        roNumber: ro.roNumber,
         customerId: customer.id,
+        customerName: customer.fullName,
+        phoneNumber: customer.phone || "",
         tokenId: token.id,
         sentTo: customer.phone || customer.email || "",
+        messageType: "approval-request",
         message,
-        createdAt: new Date().toISOString(),
+        status: "Sent",
+        provider: "Simulated",
+        createdAt,
       },
       ...prev,
     ]);
     setAutoPortalMessage(message);
+  };
+
+  const sendSmsTemplate = async (payload: SmsSendPayload): Promise<SmsSendResult> => {
+    const createdAt = new Date().toISOString();
+    const logId = uid("sms");
+    const provider = getSmsProviderConfig();
+
+    setSmsApprovalLogs((prev) => [
+      {
+        id: logId,
+        roId: payload.roId,
+        roNumber: payload.roNumber,
+        customerId: payload.customerId,
+        customerName: payload.customerName,
+        phoneNumber: payload.phoneNumber,
+        tokenId: payload.tokenId,
+        sentTo: payload.phoneNumber,
+        messageType: payload.messageType,
+        message: payload.messageBody,
+        status: "Pending",
+        provider: provider.provider,
+        createdAt,
+      },
+      ...prev,
+    ]);
+
+    const result = await dispatchSmsTemplateMessage(payload);
+    setSmsApprovalLogs((prev) =>
+      prev.map((row) =>
+        row.id === logId
+          ? {
+              ...row,
+              status: result.status,
+              provider: result.provider,
+              providerResponse: result.providerResponse,
+              errorMessage: result.errorMessage,
+            }
+          : row
+      )
+    );
+
+    return result;
   };
 
   const revokeApprovalLink = (tokenId: string) => {
@@ -12816,9 +14477,14 @@ export default function App() {
             setApprovalRecords={setApprovalRecords}
             backjobRecords={backjobRecords}
             setBackjobRecords={setBackjobRecords}
+            partsRequests={partsRequests}
+            releaseRecords={releaseRecords}
             approvalLinkTokens={approvalLinkTokens}
             autoPortalMessage={autoPortalMessage}
+            smsApprovalLogs={smsApprovalLogs}
             onGenerateSmsApprovalLink={generateSmsApprovalLink}
+            onOpenDemoCustomerApprovalLink={openDemoCustomerApprovalLink}
+            onSendSmsTemplate={sendSmsTemplate}
             onRevokeApprovalLink={revokeApprovalLink}
             isCompactLayout={isMobile}
           />
@@ -12924,29 +14590,59 @@ export default function App() {
     }
   };
 
+  if (customerApprovalLinkError) {
+    return (
+      <>
+        <style>{globalCss}</style>
+        <div style={styles.appShell}>
+          <div style={styles.mainArea}>
+            <div style={styles.pageContent}>
+              <div style={styles.grid}>
+                <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+                  <Card title="Customer View" subtitle="Shared approval link">
+                    <div style={styles.errorBox}>{customerApprovalLinkError}</div>
+                    <div style={styles.formHint}>
+                      This shared link is invalid or expired. Please request a fresh customer approval link from the shop.
+                    </div>
+                  </Card>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   if (customerSession) {
     return (
-      <CustomerPortalPage
-        customer={customerSession}
-        repairOrders={repairOrders}
-        setRepairOrders={setRepairOrders}
-        approvalLinkTokens={approvalLinkTokens}
-        intakeRecords={intakeRecords}
-        inspectionRecords={inspectionRecords}
-        qcRecords={qcRecords}
-        releaseRecords={releaseRecords}
-        approvalRecords={approvalRecords}
-        backjobRecords={backjobRecords}
-        invoiceRecords={invoiceRecords}
-        paymentRecords={paymentRecords}
-        bookings={bookings}
-        setBookings={setBookings}
-        customerAccounts={customerAccounts}
-        setCustomerAccounts={setCustomerAccounts}
-        setCustomerSession={setCustomerSession}
-        onLogout={handleCustomerLogout}
-        isCompactLayout={isMobile}
-      />
+      <CustomerPortalErrorBoundary onReset={handleCustomerLogout}>
+        <CustomerPortalPage
+          customer={customerSession}
+          repairOrders={repairOrders}
+          setRepairOrders={setRepairOrders}
+          approvalLinkTokens={approvalLinkTokens}
+          intakeRecords={intakeRecords}
+          inspectionRecords={inspectionRecords}
+          qcRecords={qcRecords}
+          releaseRecords={releaseRecords}
+          approvalRecords={approvalRecords}
+          backjobRecords={backjobRecords}
+          invoiceRecords={invoiceRecords}
+          paymentRecords={paymentRecords}
+          bookings={bookings}
+          setBookings={setBookings}
+          customerAccounts={customerAccounts}
+          setCustomerAccounts={setCustomerAccounts}
+          setCustomerSession={setCustomerSession}
+          onLogout={handleCustomerLogout}
+          isCompactLayout={isMobile}
+          isDemoMode={customerPortalMode === "demo"}
+          portalLaunchView={customerPortalLaunchView}
+          sharedLinkRoId={customerPortalSharedRoId}
+          sharedLinkMode={!!customerPortalSharedRoId}
+        />
+      </CustomerPortalErrorBoundary>
     );
   }
 
@@ -12987,6 +14683,7 @@ export default function App() {
           onPublicBookingSubmit={handlePublicBookingSubmit}
           onQuickStaffLogin={quickStaffLogin}
           onLoadDemoData={loadSimulatedData}
+          onOpenDemoCustomerPortal={openDemoCustomerPortal}
         />
       </>
     );
@@ -13060,7 +14757,7 @@ export default function App() {
             <div style={styles.topBarLeft}>
               {isMobile ? (
                 <button type="button" onClick={() => setSidebarOpen((prev) => !prev)} style={styles.menuButton}>
-                  ☰
+                  â˜°
                 </button>
               ) : null}
               <div>
