@@ -573,26 +573,6 @@ type ServiceReminderView = {
   body: string;
 };
 
-type MaintenanceSuggestionItem = {
-  id: string;
-  title: string;
-  reason: string;
-  intervalTag: string;
-};
-
-type MileageSuggestionRule = {
-  id: string;
-  title: string;
-  reason: string;
-  intervalTag: string;
-  intervalKm?: number;
-  startKm?: number;
-  bandMinKm?: number;
-  bandMaxKm?: number;
-  minKm?: number;
-};
-
-
 type BookingStatus = "New" | "Confirmed" | "Arrived" | "No Show" | "Rescheduled" | "Cancelled" | "Converted to Intake";
 type BookingServiceType =
   | "Preventive Maintenance"
@@ -1228,6 +1208,16 @@ function addDaysToDate(dateValue: string, days: number) {
 function parseOdometerValue(value: string) {
   const parsed = Number(String(value ?? "").replace(/,/g, "").trim());
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function hasMaintenanceTitleMatch(existing: Array<string | { title?: string }>, title: string) {
+  const normalizedTitle = title.trim().toLowerCase();
+  return existing.some((entry) => {
+    if (typeof entry === "string") {
+      return entry.trim().toLowerCase() === normalizedTitle;
+    }
+    return String(entry?.title ?? "").trim().toLowerCase() === normalizedTitle;
+  });
 }
 
 type MaintenanceSuggestion = {
@@ -10041,33 +10031,25 @@ function RepairOrdersPage({
     ? selectedRO.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length
     : 0;
 
-  const draftOdometerKm = useMemo(() => parseOdometerValue(form.odometerKm), [form.odometerKm]);
-  const draftMaintenanceSuggestions = useMemo(() => {
-    if (draftOdometerKm == null) return [];
-    const existingWorkLineTitles = form.workLines.map((line) => line.title);
-    const existingRecommendationTitles = draftMaintenanceRecommendations.map((item) => item.title);
-    return buildMileageBasedMaintenanceSuggestions(draftOdometerKm).filter((item) => {
-      if (dismissedDraftMaintenanceSuggestionIds.includes(item.id)) return false;
-      if (hasMaintenanceTitleMatch(existingWorkLineTitles, item.title)) return false;
-      if (hasMaintenanceTitleMatch(existingRecommendationTitles, item.title)) return false;
-      return true;
-    });
-  }, [draftMaintenanceRecommendations, draftOdometerKm, dismissedDraftMaintenanceSuggestionIds, form.workLines]);
-
-  const selectedROMaintenanceRecommendations = selectedRO ? roMaintenanceRecommendationsByRoId[selectedRO.id] ?? [] : [];
   const selectedROOdometerKm = selectedRO ? parseOdometerValue(selectedRO.odometerKm) : null;
+  const selectedROMaintenanceRecommendations = useMemo(() => {
+    if (!selectedRO) return [];
+    const recommendationTitles = roRecommendationTitlesById[selectedRO.id] ?? [];
+    return selectedRoMileageSuggestions.filter((item) => hasMaintenanceTitleMatch(recommendationTitles, item.title));
+  }, [roRecommendationTitlesById, selectedRO, selectedRoMileageSuggestions]);
+
   const selectedROMaintenanceSuggestions = useMemo(() => {
     if (!selectedRO || selectedROOdometerKm == null) return [];
     const existingWorkLineTitles = selectedRO.workLines.map((line) => line.title);
     const existingRecommendationTitles = selectedROMaintenanceRecommendations.map((item) => item.title);
-    const dismissedIds = dismissedMaintenanceSuggestionIdsByRoId[selectedRO.id] ?? [];
-    return buildMileageBasedMaintenanceSuggestions(selectedROOdometerKm).filter((item) => {
+    const dismissedIds = dismissedMileageSuggestionIdsByScope[`ro:${selectedRO.id}`] ?? [];
+    return selectedRoMileageSuggestions.filter((item) => {
       if (dismissedIds.includes(item.id)) return false;
       if (hasMaintenanceTitleMatch(existingWorkLineTitles, item.title)) return false;
       if (hasMaintenanceTitleMatch(existingRecommendationTitles, item.title)) return false;
       return true;
     });
-  }, [dismissedMaintenanceSuggestionIdsByRoId, selectedRO, selectedROOdometerKm, selectedROMaintenanceRecommendations]);
+  }, [dismissedMileageSuggestionIdsByScope, selectedRO, selectedROOdometerKm, selectedROMaintenanceRecommendations, selectedRoMileageSuggestions]);
 
   useEffect(() => {
     setForm((prev) => ({
@@ -10170,13 +10152,13 @@ function RepairOrdersPage({
   };
 
   const addDraftSuggestionToRecommendations = (suggestion: MaintenanceSuggestion) => {
-    setDraftRecommendationTitles((prev) => (prev.includes(suggestion.title) ? prev : [...prev, suggestion.title]));
+    setDraftRecommendationTitles((prev) => (hasMaintenanceTitleMatch(prev, suggestion.title) ? prev : [...prev, suggestion.title]));
   };
 
   const addRoSuggestionToRecommendations = (roId: string, suggestion: MaintenanceSuggestion) => {
     setRoRecommendationTitlesById((prev) => ({
       ...prev,
-      [roId]: prev[roId]?.includes(suggestion.title) ? prev[roId] : [...(prev[roId] ?? []), suggestion.title],
+      [roId]: hasMaintenanceTitleMatch(prev[roId] ?? [], suggestion.title) ? prev[roId] ?? [] : [...(prev[roId] ?? []), suggestion.title],
     }));
   };
 
@@ -10200,6 +10182,21 @@ function RepairOrdersPage({
         };
       })
     );
+  };
+
+  const addSelectedROMaintenanceToRecommendations = (suggestion: MaintenanceSuggestion) => {
+    if (!selectedRO) return;
+    addRoSuggestionToRecommendations(selectedRO.id, suggestion);
+  };
+
+  const addSelectedROMaintenanceToWorkLine = (suggestion: MaintenanceSuggestion) => {
+    if (!selectedRO) return;
+    addRoSuggestionToWorkLine(selectedRO.id, suggestion);
+  };
+
+  const dismissSelectedROMaintenanceSuggestion = (suggestionId: string) => {
+    if (!selectedRO) return;
+    dismissMileageSuggestion(`ro:${selectedRO.id}`, suggestionId);
   };
 
   const handleCreateRO = (e: React.FormEvent) => {
