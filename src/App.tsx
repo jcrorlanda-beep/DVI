@@ -1211,6 +1211,98 @@ function parseOdometerValue(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+type MaintenanceSuggestion = {
+  id: string;
+  title: string;
+  reason: string;
+  intervalTag: string;
+  isConditional?: boolean;
+};
+
+const MILEAGE_SUGGESTION_TOLERANCE_KM = 500;
+
+function shouldTriggerMileageInterval(odometerKm: number, intervalKm: number, toleranceKm = MILEAGE_SUGGESTION_TOLERANCE_KM) {
+  if (odometerKm < Math.max(0, intervalKm - toleranceKm)) return false;
+  const nearestTarget = Math.round(odometerKm / intervalKm) * intervalKm;
+  if (nearestTarget < intervalKm) return false;
+  return Math.abs(odometerKm - nearestTarget) <= toleranceKm;
+}
+
+function getMileageMaintenanceSuggestions(odometerKmRaw: string): MaintenanceSuggestion[] {
+  const odometerKm = parseOdometerValue(odometerKmRaw);
+  if (odometerKm == null || odometerKm <= 0) return [];
+
+  const suggestions: MaintenanceSuggestion[] = [];
+  const push = (condition: boolean, suggestion: MaintenanceSuggestion) => {
+    if (!condition) return;
+    if (suggestions.some((row) => row.id === suggestion.id)) return;
+    suggestions.push(suggestion);
+  };
+
+  push(shouldTriggerMileageInterval(odometerKm, 5000), {
+    id: 'mileage-5000-core',
+    title: '5,000 km periodic maintenance package',
+    reason: 'Helps keep lubrication, tire wear, and safety checks on schedule.',
+    intervalTag: 'Every 5,000 km',
+  });
+
+  push(shouldTriggerMileageInterval(odometerKm, 10000), {
+    id: 'mileage-10000-core',
+    title: '10,000 km air, cabin, brake, and underchassis inspection package',
+    reason: 'Targets filtration, braking, and chassis condition checks at 10,000 km intervals.',
+    intervalTag: 'Every 10,000 km',
+  });
+
+  push(shouldTriggerMileageInterval(odometerKm, 20000), {
+    id: 'mileage-20000-core',
+    title: '20,000 km intake, brake, battery, and suspension check package',
+    reason: 'Covers drivetrain airflow, braking service, and chassis health milestones.',
+    intervalTag: 'Every 20,000 km',
+  });
+
+  push(shouldTriggerMileageInterval(odometerKm, 30000), {
+    id: 'mileage-30000-egr-intake',
+    title: 'EGR and intake manifold cleaning (if applicable)',
+    reason: 'Carbon build-up cleaning may be needed at major 30,000 km intervals.',
+    intervalTag: 'Every 30,000 km',
+    isConditional: true,
+  });
+
+  push(shouldTriggerMileageInterval(odometerKm, 40000), {
+    id: 'mileage-40000-core',
+    title: '40,000 km transmission, coolant, fuel, and ignition inspection package',
+    reason: 'Checks critical fluid systems and combustion support components.',
+    intervalTag: 'Every 40,000 km',
+  });
+
+  push(odometerKm >= 50000 - MILEAGE_SUGGESTION_TOLERANCE_KM && odometerKm <= 60000 + MILEAGE_SUGGESTION_TOLERANCE_KM, {
+    id: 'mileage-50000-60000-major-checks',
+    title: '50,000–60,000 km full suspension and brake system check',
+    reason: 'Mid-life range where full chassis and braking system review is recommended.',
+    intervalTag: '50,000–60,000 km',
+  });
+
+  push(odometerKm >= 80000 - MILEAGE_SUGGESTION_TOLERANCE_KM, {
+    id: 'mileage-80000-plus-major-review',
+    title: 'Major service review with timing belt/chain inspection',
+    reason: 'High-mileage vehicles need a broader preventive maintenance review.',
+    intervalTag: '80,000 km+',
+  });
+
+  return suggestions;
+}
+
+function getMaintenanceSuggestionWorkLine(suggestion: MaintenanceSuggestion): RepairOrderWorkLine {
+  return recalculateWorkLine({
+    ...getEmptyWorkLine(),
+    title: suggestion.title,
+    category: 'Periodic Maintenance',
+    notes: suggestion.reason,
+    customerDescription: `${suggestion.intervalTag}: ${suggestion.reason}`,
+    recommendationSource: 'MileageSuggestion',
+  });
+}
+
 function getOilChangePolicy(oilType: OilChangeReminderType) {
   return oilType === "Fully Synthetic"
     ? { months: 12, kilometers: 10000 }
@@ -9340,6 +9432,9 @@ function RepairOrdersPage({
   const [isSavingSmsProviderSettings, setIsSavingSmsProviderSettings] = useState(false);
   const [isGeneratingApprovalLink, setIsGeneratingApprovalLink] = useState(false);
   const [resendingSmsLogId, setResendingSmsLogId] = useState("");
+  const [draftRecommendationTitles, setDraftRecommendationTitles] = useState<string[]>([]);
+  const [roRecommendationTitlesById, setRoRecommendationTitlesById] = useState<Record<string, string[]>>({});
+  const [dismissedMileageSuggestionIdsByScope, setDismissedMileageSuggestionIdsByScope] = useState<Record<string, string[]>>({});
 
   const sortedRepairOrders = useMemo(() => repairOrders, [repairOrders]);
 
@@ -9361,6 +9456,12 @@ function RepairOrdersPage({
   const selectedRO = useMemo(
     () => sortedRepairOrders.find((row) => row.id === selectedRoId) ?? null,
     [sortedRepairOrders, selectedRoId]
+  );
+
+  const draftMileageSuggestions = useMemo(() => getMileageMaintenanceSuggestions(form.odometerKm), [form.odometerKm]);
+  const selectedRoMileageSuggestions = useMemo(
+    () => getMileageMaintenanceSuggestions(selectedRO?.odometerKm ?? ''),
+    [selectedRO?.odometerKm]
   );
 
   const selectedApproval = useMemo(
@@ -9955,6 +10056,8 @@ function RepairOrdersPage({
       supportTechnicianIds: [],
       workLines: linkedInspection && linkedInspection.recommendationLines.length > 0 ? linkedInspection.recommendationLines.map((lineTitle) => ({ ...getEmptyWorkLine(), title: lineTitle, recommendationSource: linkedInspection.inspectionNumber })) : [getEmptyWorkLine()],
     });
+    setDraftRecommendationTitles([]);
+    setDismissedMileageSuggestionIdsByScope((prev) => ({ ...prev, draft: [] }));
     setError("");
   }, [creationMode, selectedIntake, linkedInspection, currentUser.fullName]);
 
@@ -9971,6 +10074,8 @@ function RepairOrdersPage({
     setCreationMode("Intake");
     setSelectedIntakeId("");
     setForm(getDefaultRepairOrderForm(currentUser.fullName));
+    setDraftRecommendationTitles([]);
+    setDismissedMileageSuggestionIdsByScope((prev) => ({ ...prev, draft: [] }));
     setError("");
   };
 
@@ -10008,6 +10113,46 @@ function RepairOrdersPage({
         ? prev.supportTechnicianIds.filter((id) => id !== technicianId)
         : [...prev.supportTechnicianIds, technicianId],
     }));
+  };
+
+  const dismissMileageSuggestion = (scopeKey: string, suggestionId: string) => {
+    setDismissedMileageSuggestionIdsByScope((prev) => ({
+      ...prev,
+      [scopeKey]: prev[scopeKey]?.includes(suggestionId) ? prev[scopeKey] : [...(prev[scopeKey] ?? []), suggestionId],
+    }));
+  };
+
+  const addDraftSuggestionToRecommendations = (suggestion: MaintenanceSuggestion) => {
+    setDraftRecommendationTitles((prev) => (prev.includes(suggestion.title) ? prev : [...prev, suggestion.title]));
+  };
+
+  const addRoSuggestionToRecommendations = (roId: string, suggestion: MaintenanceSuggestion) => {
+    setRoRecommendationTitlesById((prev) => ({
+      ...prev,
+      [roId]: prev[roId]?.includes(suggestion.title) ? prev[roId] : [...(prev[roId] ?? []), suggestion.title],
+    }));
+  };
+
+  const addDraftSuggestionToWorkLine = (suggestion: MaintenanceSuggestion) => {
+    const exists = form.workLines.some((line) => line.title.trim().toLowerCase() === suggestion.title.trim().toLowerCase());
+    if (exists) return;
+    setForm((prev) => ({ ...prev, workLines: [...prev.workLines, getMaintenanceSuggestionWorkLine(suggestion)] }));
+  };
+
+  const addRoSuggestionToWorkLine = (roId: string, suggestion: MaintenanceSuggestion) => {
+    setRepairOrders((prev) =>
+      prev.map((row) => {
+        if (row.id !== roId) return row;
+        const exists = row.workLines.some((line) => line.title.trim().toLowerCase() === suggestion.title.trim().toLowerCase());
+        if (exists) return row;
+        return {
+          ...row,
+          updatedAt: new Date().toISOString(),
+          updatedBy: currentUser.fullName,
+          workLines: [...row.workLines, getMaintenanceSuggestionWorkLine(suggestion)],
+        };
+      })
+    );
   };
 
   const handleCreateRO = (e: React.FormEvent) => {
@@ -10127,6 +10272,7 @@ function RepairOrdersPage({
       }
 
       setError("");
+      setDraftRecommendationTitles([]);
       resetForm();
     } finally {
       setIsCreatingRO(false);
@@ -10672,6 +10818,47 @@ function RepairOrdersPage({
                 </div>
               </div>
 
+              <div style={styles.sectionCardMuted}>
+                <div style={styles.mobileDataCardHeader}>
+                  <div style={styles.sectionTitle}>Maintenance Suggestions {form.odometerKm.trim() ? `(${form.odometerKm.trim()} km)` : '(KM pending)'}</div>
+                </div>
+                {draftMileageSuggestions.filter((item) => !(dismissedMileageSuggestionIdsByScope.draft ?? []).includes(item.id)).length === 0 ? (
+                  <div style={styles.formHint}>No mileage-based suggestions for the current odometer input.</div>
+                ) : (
+                  <div style={styles.formStack}>
+                    {draftMileageSuggestions
+                      .filter((item) => !(dismissedMileageSuggestionIdsByScope.draft ?? []).includes(item.id))
+                      .map((item) => {
+                        const titleKey = item.title.trim().toLowerCase();
+                        const existsInRecommendations = draftRecommendationTitles.some((entry) => entry.trim().toLowerCase() === titleKey);
+                        const existsInWorkLines = form.workLines.some((line) => line.title.trim().toLowerCase() === titleKey);
+                        return (
+                          <div key={item.id} style={styles.concernCard}>
+                            <div style={styles.mobileDataCardHeader}><strong>{item.title}</strong><span style={styles.statusInfo}>{item.intervalTag}</span></div>
+                            <div style={styles.formHint}>{item.reason}</div>
+                            {item.isConditional ? <div style={{ ...styles.statusWarning, marginTop: 6 }}>If applicable</div> : null}
+                            <div style={{ ...styles.inlineActions, marginTop: 8 }}>
+                              <button type="button" style={styles.smallButtonMuted} disabled={existsInRecommendations} onClick={() => addDraftSuggestionToRecommendations(item)}>Add to Recommendations</button>
+                              <button type="button" style={styles.smallButton} disabled={existsInWorkLines} onClick={() => addDraftSuggestionToWorkLine(item)}>Add to Work Line</button>
+                              <button type="button" style={styles.smallButtonMuted} onClick={() => dismissMileageSuggestion('draft', item.id)}>Dismiss</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+                {draftRecommendationTitles.length > 0 ? (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={styles.formHint}>Recommendations</div>
+                    <div style={styles.chipWrap}>
+                      {draftRecommendationTitles.map((title) => (
+                        <span key={title} style={styles.tagNeutral}>{title}</span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
               <div style={styles.formGroup}>
                 <label style={styles.label}>Customer Concern</label>
                 <textarea
@@ -10994,6 +11181,48 @@ function RepairOrdersPage({
                   <div><strong>Updated:</strong> {formatDateTime(selectedRO.updatedAt)}</div>
                   <div><strong>Approval Lock:</strong> {canAdvanceToWork ? "Ready to advance" : "Blocked until all decisions are complete"}</div>
                   <div><strong>Approved Line Total:</strong> {formatCurrency(approvedEstimateTotal)}</div>
+                </div>
+
+                <div style={styles.sectionCardMuted}>
+                  <div style={styles.mobileDataCardHeader}>
+                    <div style={styles.sectionTitle}>Maintenance Suggestions {selectedRO.odometerKm.trim() ? `(${selectedRO.odometerKm.trim()} km)` : '(KM pending)'}</div>
+                  </div>
+                  {selectedRoMileageSuggestions.filter((item) => !(dismissedMileageSuggestionIdsByScope[`ro:${selectedRO.id}`] ?? []).includes(item.id)).length === 0 ? (
+                    <div style={styles.formHint}>No mileage-based suggestions for this RO odometer.</div>
+                  ) : (
+                    <div style={styles.formStack}>
+                      {selectedRoMileageSuggestions
+                        .filter((item) => !(dismissedMileageSuggestionIdsByScope[`ro:${selectedRO.id}`] ?? []).includes(item.id))
+                        .map((item) => {
+                          const titleKey = item.title.trim().toLowerCase();
+                          const roRecommendations = roRecommendationTitlesById[selectedRO.id] ?? [];
+                          const existsInRecommendations = roRecommendations.some((entry) => entry.trim().toLowerCase() === titleKey);
+                          const existsInWorkLines = selectedRO.workLines.some((line) => line.title.trim().toLowerCase() === titleKey);
+                          return (
+                            <div key={item.id} style={styles.concernCard}>
+                              <div style={styles.mobileDataCardHeader}><strong>{item.title}</strong><span style={styles.statusInfo}>{item.intervalTag}</span></div>
+                              <div style={styles.formHint}>{item.reason}</div>
+                              {item.isConditional ? <div style={{ ...styles.statusWarning, marginTop: 6 }}>If applicable</div> : null}
+                              <div style={{ ...styles.inlineActions, marginTop: 8 }}>
+                                <button type="button" style={styles.smallButtonMuted} disabled={existsInRecommendations} onClick={() => addRoSuggestionToRecommendations(selectedRO.id, item)}>Add to Recommendations</button>
+                                <button type="button" style={styles.smallButton} disabled={existsInWorkLines} onClick={() => addRoSuggestionToWorkLine(selectedRO.id, item)}>Add to Work Line</button>
+                                <button type="button" style={styles.smallButtonMuted} onClick={() => dismissMileageSuggestion(`ro:${selectedRO.id}`, item.id)}>Dismiss</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                  {(roRecommendationTitlesById[selectedRO.id] ?? []).length > 0 ? (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={styles.formHint}>Recommendations</div>
+                      <div style={styles.chipWrap}>
+                        {(roRecommendationTitlesById[selectedRO.id] ?? []).map((title) => (
+                          <span key={title} style={styles.tagNeutral}>{title}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div style={styles.sectionCard}>
@@ -15963,6 +16192,23 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     flexWrap: "wrap",
     gap: 8,
+  },
+
+  chipWrap: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+
+  tagNeutral: {
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: 999,
+    padding: "4px 10px",
+    background: "#e2e8f0",
+    color: "#334155",
+    fontSize: 12,
+    fontWeight: 700,
   },
 
   pillButton: {
