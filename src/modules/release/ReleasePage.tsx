@@ -17,6 +17,8 @@ import {
   getResponsiveSpan,
   parseMoneyInput,
 } from "../shared/helpers";
+import { AiAssistPanel } from "../ai/AiAssistPanel";
+import { useOpenAiAssistController } from "../ai/useOpenAiAssistController";
 
 // ─── Local helpers ────────────────────────────────────────────────────────────
 
@@ -345,6 +347,28 @@ function ReleasePage({
     }),
     [queue, invoiceRecords]
   );
+
+  const releaseAiSourceText = useMemo(
+    () =>
+      selectedRO
+        ? buildReleaseExportText(selectedRO, selectedInvoice, linkedPayments, latestReleaseForSelected, latestQcForSelected, finalTotalAmount)
+        : "",
+    [finalTotalAmount, latestQcForSelected, latestReleaseForSelected, linkedPayments, selectedInvoice, selectedRO]
+  );
+
+  const releaseAi = useOpenAiAssistController({
+    sourceModule: "release",
+    sourceText: releaseAiSourceText,
+    contextKey: selectedRO?.id || "release-draft",
+    currentUserRole: currentUser.role,
+    currentUserName: currentUser.fullName,
+    moduleKey: "release",
+    sourceLabel: "release summary",
+    customerName: selectedRO?.accountLabel || undefined,
+    vehicleLabel: selectedRO ? [selectedRO.make, selectedRO.model, selectedRO.year].filter(Boolean).join(" ") || undefined : undefined,
+    roNumber: selectedRO?.roNumber || undefined,
+    defaultAction: "Draft Release Summary",
+  });
 
   const applySuggestedInvoiceTotals = () => {
     if (!selectedRO) return;
@@ -680,10 +704,37 @@ function ReleasePage({
                   {selectedRO.updatedBy ? (
                     <div style={styles.summaryTile}>
                       <div style={styles.summaryLabel}>Last Updated By</div>
-                      <div style={styles.summaryValue}>{selectedRO.updatedBy}</div>
-                    </div>
-                  ) : <div style={styles.summaryTile} />}
+                    <div style={styles.summaryValue}>{selectedRO.updatedBy}</div>
+                  </div>
+                ) : <div style={styles.summaryTile} />}
                 </div>
+
+                <AiAssistPanel
+                  action={releaseAi.action}
+                  sourceModule="release"
+                  sourceText={releaseAiSourceText}
+                  draftText={releaseAi.draftText}
+                  draftMeta={releaseAi.draftMeta}
+                  logs={releaseAi.logs}
+                  feedback={releaseAi.feedback}
+                  isGenerating={releaseAi.isGenerating}
+                  canUseAiAssist={releaseAi.canUseAiAssist}
+                  accessMessage={releaseAi.accessMessage}
+                  draftFromCache={releaseAi.draftFromCache}
+                  reviewed={releaseAi.reviewed}
+                  onReviewedChange={releaseAi.setReviewed}
+                  actions={["Fix Grammar", "Draft Release Summary", "SMS Update"]}
+                  providerMode={releaseAi.providerMode}
+                  model={releaseAi.model}
+                  maxTokens={releaseAi.maxTokens}
+                  apiKeyConfigured={releaseAi.apiKeyConfigured}
+                  onActionChange={releaseAi.setAction}
+                  onGenerate={(action) => void releaseAi.generate(action)}
+                  onDraftTextChange={releaseAi.setDraftText}
+                  onUseDraft={releaseAi.useDraft}
+                  onCopyDraft={releaseAi.copyDraft}
+                  onResetSource={releaseAi.resetToSource}
+                />
 
                 <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
                   <div style={styles.formGroup}>

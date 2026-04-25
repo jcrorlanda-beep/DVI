@@ -16,6 +16,8 @@ import {
   formatDateTime,
   getResponsiveSpan,
 } from "../shared/helpers";
+import { AiAssistPanel } from "../ai/AiAssistPanel";
+import { useOpenAiAssistController } from "../ai/useOpenAiAssistController";
 
 const STORAGE_KEYS = {
   counters: "dvi_phase2_counters_v1",
@@ -1597,6 +1599,25 @@ function QualityControlPage({
     [qcRecords, selectedRO]
   );
 
+  const qcAiSourceText = useMemo(
+    () => (selectedRO ? buildQcExportText(selectedRO, latestQcForSelected) : ""),
+    [latestQcForSelected, selectedRO]
+  );
+
+  const qcAi = useOpenAiAssistController({
+    sourceModule: "qualityControl",
+    sourceText: qcAiSourceText,
+    contextKey: selectedRO?.id || "qc-draft",
+    currentUserRole: currentUser.role,
+    currentUserName: currentUser.fullName,
+    moduleKey: "qualityControl",
+    sourceLabel: "QC notes",
+    customerName: selectedRO?.accountLabel || undefined,
+    vehicleLabel: selectedRO ? [selectedRO.make, selectedRO.model, selectedRO.year].filter(Boolean).join(" ") || selectedRO.plateNumber || selectedRO.conductionNumber || undefined : undefined,
+    roNumber: selectedRO?.roNumber || undefined,
+    defaultAction: "QC Summary",
+  });
+
   useEffect(() => {
     if (!selectedRO) return;
     setChecks({
@@ -1761,6 +1782,34 @@ function QualityControlPage({
               )
             }
           >
+            <AiAssistPanel
+              action={qcAi.action}
+              sourceModule="qualityControl"
+              sourceText={qcAiSourceText}
+              draftText={qcAi.draftText}
+              draftMeta={qcAi.draftMeta}
+              logs={qcAi.logs}
+              feedback={qcAi.feedback}
+              isGenerating={qcAi.isGenerating}
+              canUseAiAssist={qcAi.canUseAiAssist}
+              accessMessage={qcAi.accessMessage}
+              draftFromCache={qcAi.draftFromCache}
+              reviewed={qcAi.reviewed}
+              onReviewedChange={qcAi.setReviewed}
+              actions={["QC Summary", "Fix Grammar"]}
+              providerMode={qcAi.providerMode}
+              model={qcAi.model}
+              maxTokens={qcAi.maxTokens}
+              apiKeyConfigured={qcAi.apiKeyConfigured}
+              testIdPrefix="openai-qc-ai"
+              onActionChange={qcAi.setAction}
+              onGenerate={(action) => void qcAi.generate(action)}
+              onDraftTextChange={qcAi.setDraftText}
+              onUseDraft={qcAi.useDraft}
+              onCopyDraft={qcAi.copyDraft}
+              onResetSource={qcAi.resetToSource}
+            />
+
             {!selectedRO ? (
               <div style={styles.emptyState}>Select a repair order from the QC queue.</div>
             ) : (

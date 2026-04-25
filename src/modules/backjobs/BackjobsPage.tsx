@@ -8,6 +8,7 @@ import type {
   BackjobOutcome,
 } from "../shared/types";
 import { formatDateTime, getResponsiveSpan, todayStamp } from "../shared/helpers";
+import { BackjobAnalytics } from "./BackjobAnalytics";
 
 // --- local helpers ---
 
@@ -299,6 +300,15 @@ function BackjobPage({
   return (
     <div style={styles.pageContent}>
       <div style={styles.grid}>
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <BackjobAnalytics
+            backjobRecords={backjobRecords}
+            repairOrders={repairOrders}
+            users={users}
+            isCompactLayout={isCompactLayout}
+          />
+        </div>
+
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
           <Card
             title="Backjob / Comeback Control Center"

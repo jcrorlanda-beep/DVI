@@ -8,8 +8,29 @@ import BackjobPage from "./modules/backjobs/BackjobsPage";
 import PartsPage from "./modules/parts/PartsPage";
 import IntakePage from "./modules/intake/IntakePage";
 import QualityControlPage from "./modules/qualityControl/QualityControlPage";
-import type { UserRole, Permission, ViewKey, RoleDefinition, UserAccount, SessionUser, NavItem, VehicleAccountType, IntakeStatus, IntakeRecord, ApprovalDecision, BackjobOutcome, RepairOrderSourceType, ROStatus, WorkLineStatus, WorkLinePriority, RepairOrderWorkLine, RepairOrderRecord, QCResult, QCRecord, ReleaseRecord, ApprovalWorkItem, FindingRecommendationDecision, ApprovalRecord, BackjobRecord, InvoiceStatus, PaymentStatus, PaymentMethod, InvoiceRecord, PaymentRecord, WorkLog, PartsRequestRecord } from "./modules/shared/types";
+import {
+  generateOpenAiAssistDraft,
+  getOpenAiAssistCacheKey,
+  type OpenAiAssistAction,
+  type OpenAiAssistDraft,
+  type OpenAiAssistLogEntry,
+  type OpenAiAssistProviderMode,
+  type OpenAiAssistSettings,
+} from "./modules/ai/openaiAssist";
+import { AiAssistPanel } from "./modules/ai/AiAssistPanel";
+import { CustomerMessageComposerPanel } from "./modules/ai/CustomerMessageComposerPanel";
+import { getAiAccessMessage, useAiModuleEnabled, useAiOutputMode, getAiOutputTemplateType } from "./modules/ai/aiSafety";
+import type { CustomerMessageComposerAction, CustomerMessageSourceContext } from "./modules/ai/customerMessageComposer";
+import { buildCustomerMessageSourceText } from "./modules/ai/customerMessageComposer";
+import { useOpenAiAssistController } from "./modules/ai/useOpenAiAssistController";
+import type { UserRole, Permission, ViewKey, RoleDefinition, UserAccount, SessionUser, NavItem, VehicleAccountType, IntakeStatus, IntakeRecord, ApprovalDecision, BackjobOutcome, RepairOrderSourceType, ROStatus, WorkLineStatus, WorkLinePriority, RepairOrderWorkLine, RepairOrderRecord, QCResult, QCRecord, ReleaseRecord, ApprovalWorkItem, FindingRecommendationDecision, ApprovalRecord, BackjobRecord, InvoiceStatus, PaymentStatus, PaymentMethod, InvoiceRecord, PaymentRecord, WorkLog, PartsRequestRecord, MaintenanceIntervalRuleRecord, VehicleServiceHistoryRecord } from "./modules/shared/types";
 import { getTechnicianProductivity, getAdvisorSalesProduced, getRepeatCustomerFrequency, getQcPassFailSummary, getWaitingPartsAging, getBackjobRate } from "./modules/shared/helpers";
+import { syncVehicleServiceHistoryRecords } from "./modules/maintenance/maintenanceHelpers";
+import { buildMaintenanceDashboardSourceData } from "./modules/maintenance/dashboardHelpers";
+import { MaintenanceDashboard } from "./modules/maintenance/MaintenanceDashboard";
+import { TechnicianPerformance } from "./modules/technicians";
+import { AdvisorActionCenter } from "./modules/dashboard/AdvisorActionCenter";
+import { MAINTENANCE_FOLLOW_UP_QUEUE_STORAGE_KEY } from "./modules/maintenance/followUpHelpers";
 
 
 type LoginForm = {
@@ -485,6 +506,10 @@ type CustomerNotificationTemplate = {
   body: string;
 };
 
+type OpenAiAssistDraftCacheEntry = OpenAiAssistDraft;
+
+type OpenAiAssistLogRecord = OpenAiAssistLogEntry;
+
 type SmsProviderName = "Simulated" | "Android SMS Gateway" | "Twilio";
 type SmsProviderMode = "simulated" | "android" | "twilio";
 
@@ -806,10 +831,12 @@ const STORAGE_KEYS = {
   partsRequests: "dvi_phase8_parts_requests_v1",
   approvalRecords: "dvi_phase9_approval_records_v1",
   backjobRecords: "dvi_phase9_backjob_records_v1",
-  invoiceRecords: "dvi_phase10_invoice_records_v1",
-  paymentRecords: "dvi_phase10_payment_records_v1",
-  workLogs: "dvi_phase16_work_logs_v1",
-  customerAccounts: "dvi_phase15a_customer_accounts_v1",
+    invoiceRecords: "dvi_phase10_invoice_records_v1",
+    paymentRecords: "dvi_phase10_payment_records_v1",
+    workLogs: "dvi_phase16_work_logs_v1",
+    maintenanceIntervalRules: "dvi_maintenance_interval_rules_v1",
+    vehicleServiceHistoryRecords: "dvi_vehicle_service_history_records_v1",
+    customerAccounts: "dvi_phase15a_customer_accounts_v1",
   customerSession: "dvi_phase15a_customer_session_v1",
   approvalLinkTokens: "dvi_phase15b_approval_link_tokens_v1",
   smsApprovalLogs: "dvi_phase15b_sms_approval_logs_v1",
@@ -819,6 +846,11 @@ const STORAGE_KEYS = {
   smsAndroidSenderDeviceLabel: "dvi_sms_android_sender_label_v1",
   smsTwilioAccountSid: "dvi_sms_twilio_account_sid_v1",
   smsTwilioFromNumber: "dvi_sms_twilio_from_number_v1",
+  openAiAssistProviderMode: "dvi_openai_assist_provider_mode_v1",
+  openAiAssistModel: "dvi_openai_assist_model_v1",
+  openAiAssistMaxTokens: "dvi_openai_assist_max_tokens_v1",
+  openAiAssistDraftCache: "dvi_openai_assist_draft_cache_v1",
+  openAiAssistLogs: "dvi_openai_assist_logs_v1",
   counters: "dvi_phase2_counters_v1",
 } as const;
 
@@ -1225,8 +1257,885 @@ type MaintenanceSuggestion = {
   title: string;
   reason: string;
   intervalTag: string;
+  category?: string;
+  source?: "Mileage" | "Library";
+  serviceKey?: string;
+  intervalRule?: ServiceIntervalRule;
+  specificityTag?: "General" | "Make-specific" | "Model-specific" | "Year range" | "Interval-based";
+  specificityRank?: number;
   isConditional?: boolean;
 };
+
+type ServiceIntervalRule = {
+  mileageKm?: number;
+  days?: number;
+  months?: number;
+};
+
+type MaintenanceLibraryEntry = {
+  id: string;
+  serviceKey: string;
+  title: string;
+  reason: string;
+  category: string;
+  make?: string;
+  model?: string;
+  yearFrom?: number;
+  yearTo?: number;
+  odometerMinKm?: number;
+  odometerMaxKm?: number;
+  intervalRule?: ServiceIntervalRule;
+  specificityTag?: "General" | "Make-specific" | "Model-specific" | "Year range";
+  isConditional?: boolean;
+};
+
+type MaintenanceVehicleContext = {
+  make: string;
+  model: string;
+  year: string;
+  odometerKm: string;
+  plateNumber?: string;
+  conductionNumber?: string;
+  serviceHistoryRepairOrders?: RepairOrderRecord[];
+  serviceHistoryRecords?: VehicleServiceHistoryRecord[];
+  maintenanceIntervalRules?: MaintenanceIntervalRuleRecord[];
+};
+
+type UnifiedMaintenanceSuggestionContext = MaintenanceVehicleContext & {
+  existingRecommendationTitles?: Array<string | { title?: string }>;
+  existingWorkLineTitles?: Array<string | { title?: string }>;
+  dismissedSuggestionIds?: string[];
+};
+
+function normalizeMaintenanceText(value: string) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseMaintenanceYear(value: string) {
+  const normalized = String(value ?? "").replace(/[^0-9]/g, "").trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized.slice(0, 4));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseMaintenanceOdometer(value: string) {
+  const parsed = parseOdometerValue(value);
+  return parsed && parsed > 0 ? parsed : null;
+}
+
+function getMaintenanceServiceKey(suggestion: Pick<MaintenanceSuggestion, "serviceKey" | "title">) {
+  return normalizeMaintenanceText(suggestion.serviceKey || suggestion.title);
+}
+
+function getMaintenanceVehicleKey(context: Pick<MaintenanceVehicleContext, "plateNumber" | "conductionNumber">) {
+  return normalizeVehicleKey(context.plateNumber ?? "", context.conductionNumber ?? "");
+}
+
+function formatMaintenanceKilometers(value: number) {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function getMaintenanceIntervalLabel(rule: ServiceIntervalRule | null | undefined, fallbackLabel: string) {
+  if (!rule) return fallbackLabel;
+
+  const parts: string[] = [];
+  if (rule.days != null) {
+    parts.push(`${formatMaintenanceKilometers(rule.days)} days`);
+  } else if (rule.months != null) {
+    parts.push(`${formatMaintenanceKilometers(rule.months)} months`);
+  }
+  if (rule.mileageKm != null) {
+    parts.push(`${formatMaintenanceKilometers(rule.mileageKm)} km`);
+  }
+
+  return parts.length ? `Every ${parts.join(" / ")}` : fallbackLabel;
+}
+
+function parseMaintenanceIntervalRule(record: MaintenanceIntervalRuleRecord | null | undefined): ServiceIntervalRule | null {
+  if (!record) return null;
+
+  const mileageKm = parseMaintenanceOdometer(record.kmInterval);
+  const timeValue = parseMaintenanceOdometer(record.timeIntervalValue);
+  const hasTimeValue = timeValue != null && timeValue > 0;
+  const timeRule =
+    hasTimeValue && record.timeIntervalUnit === "Days"
+      ? { days: timeValue }
+      : hasTimeValue && record.timeIntervalUnit === "Months"
+        ? { months: timeValue }
+        : hasTimeValue
+          ? { months: timeValue }
+          : {};
+
+  const rule: ServiceIntervalRule = {};
+  if (mileageKm != null) rule.mileageKm = mileageKm;
+  if (timeRule.days != null) rule.days = timeRule.days;
+  if (timeRule.months != null) rule.months = timeRule.months;
+  return Object.keys(rule).length > 0 ? rule : null;
+}
+
+function parseMaintenanceIntervalYear(value: string) {
+  const parsed = parseMaintenanceYear(value);
+  return parsed;
+}
+
+function getMaintenanceRuleSpecificityRank(record: MaintenanceIntervalRuleRecord, context: MaintenanceVehicleContext) {
+  const year = parseMaintenanceYear(context.year);
+  const hasMake = !!record.make.trim();
+  const hasModel = !!record.model.trim();
+  const hasYear = !!record.yearFrom.trim() || !!record.yearTo.trim();
+
+  if (hasMake && hasModel && hasYear) {
+    const from = parseMaintenanceIntervalYear(record.yearFrom);
+    const to = parseMaintenanceIntervalYear(record.yearTo);
+    if (year != null && from != null && to != null && year >= from && year <= to) return 5;
+    if (year == null && from == null && to == null) return 4;
+  }
+  if (hasMake && hasModel) return 4;
+  if (hasMake) return 3;
+  return 2;
+}
+
+function matchesMaintenanceIntervalRule(record: MaintenanceIntervalRuleRecord, context: MaintenanceVehicleContext) {
+  if (!record.active) return false;
+  const make = normalizeMaintenanceText(context.make);
+  const model = normalizeMaintenanceText(context.model);
+  const year = parseMaintenanceYear(context.year);
+  const ruleMake = normalizeMaintenanceText(record.make);
+  const ruleModel = normalizeMaintenanceText(record.model);
+  const yearFrom = parseMaintenanceIntervalYear(record.yearFrom);
+  const yearTo = parseMaintenanceIntervalYear(record.yearTo);
+
+  if (record.make.trim() && make !== ruleMake) return false;
+  if (record.model.trim() && model !== ruleModel) return false;
+  if ((yearFrom != null || yearTo != null) && year == null) return false;
+  if (year != null && yearFrom != null && year < yearFrom) return false;
+  if (year != null && yearTo != null && year > yearTo) return false;
+  return true;
+}
+
+function resolveMaintenanceIntervalRuleRecord(
+  context: MaintenanceVehicleContext,
+  serviceKey: string,
+  rules: MaintenanceIntervalRuleRecord[]
+) {
+  const normalizedServiceKey = normalizeMaintenanceText(serviceKey);
+  const candidates = rules.filter((rule) => normalizeMaintenanceText(rule.serviceKey) === normalizedServiceKey && matchesMaintenanceIntervalRule(rule, context));
+  if (!candidates.length) return null;
+  return candidates.sort((a, b) => {
+    const aRank = getMaintenanceRuleSpecificityRank(a, context);
+    const bRank = getMaintenanceRuleSpecificityRank(b, context);
+    if (bRank !== aRank) return bRank - aRank;
+    return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
+  })[0] ?? null;
+}
+
+function getMaintenanceSpecificityRank(suggestion: Pick<MaintenanceSuggestion, "specificityTag" | "source">) {
+  if (suggestion.specificityTag === "Interval-based") return 2;
+  if (suggestion.specificityTag === "Make-specific") return 3;
+  if (suggestion.specificityTag === "Model-specific") return 4;
+  if (suggestion.specificityTag === "Year range") return 4;
+  return suggestion.source === "Mileage" ? 2 : 1;
+}
+
+function getLibrarySpecificityTag(entry: MaintenanceLibraryEntry, vehicleYear: number | null) {
+  if (entry.yearFrom != null || entry.yearTo != null) {
+    if (entry.yearFrom != null && entry.yearTo != null && entry.yearFrom === entry.yearTo && vehicleYear === entry.yearFrom) {
+      return "Model-specific" as const;
+    }
+    return "Year range" as const;
+  }
+  if (entry.make && entry.model) return "Model-specific" as const;
+  if (entry.make) return "Make-specific" as const;
+  return "General" as const;
+}
+
+function matchesMaintenanceLibraryEntry(entry: MaintenanceLibraryEntry, context: MaintenanceVehicleContext) {
+  const make = normalizeMaintenanceText(context.make);
+  const model = normalizeMaintenanceText(context.model);
+  const year = parseMaintenanceYear(context.year);
+  const odometerKm = parseMaintenanceOdometer(context.odometerKm);
+  const entryMake = normalizeMaintenanceText(entry.make ?? "");
+  const entryModel = normalizeMaintenanceText(entry.model ?? "");
+
+  if (entry.make && make !== entryMake) return false;
+  if (entry.model && model !== entryModel) return false;
+  if ((entry.yearFrom != null || entry.yearTo != null) && year == null) return false;
+  if (year != null && entry.yearFrom != null && year < entry.yearFrom) return false;
+  if (year != null && entry.yearTo != null && year > entry.yearTo) return false;
+  if ((entry.odometerMinKm != null || entry.odometerMaxKm != null) && odometerKm == null) return false;
+  if (odometerKm != null && entry.odometerMinKm != null && odometerKm < entry.odometerMinKm) return false;
+  if (odometerKm != null && entry.odometerMaxKm != null && odometerKm > entry.odometerMaxKm) return false;
+  return true;
+}
+
+function getRecommendationLibrarySuggestions(context: MaintenanceVehicleContext): MaintenanceSuggestion[] {
+  const rules = context.maintenanceIntervalRules ?? DEFAULT_MAINTENANCE_INTERVAL_RULES;
+  return MAINTENANCE_LIBRARY_ENTRIES.flatMap((entry) => {
+    if (!matchesMaintenanceLibraryEntry(entry, context)) return [];
+    const resolvedRuleRecord = resolveMaintenanceIntervalRuleRecord(context, entry.serviceKey, rules);
+    if (!resolvedRuleRecord) return [];
+    const vehicleYear = parseMaintenanceYear(context.year);
+    const specificityTag = entry.specificityTag ?? getLibrarySpecificityTag(entry, vehicleYear);
+    const adminIntervalRule = parseMaintenanceIntervalRule(resolvedRuleRecord);
+    const hasSpecificAdminOverride =
+      !!resolvedRuleRecord &&
+      (resolvedRuleRecord.make.trim() || resolvedRuleRecord.model.trim() || resolvedRuleRecord.yearFrom.trim() || resolvedRuleRecord.yearTo.trim());
+    const intervalRule = hasSpecificAdminOverride ? adminIntervalRule : entry.intervalRule ?? adminIntervalRule;
+    const specificityRank =
+      resolvedRuleRecord.yearFrom.trim() && resolvedRuleRecord.yearTo.trim() && parseMaintenanceIntervalYear(resolvedRuleRecord.yearFrom) === parseMaintenanceIntervalYear(resolvedRuleRecord.yearTo)
+        ? 5
+        : getMaintenanceSpecificityRank({ specificityTag, source: "Library" });
+    return [{
+      id: `library-${entry.id}`,
+      title: entry.title,
+      reason: entry.reason,
+      intervalTag: getMaintenanceIntervalLabel(
+        intervalRule,
+        resolvedRuleRecord.yearFrom.trim() || resolvedRuleRecord.yearTo.trim()
+          ? resolvedRuleRecord.yearFrom.trim() === resolvedRuleRecord.yearTo.trim()
+            ? `${resolvedRuleRecord.yearFrom.trim()}`
+            : `${resolvedRuleRecord.yearFrom.trim() || "?"} to ${resolvedRuleRecord.yearTo.trim() || "?"}`
+          : specificityTag
+      ),
+      category: entry.category,
+      source: "Library",
+      serviceKey: entry.serviceKey,
+      intervalRule: intervalRule ?? undefined,
+      specificityTag,
+      specificityRank,
+      isConditional: entry.isConditional,
+    } satisfies MaintenanceSuggestion];
+  });
+}
+
+function dedupeMaintenanceSuggestions(suggestions: MaintenanceSuggestion[]) {
+  const byServiceKey = new Map<string, MaintenanceSuggestion>();
+
+  suggestions.forEach((suggestion) => {
+    const key = getMaintenanceServiceKey(suggestion);
+    const current = byServiceKey.get(key);
+    if (!current) {
+      byServiceKey.set(key, suggestion);
+      return;
+    }
+
+    const currentRank = current.specificityRank ?? 0;
+    const nextRank = suggestion.specificityRank ?? 0;
+    if (nextRank > currentRank) {
+      byServiceKey.set(key, suggestion);
+      return;
+    }
+
+    if (nextRank === currentRank && suggestion.source === "Library" && current.source === "Mileage") {
+      byServiceKey.set(key, suggestion);
+    }
+  });
+
+  return Array.from(byServiceKey.values()).sort((a, b) => {
+    const rankDiff = (b.specificityRank ?? 0) - (a.specificityRank ?? 0);
+    if (rankDiff !== 0) return rankDiff;
+    const categoryDiff = (a.category ?? "General").localeCompare(b.category ?? "General");
+    if (categoryDiff !== 0) return categoryDiff;
+    return a.title.localeCompare(b.title);
+  });
+}
+
+function getMaintenanceSuggestionPurposeKeys(text: string) {
+  const normalized = normalizeMaintenanceText(text);
+  if (!normalized) return [] as string[];
+
+  const keys = new Set<string>();
+  const cleaned = normalized.replace(/\s+/g, " ");
+  const addKey = (key: string) => keys.add(normalizeMaintenanceText(key));
+
+  if (
+    /(?:^|\s)(?:5\s?000|5000|5k)(?:\s|$)/.test(cleaned) ||
+    cleaned.includes("periodic maintenance") ||
+    cleaned.includes("oil change") ||
+    cleaned.includes("oil service") ||
+    cleaned.includes("oil and filter") ||
+    cleaned.includes("engine oil") ||
+    cleaned.includes("pms")
+  ) {
+    addKey("pms-5000");
+  }
+  if (
+    /(?:^|\s)(?:10\s?000|10000|10k)(?:\s|$)/.test(cleaned) ||
+    cleaned.includes("air cabin brake underchassis") ||
+    cleaned.includes("underchassis inspection")
+  ) {
+    addKey("pms-10000");
+  }
+  if (/(?:^|\s)(?:20\s?000|20000|20k)(?:\s|$)/.test(cleaned)) {
+    addKey("pms-20000");
+  }
+  if (/(?:^|\s)(?:40\s?000|40000|40k)(?:\s|$)/.test(cleaned)) {
+    addKey("pms-40000");
+  }
+  if (cleaned.includes("egr") || cleaned.includes("intake manifold") || cleaned.includes("air intake")) {
+    addKey("air-intake-review");
+  }
+  if (cleaned.includes("suspension") || cleaned.includes("steering") || cleaned.includes("alignment") || cleaned.includes("underchassis") || cleaned.includes("chassis")) {
+    addKey("suspension-review");
+  }
+  if (cleaned.includes("major service") || cleaned.includes("timing belt") || cleaned.includes("timing chain") || cleaned.includes("major review")) {
+    addKey("major-service-review");
+  }
+  if (cleaned.includes("brake") || cleaned.includes("brakes") || cleaned.includes("rotor") || cleaned.includes("pad")) {
+    addKey("brake-review");
+  }
+  if (cleaned.includes("battery") || cleaned.includes("charging system") || cleaned.includes("alternator") || cleaned.includes("starter") || cleaned.includes("electrical")) {
+    addKey("battery-review");
+  }
+  if (cleaned.includes("air conditioning") || cleaned.includes(" a/c") || cleaned.startsWith("ac ") || cleaned.includes(" cabin filter") || cleaned.includes("cooling performance")) {
+    addKey("ac-review");
+  }
+  if (cleaned.includes("cooling") || cleaned.includes("coolant") || cleaned.includes("radiator") || cleaned.includes("thermostat") || cleaned.includes("water pump") || cleaned.includes("overheat")) {
+    addKey("cooling-review");
+  }
+
+  keys.add(cleaned);
+  return Array.from(keys);
+}
+
+function getMaintenanceSuggestionServiceKeys(suggestion: Pick<MaintenanceSuggestion, "serviceKey" | "title">) {
+  const keys = new Set<string>();
+  const serviceKey = normalizeMaintenanceText(suggestion.serviceKey ?? "");
+  const titleKey = normalizeMaintenanceText(suggestion.title);
+  if (serviceKey) keys.add(serviceKey);
+  if (titleKey) keys.add(titleKey);
+  getMaintenanceSuggestionPurposeKeys(suggestion.title).forEach((key) => keys.add(key));
+  return Array.from(keys);
+}
+
+const COMPLETED_SERVICE_RO_STATUSES: ROStatus[] = ["Ready Release", "Released", "Closed"];
+
+function isCompletedServiceROStatus(status: ROStatus) {
+  return COMPLETED_SERVICE_RO_STATUSES.includes(status);
+}
+
+function getResolvedServiceIntervalRule(
+  context: MaintenanceVehicleContext,
+  suggestion: Pick<MaintenanceSuggestion, "serviceKey" | "title" | "intervalRule">
+) {
+  if (suggestion.intervalRule) return suggestion.intervalRule;
+  const rules = context.maintenanceIntervalRules ?? DEFAULT_MAINTENANCE_INTERVAL_RULES;
+  const resolved = resolveMaintenanceIntervalRuleRecord(context, suggestion.serviceKey ?? suggestion.title, rules);
+  return parseMaintenanceIntervalRule(resolved);
+}
+
+function getLatestCompletedMaintenanceHistoryMatch(
+  context: UnifiedMaintenanceSuggestionContext,
+  suggestion: Pick<MaintenanceSuggestion, "serviceKey" | "title">
+): { completedAt: string; completedAtMs: number; odometerKm: number | null } | null {
+  const vehicleKey = getMaintenanceVehicleKey(context);
+  if (!vehicleKey) return null;
+
+  const suggestionKeys = new Set(getMaintenanceSuggestionServiceKeys(suggestion));
+  let latestMatch: { completedAt: string; completedAtMs: number; odometerKm: number | null } | null = null;
+
+  const considerMatch = (completedAtValue: string, odometerKm: number | null) => {
+    const completedAtMs = new Date(completedAtValue).getTime();
+    if (Number.isNaN(completedAtMs)) return;
+    if (!latestMatch || completedAtMs > latestMatch.completedAtMs) {
+      latestMatch = {
+        completedAt: completedAtValue,
+        completedAtMs,
+        odometerKm,
+      };
+    }
+  };
+
+  const historyRecords = context.serviceHistoryRecords ?? [];
+  historyRecords.forEach((record) => {
+    if (record.vehicleKey !== vehicleKey) return;
+
+    const searchableText = [record.serviceKey, record.title, record.category].filter(Boolean).join(" ");
+    const recordKeys = new Set(getMaintenanceSuggestionPurposeKeys(searchableText));
+    const normalizedServiceKey = normalizeMaintenanceText(record.serviceKey);
+    const normalizedTitle = normalizeMaintenanceText(record.title);
+    if (normalizedServiceKey) recordKeys.add(normalizedServiceKey);
+    if (normalizedTitle) recordKeys.add(normalizedTitle);
+
+    let matchesSuggestion = false;
+    suggestionKeys.forEach((key) => {
+      if (key && recordKeys.has(key)) {
+        matchesSuggestion = true;
+      }
+    });
+    if (!matchesSuggestion) return;
+
+    considerMatch(record.completedAt, parseMaintenanceOdometer(record.odometerAtCompletion));
+  });
+
+  (context.serviceHistoryRepairOrders ?? []).forEach((ro) => {
+    if (getMaintenanceVehicleKey(ro) !== vehicleKey) return;
+    const historicalOdometerKm = parseMaintenanceOdometer(ro.odometerKm);
+
+    ro.workLines.forEach((line) => {
+      if (line.approvalDecision === "Declined") return;
+      if (line.status !== "Completed" && !line.completedAt) return;
+
+      const completedAtValue = line.completedAt || ro.updatedAt || ro.createdAt;
+      const searchableText = [line.title, line.customerDescription, line.category, line.notes].filter(Boolean).join(" ");
+      const lineKeys = new Set(getMaintenanceSuggestionPurposeKeys(searchableText));
+      const normalizedServiceKey = normalizeMaintenanceText(line.serviceKey ?? "");
+      if (normalizedServiceKey) lineKeys.add(normalizedServiceKey);
+      const normalizedTitle = normalizeMaintenanceText(line.title);
+      if (normalizedTitle) lineKeys.add(normalizedTitle);
+
+      let matchesSuggestion = false;
+      suggestionKeys.forEach((key) => {
+        if (key && lineKeys.has(key)) {
+          matchesSuggestion = true;
+        }
+      });
+      if (!matchesSuggestion) return;
+
+      considerMatch(completedAtValue, historicalOdometerKm);
+    });
+  });
+
+  return latestMatch;
+}
+
+function shouldSuppressMaintenanceSuggestionByInterval(
+  suggestion: MaintenanceSuggestion,
+  context: UnifiedMaintenanceSuggestionContext
+) {
+  const rule = getResolvedServiceIntervalRule(context, suggestion);
+  if (!rule) return false;
+
+  const latestMatch = getLatestCompletedMaintenanceHistoryMatch(context, suggestion);
+  if (!latestMatch) return false;
+
+  const hasMileageRule = rule.mileageKm != null;
+  const hasTimeRule = rule.days != null || rule.months != null;
+  if (!hasMileageRule && !hasTimeRule) return false;
+
+  const currentOdometerKm = parseMaintenanceOdometer(context.odometerKm);
+  const mileageWithinWindow = !hasMileageRule
+    ? true
+    : currentOdometerKm == null || latestMatch.odometerKm == null
+      ? true
+      : currentOdometerKm >= latestMatch.odometerKm && currentOdometerKm - latestMatch.odometerKm < rule.mileageKm!;
+
+  const dueDate = rule.days != null
+    ? addDaysToDate(latestMatch.completedAt, rule.days)
+    : rule.months != null
+      ? addMonthsToDate(latestMatch.completedAt, rule.months)
+      : null;
+  const timeWithinWindow = !hasTimeRule ? true : dueDate != null && !Number.isNaN(dueDate.getTime()) ? Date.now() < dueDate.getTime() : true;
+
+  return mileageWithinWindow && timeWithinWindow;
+}
+
+function filterRecentlyCompletedSuggestions(
+  suggestions: MaintenanceSuggestion[],
+  context: UnifiedMaintenanceSuggestionContext
+) {
+  return suggestions.filter((suggestion) => {
+    return !shouldSuppressMaintenanceSuggestionByInterval(suggestion, context);
+  });
+}
+
+function buildUnifiedMaintenanceSuggestions(context: MaintenanceVehicleContext) {
+  return getUnifiedMaintenanceSuggestions({
+    make: context.make,
+    model: context.model,
+    year: context.year,
+    odometerKm: context.odometerKm,
+    plateNumber: context.plateNumber,
+    conductionNumber: context.conductionNumber,
+    serviceHistoryRepairOrders: context.serviceHistoryRepairOrders,
+    serviceHistoryRecords: context.serviceHistoryRecords,
+    maintenanceIntervalRules: context.maintenanceIntervalRules,
+  });
+}
+
+function groupMaintenanceSuggestionsByCategory(suggestions: MaintenanceSuggestion[]) {
+  const grouped = new Map<string, MaintenanceSuggestion[]>();
+  suggestions.forEach((suggestion) => {
+    const category = suggestion.category?.trim() || "General";
+    grouped.set(category, [...(grouped.get(category) ?? []), suggestion]);
+  });
+
+  return Array.from(grouped.entries())
+    .map(([category, items]) => ({
+      category,
+      items: items.sort((a, b) => (b.specificityRank ?? 0) - (a.specificityRank ?? 0) || a.title.localeCompare(b.title)),
+    }))
+    .sort((a, b) => a.category.localeCompare(b.category));
+}
+
+export function normalizeMileageSuggestions(context: MaintenanceVehicleContext) {
+  return getMileageMaintenanceSuggestionsFromRules(context.odometerKm, context.maintenanceIntervalRules ?? DEFAULT_MAINTENANCE_INTERVAL_RULES, context);
+}
+
+export function normalizeLibrarySuggestions(context: MaintenanceVehicleContext) {
+  return getRecommendationLibrarySuggestions(context);
+}
+
+export function getSuggestionSpecificityScore(suggestion: Pick<MaintenanceSuggestion, "specificityTag" | "source">) {
+  return getMaintenanceSpecificityRank(suggestion);
+}
+
+export function dedupeSuggestionsByPurpose(suggestions: MaintenanceSuggestion[]) {
+  return dedupeMaintenanceSuggestions(suggestions);
+}
+
+export function filterAlreadyAddedSuggestions(
+  suggestions: MaintenanceSuggestion[],
+  existingRecommendationTitles: Array<string | { title?: string }>,
+  existingWorkLineTitles: Array<string | { title?: string }>,
+  dismissedSuggestionIds: string[] = []
+) {
+  return suggestions.filter((suggestion) => {
+    if (dismissedSuggestionIds.includes(suggestion.id)) return false;
+    if (hasMaintenanceTitleMatch(existingWorkLineTitles, suggestion.title)) return false;
+    if (hasMaintenanceTitleMatch(existingRecommendationTitles, suggestion.title)) return false;
+    return true;
+  });
+}
+
+export function groupSuggestionsByCategory(suggestions: MaintenanceSuggestion[]) {
+  return groupMaintenanceSuggestionsByCategory(suggestions);
+}
+
+export function getUnifiedMaintenanceSuggestions(context: UnifiedMaintenanceSuggestionContext) {
+  const normalized = [
+    ...normalizeMileageSuggestions(context),
+    ...normalizeLibrarySuggestions(context),
+  ].map((suggestion) => ({
+    ...suggestion,
+    specificityRank: suggestion.specificityRank ?? getSuggestionSpecificityScore(suggestion),
+  }));
+
+  const deduped = dedupeSuggestionsByPurpose(normalized);
+  const historySuppressed = filterRecentlyCompletedSuggestions(deduped, context);
+  return filterAlreadyAddedSuggestions(
+    historySuppressed,
+    context.existingRecommendationTitles ?? [],
+    context.existingWorkLineTitles ?? [],
+    context.dismissedSuggestionIds ?? []
+  );
+}
+
+const DEFAULT_MAINTENANCE_INTERVAL_RULES: MaintenanceIntervalRuleRecord[] = [
+  {
+    id: "default-pms-5000",
+    serviceKey: "pms-5000",
+    title: "5,000 km periodic maintenance package",
+    category: "Periodic Maintenance",
+    kmInterval: "5000",
+    timeIntervalValue: "6",
+    timeIntervalUnit: "Months",
+    active: true,
+    adminNote: "Default PMS interval for common preventive maintenance.",
+    make: "",
+    model: "",
+    yearFrom: "",
+    yearTo: "",
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+  },
+  {
+    id: "default-pms-10000",
+    serviceKey: "pms-10000",
+    title: "10,000 km air, cabin, brake, and underchassis inspection package",
+    category: "Periodic Maintenance",
+    kmInterval: "10000",
+    timeIntervalValue: "12",
+    timeIntervalUnit: "Months",
+    active: true,
+    adminNote: "Default 10,000 km inspection interval.",
+    make: "",
+    model: "",
+    yearFrom: "",
+    yearTo: "",
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+  },
+  {
+    id: "default-pms-20000",
+    serviceKey: "pms-20000",
+    title: "20,000 km intake, brake, battery, and suspension check package",
+    category: "Periodic Maintenance",
+    kmInterval: "20000",
+    timeIntervalValue: "18",
+    timeIntervalUnit: "Months",
+    active: true,
+    adminNote: "Default 20,000 km interval.",
+    make: "",
+    model: "",
+    yearFrom: "",
+    yearTo: "",
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+  },
+  {
+    id: "default-suspension-review",
+    serviceKey: "suspension-review",
+    title: "Suspension and steering review",
+    category: "Suspension",
+    kmInterval: "20000",
+    timeIntervalValue: "12",
+    timeIntervalUnit: "Months",
+    active: true,
+    adminNote: "General suspension review for chassis concerns.",
+    make: "",
+    model: "",
+    yearFrom: "",
+    yearTo: "",
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+  },
+  {
+    id: "default-air-intake-review",
+    serviceKey: "air-intake-review",
+    title: "EGR and intake manifold cleaning (if applicable)",
+    category: "Engine",
+    kmInterval: "30000",
+    timeIntervalValue: "24",
+    timeIntervalUnit: "Months",
+    active: true,
+    adminNote: "Carbon cleaning interval for intake and EGR service.",
+    make: "",
+    model: "",
+    yearFrom: "",
+    yearTo: "",
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+  },
+  {
+    id: "default-brake-review",
+    serviceKey: "brake-review",
+    title: "Brake inspection and cleaning",
+    category: "Brakes",
+    kmInterval: "15000",
+    timeIntervalValue: "12",
+    timeIntervalUnit: "Months",
+    active: true,
+    adminNote: "Default brake service reminder.",
+    make: "",
+    model: "",
+    yearFrom: "",
+    yearTo: "",
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+  },
+  {
+    id: "default-battery-review",
+    serviceKey: "battery-review",
+    title: "Battery and charging system inspection",
+    category: "Electrical",
+    kmInterval: "25000",
+    timeIntervalValue: "18",
+    timeIntervalUnit: "Months",
+    active: true,
+    adminNote: "Default battery and charging check.",
+    make: "",
+    model: "",
+    yearFrom: "",
+    yearTo: "",
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+  },
+  {
+    id: "default-ac-review",
+    serviceKey: "ac-review",
+    title: "Air conditioning performance inspection",
+    category: "Air Conditioning",
+    kmInterval: "25000",
+    timeIntervalValue: "18",
+    timeIntervalUnit: "Months",
+    active: true,
+    adminNote: "Default A/C inspection interval.",
+    make: "",
+    model: "",
+    yearFrom: "",
+    yearTo: "",
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+  },
+  {
+    id: "default-cooling-review",
+    serviceKey: "cooling-review",
+    title: "Cooling system inspection",
+    category: "Cooling",
+    kmInterval: "30000",
+    timeIntervalValue: "24",
+    timeIntervalUnit: "Months",
+    active: true,
+    adminNote: "Default cooling system interval.",
+    make: "",
+    model: "",
+    yearFrom: "",
+    yearTo: "",
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+  },
+  {
+    id: "default-major-service-review",
+    serviceKey: "major-service-review",
+    title: "Major service review with timing belt/chain inspection",
+    category: "Periodic Maintenance",
+    kmInterval: "40000",
+    timeIntervalValue: "24",
+    timeIntervalUnit: "Months",
+    active: true,
+    adminNote: "Default major service interval.",
+    make: "",
+    model: "",
+    yearFrom: "",
+    yearTo: "",
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+  },
+  {
+    id: "default-alignment-review",
+    serviceKey: "alignment-review",
+    title: "Wheel alignment",
+    category: "Alignment",
+    kmInterval: "10000",
+    timeIntervalValue: "12",
+    timeIntervalUnit: "Months",
+    active: true,
+    adminNote: "Default wheel alignment reminder.",
+    make: "",
+    model: "",
+    yearFrom: "",
+    yearTo: "",
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-01T00:00:00.000Z",
+  },
+];
+
+const MAINTENANCE_LIBRARY_ENTRIES: MaintenanceLibraryEntry[] = [
+  {
+    id: "library-pms-general",
+    serviceKey: "pms-5000",
+    title: "5,000 km periodic maintenance package",
+    reason: "General preventive maintenance checklist for lubrication, filters, and basic safety checks.",
+    category: "Periodic Maintenance",
+    specificityTag: "General",
+  },
+  {
+    id: "library-pms-fortuner",
+    serviceKey: "pms-5000",
+    title: "Toyota Fortuner 2021 periodic maintenance package",
+    reason: "Fortuner-specific periodic maintenance review for the current demo vehicle profile.",
+    category: "Periodic Maintenance",
+    make: "Toyota",
+    model: "Fortuner",
+    yearFrom: 2021,
+    yearTo: 2021,
+    intervalRule: { months: 12, mileageKm: 10000 },
+    specificityTag: "Model-specific",
+  },
+  {
+    id: "library-pms-montero",
+    serviceKey: "pms-10000",
+    title: "Mitsubishi Montero Sport periodic maintenance package",
+    reason: "Model-specific periodic maintenance package for Montero Sport units with active mileage review.",
+    category: "Periodic Maintenance",
+    make: "Mitsubishi",
+    model: "Montero Sport",
+    yearFrom: 2023,
+    yearTo: 2023,
+    specificityTag: "Model-specific",
+  },
+  {
+    id: "library-suspension-general",
+    serviceKey: "suspension-review",
+    title: "Suspension and steering review",
+    reason: "General suspension service recommendation for ride quality, steering feel, and tire wear concerns.",
+    category: "Suspension",
+    specificityTag: "General",
+  },
+  {
+    id: "library-suspension-fortuner",
+    serviceKey: "suspension-review",
+    title: "Toyota Fortuner front suspension and steering review",
+    reason: "More specific front-end suspension service for Fortuner units with noise, pull, or uneven tire wear.",
+    category: "Suspension",
+    make: "Toyota",
+    model: "Fortuner",
+    yearFrom: 2021,
+    yearTo: 2021,
+    specificityTag: "Model-specific",
+  },
+  {
+    id: "library-ac-general",
+    serviceKey: "ac-review",
+    title: "Air conditioning performance inspection",
+    reason: "General A/C service for weak cooling, airflow, or cabin comfort concerns.",
+    category: "Air Conditioning",
+    specificityTag: "General",
+  },
+  {
+    id: "library-ac-montero",
+    serviceKey: "ac-review",
+    title: "Mitsubishi Montero Sport A/C and cabin filter review",
+    reason: "Vehicle-specific A/C and cabin filter review for Montero Sport units with cooling concerns.",
+    category: "Air Conditioning",
+    make: "Mitsubishi",
+    model: "Montero Sport",
+    yearFrom: 2023,
+    yearTo: 2023,
+    specificityTag: "Model-specific",
+  },
+  {
+    id: "library-brake-general",
+    serviceKey: "brake-review",
+    title: "Brake inspection and cleaning",
+    reason: "General brake service recommendation for pad wear, rotor condition, and brake feel.",
+    category: "Brakes",
+    specificityTag: "General",
+  },
+  {
+    id: "library-brake-civic",
+    serviceKey: "brake-review",
+    title: "Honda Civic brake and alignment review",
+    reason: "Year-specific brake and alignment service for Civic units with stopping or tire wear concerns.",
+    category: "Brakes",
+    make: "Honda",
+    model: "Civic",
+    yearFrom: 2018,
+    yearTo: 2021,
+    specificityTag: "Year range",
+  },
+  {
+    id: "library-electrical-general",
+    serviceKey: "battery-review",
+    title: "Battery and charging system inspection",
+    reason: "General electrical service recommendation for starting, charging, and warning light concerns.",
+    category: "Electrical",
+    specificityTag: "General",
+  },
+  {
+    id: "library-electrical-toyota",
+    serviceKey: "battery-review",
+    title: "Toyota battery and charging system review",
+    reason: "Make-specific electrical inspection for Toyota vehicles with battery or charging concerns.",
+    category: "Electrical",
+    make: "Toyota",
+    specificityTag: "Make-specific",
+  },
+  {
+    id: "library-cooling-general",
+    serviceKey: "cooling-review",
+    title: "Cooling system inspection",
+    reason: "General cooling system service for overheating, leaks, or coolant condition concerns.",
+    category: "Cooling",
+    specificityTag: "General",
+  },
+];
 
 const MILEAGE_SUGGESTION_TOLERANCE_KM = 500;
 
@@ -1253,6 +2162,11 @@ function getMileageMaintenanceSuggestions(odometerKmRaw: string): MaintenanceSug
     title: '5,000 km periodic maintenance package',
     reason: 'Helps keep lubrication, tire wear, and safety checks on schedule.',
     intervalTag: 'Every 5,000 km',
+    category: 'Periodic Maintenance',
+    source: 'Mileage',
+    serviceKey: 'pms-5000',
+    specificityTag: 'Interval-based',
+    specificityRank: 2,
   });
 
   push(shouldTriggerMileageInterval(odometerKm, 10000), {
@@ -1260,6 +2174,11 @@ function getMileageMaintenanceSuggestions(odometerKmRaw: string): MaintenanceSug
     title: '10,000 km air, cabin, brake, and underchassis inspection package',
     reason: 'Targets filtration, braking, and chassis condition checks at 10,000 km intervals.',
     intervalTag: 'Every 10,000 km',
+    category: 'Periodic Maintenance',
+    source: 'Mileage',
+    serviceKey: 'pms-10000',
+    specificityTag: 'Interval-based',
+    specificityRank: 2,
   });
 
   push(shouldTriggerMileageInterval(odometerKm, 20000), {
@@ -1267,6 +2186,11 @@ function getMileageMaintenanceSuggestions(odometerKmRaw: string): MaintenanceSug
     title: '20,000 km intake, brake, battery, and suspension check package',
     reason: 'Covers drivetrain airflow, braking service, and chassis health milestones.',
     intervalTag: 'Every 20,000 km',
+    category: 'Periodic Maintenance',
+    source: 'Mileage',
+    serviceKey: 'pms-20000',
+    specificityTag: 'Interval-based',
+    specificityRank: 2,
   });
 
   push(shouldTriggerMileageInterval(odometerKm, 30000), {
@@ -1274,6 +2198,11 @@ function getMileageMaintenanceSuggestions(odometerKmRaw: string): MaintenanceSug
     title: 'EGR and intake manifold cleaning (if applicable)',
     reason: 'Carbon build-up cleaning may be needed at major 30,000 km intervals.',
     intervalTag: 'Every 30,000 km',
+    category: 'Engine',
+    source: 'Mileage',
+    serviceKey: 'air-intake-review',
+    specificityTag: 'Interval-based',
+    specificityRank: 2,
     isConditional: true,
   });
 
@@ -1282,33 +2211,102 @@ function getMileageMaintenanceSuggestions(odometerKmRaw: string): MaintenanceSug
     title: '40,000 km transmission, coolant, fuel, and ignition inspection package',
     reason: 'Checks critical fluid systems and combustion support components.',
     intervalTag: 'Every 40,000 km',
+    category: 'Periodic Maintenance',
+    source: 'Mileage',
+    serviceKey: 'pms-40000',
+    specificityTag: 'Interval-based',
+    specificityRank: 2,
   });
 
   push(odometerKm >= 50000 - MILEAGE_SUGGESTION_TOLERANCE_KM && odometerKm <= 60000 + MILEAGE_SUGGESTION_TOLERANCE_KM, {
     id: 'mileage-50000-60000-major-checks',
-    title: '50,000–60,000 km full suspension and brake system check',
+    title: '50,000â€“60,000 km full suspension and brake system check',
     reason: 'Mid-life range where full chassis and braking system review is recommended.',
-    intervalTag: '50,000–60,000 km',
+    category: 'Suspension',
+    source: 'Mileage',
+    serviceKey: 'suspension-review',
+    specificityTag: 'Interval-based',
+    specificityRank: 2,
+    intervalTag: '50,000â€“60,000 km',
   });
 
   push(odometerKm >= 80000 - MILEAGE_SUGGESTION_TOLERANCE_KM, {
     id: 'mileage-80000-plus-major-review',
     title: 'Major service review with timing belt/chain inspection',
     reason: 'High-mileage vehicles need a broader preventive maintenance review.',
+    category: 'Periodic Maintenance',
+    source: 'Mileage',
+    serviceKey: 'major-service-review',
+    specificityTag: 'Interval-based',
+    specificityRank: 2,
     intervalTag: '80,000 km+',
   });
 
   return suggestions;
 }
 
+function getMileageMaintenanceSuggestionsFromRules(
+  odometerKmRaw: string,
+  rules: MaintenanceIntervalRuleRecord[],
+  context: MaintenanceVehicleContext
+): MaintenanceSuggestion[] {
+  const odometerKm = parseOdometerValue(odometerKmRaw);
+  if (odometerKm == null || odometerKm <= 0) return [];
+
+  const suggestions: MaintenanceSuggestion[] = [];
+  const seenServiceKeys = new Set<string>();
+  const activeRules = (rules ?? []).filter((rule) => rule.active);
+
+  activeRules.forEach((rule) => {
+    const resolved = resolveMaintenanceIntervalRuleRecord(context, rule.serviceKey, activeRules);
+    if (!resolved) return;
+
+    const serviceKey = normalizeMaintenanceText(resolved.serviceKey);
+    if (!serviceKey || seenServiceKeys.has(serviceKey)) return;
+
+    const mileageInterval = parseMaintenanceOdometer(resolved.kmInterval);
+    if (mileageInterval == null || mileageInterval <= 0) return;
+    if (!shouldTriggerMileageInterval(odometerKm, mileageInterval)) return;
+
+    const parsedRule = parseMaintenanceIntervalRule(resolved);
+    seenServiceKeys.add(serviceKey);
+
+    const specificityTag =
+      resolved.make.trim() && resolved.model.trim() && (resolved.yearFrom.trim() || resolved.yearTo.trim())
+        ? "Year range"
+        : resolved.make.trim() && resolved.model.trim()
+          ? "Model-specific"
+          : resolved.make.trim()
+            ? "Make-specific"
+            : "Interval-based";
+
+    suggestions.push({
+      id: `rule-${resolved.id}`,
+      title: resolved.title || "Maintenance interval rule",
+      reason: resolved.adminNote?.trim() || `Admin-managed interval for ${resolved.title || resolved.serviceKey}.`,
+      intervalTag: getMaintenanceIntervalLabel(parsedRule, `Every ${formatMaintenanceKilometers(mileageInterval)} km`),
+      category: resolved.category || "Periodic Maintenance",
+      source: "Mileage",
+      serviceKey: resolved.serviceKey,
+      intervalRule: parsedRule ?? undefined,
+      specificityTag,
+      specificityRank: getMaintenanceRuleSpecificityRank(resolved, context),
+      isConditional: false,
+    });
+  });
+
+  return suggestions.sort((a, b) => (b.specificityRank ?? 0) - (a.specificityRank ?? 0) || a.title.localeCompare(b.title));
+}
+
 function getMaintenanceSuggestionWorkLine(suggestion: MaintenanceSuggestion): RepairOrderWorkLine {
   return recalculateWorkLine({
     ...getEmptyWorkLine(),
     title: suggestion.title,
-    category: 'Periodic Maintenance',
+    category: suggestion.category || 'Periodic Maintenance',
+    serviceKey: suggestion.serviceKey || "",
     notes: suggestion.reason,
     customerDescription: `${suggestion.intervalTag}: ${suggestion.reason}`,
-    recommendationSource: 'MileageSuggestion',
+    recommendationSource: suggestion.source === "Library" ? 'RecommendationLibrary' : 'MileageSuggestion',
   });
 }
 
@@ -2576,6 +3574,7 @@ function getEmptyWorkLine(): RepairOrderWorkLine {
     category: "General",
     priority: "Medium",
     status: "Pending",
+    serviceKey: "",
     serviceEstimate: "",
     partsEstimate: "",
     totalEstimate: "0.00",
@@ -3712,6 +4711,142 @@ function buildCustomerNotificationTemplates({
   ];
 }
 
+function buildOpenAiAssistSourceText({
+  actionType,
+  ro,
+  inspection,
+  approvalRecord,
+  partsRequests,
+  releaseRecord,
+  backjobRecord,
+  templateBody,
+}: {
+  actionType: OpenAiAssistAction;
+  ro: RepairOrderRecord | null;
+  inspection: InspectionRecord | null;
+  approvalRecord: ApprovalRecord | null;
+  partsRequests: PartsRequestRecord[];
+  releaseRecord: ReleaseRecord | null;
+  backjobRecord: BackjobRecord | null;
+  templateBody: string;
+}) {
+  if (!ro) return templateBody.trim();
+
+  const vehicleLabel = [ro.make, ro.model, ro.year].filter(Boolean).join(" ") || ro.plateNumber || ro.conductionNumber || "vehicle";
+  const plateLabel = ro.plateNumber || ro.conductionNumber || "-";
+  const inspectionSections = inspection ? buildCustomerInspectionSections(inspection) : [];
+  const topFindings = inspectionSections
+    .flatMap((section) =>
+      section.findings
+        .filter((finding) => finding.status !== "Good")
+        .slice(0, 2)
+        .map((finding) => `${section.label}: ${finding.title} - ${finding.status}${finding.note ? ` (${finding.note})` : ""}`)
+    )
+    .slice(0, 4);
+  const pendingWork = ro.workLines
+    .filter((line) => (line.approvalDecision ?? "Pending") === "Pending" || line.approvalDecision === "Deferred")
+    .slice(0, 4)
+    .map((line) => `${line.title || "Untitled Work Item"} - ${formatCurrency(parseMoneyInput(line.totalEstimate))}`);
+  const completedWork = ro.workLines
+    .filter((line) => line.status === "Completed")
+    .slice(0, 5)
+    .map((line) => `${line.title || "Untitled Work Item"} - ${formatCurrency(parseMoneyInput(line.totalEstimate))}`);
+  const pendingParts = partsRequests
+    .filter((request) => request.roId === ro.id && !["Closed", "Cancelled"].includes(request.status))
+    .slice(0, 4)
+    .map((request) => `${request.partName || "Part request"} x${request.quantity || "1"} - ${request.status}`);
+  const releaseNote = releaseRecord
+    ? `Release ${releaseRecord.releaseNumber} on ${formatDateTime(releaseRecord.createdAt)} | Final total ${formatCurrency(parseMoneyInput(releaseRecord.finalTotalAmount))}`
+    : "No release record yet.";
+  const approvalNote = approvalRecord
+    ? `Approval ${approvalRecord.approvalNumber} with ${approvalRecord.items.length} item(s).`
+    : "No approval record yet.";
+  const backjobNote = backjobRecord
+    ? `Backjob ${backjobRecord.backjobNumber} | ${backjobRecord.responsibility} | ${backjobRecord.status}`
+    : "No backjob record yet.";
+
+  switch (actionType) {
+    case "Fix Grammar":
+      return templateBody.trim() || `Hi, your current note for ${ro.roNumber} is ready for grammar cleanup.`;
+    case "Explain to Customer":
+    case "Explain Inspection Finding":
+    case "Explain Finding":
+      return [
+        `Customer: ${ro.accountLabel || ro.customerName || "Customer"}`,
+        `RO: ${ro.roNumber}`,
+        `Vehicle: ${vehicleLabel} (${plateLabel})`,
+        "",
+        "What happened:",
+        ...(topFindings.length ? topFindings.map((line) => `- ${line}`) : ["- No major findings were recorded."]),
+        "",
+        "Recommended next step:",
+        ...(pendingWork.length ? pendingWork.map((line) => `- ${line}`) : ["- Review the current estimate in the customer portal."]),
+      ].join("\n");
+    case "Customer Inspection Report":
+      return [
+        `Customer: ${ro.accountLabel || ro.customerName || "Customer"}`,
+        `RO: ${ro.roNumber}`,
+        `Vehicle: ${vehicleLabel} (${plateLabel})`,
+        "",
+        "Summary:",
+        inspection?.underHoodSummary?.trim() || templateBody.trim() || "No summary recorded yet.",
+        "",
+        "Findings:",
+        ...(topFindings.length ? topFindings.map((line) => `- ${line}`) : ["- No major findings were recorded."]),
+        "",
+        "Recommended Action:",
+        ...(pendingWork.length ? pendingWork.map((line) => `- ${line}`) : ["- Review the current estimate in the customer portal."]),
+        "",
+        "Priority:",
+        inspection?.recommendedWork?.trim() ? "- Review the highest priority findings and customer concerns first." : "- Prioritize safety-related findings and open recommendations first.",
+      ].join("\n");
+    case "Summarize Inspection":
+      return [
+        `Inspection summary for ${ro.roNumber}`,
+        `Vehicle: ${vehicleLabel} (${plateLabel})`,
+        "",
+        ...(topFindings.length ? topFindings.map((line) => `- ${line}`) : ["- Inspection did not flag any notable concerns."]),
+        "",
+        "Related recommendations:",
+        ...(inspection?.recommendationLines?.length ? inspection.recommendationLines.slice(0, 5).map((line) => `- ${line}`) : ["- No recommendation lines recorded."]),
+      ].join("\n");
+    case "SMS Update":
+      return [
+        `Hi ${ro.accountLabel || ro.customerName || "Customer"},`,
+        "",
+        `Quick update for ${ro.roNumber} (${vehicleLabel}):`,
+        inspection?.underHoodSummary?.trim() || templateBody.trim() || "Your vehicle inspection has been updated.",
+        "",
+        "Please review the latest notes when convenient.",
+      ].join("\n");
+    case "Draft Follow-Up Message":
+      return [
+        `Hi ${ro.accountLabel || ro.customerName || "Customer"},`,
+        "",
+        `We’re following up on ${ro.roNumber} for ${vehicleLabel} (${plateLabel}).`,
+        "If you have a moment, please let us know how the service went and if everything feels right after release.",
+        "",
+        "Thank you for trusting DVI Workshop.",
+      ].join("\n");
+    case "Draft Release Summary":
+      return [
+        `Release summary for ${ro.roNumber}`,
+        `Vehicle: ${vehicleLabel} (${plateLabel})`,
+        `Customer: ${ro.accountLabel || ro.customerName || "Customer"}`,
+        "",
+        releaseNote,
+        approvalNote,
+        backjobNote,
+        "",
+        "Completed work:",
+        ...(completedWork.length ? completedWork.map((line) => `- ${line}`) : ["- No completed work lines were recorded."]),
+        "",
+        "Pending parts:",
+        ...(pendingParts.length ? pendingParts.map((line) => `- ${line}`) : ["- No pending parts records."]),
+      ].join("\n");
+  }
+}
+
 function hasInspectionCriticalState(record: InspectionRecord) {
   return [
     record.underHoodState,
@@ -4285,7 +5420,7 @@ function PermissionPill({
         ...(disabled ? styles.permissionPillDisabled : {}),
       }}
     >
-      {checked ? "✓ " : ""}
+      {checked ? "âœ“ " : ""}
       {permission}
     </button>
   );
@@ -4848,6 +5983,22 @@ function CustomerPortalPage({
     (sum, row) => sum + row.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length,
     0
   );
+  const approvalDecisionSummary = useMemo(
+    () =>
+      linkedRepairOrders.reduce(
+        (acc, row) => {
+          row.workLines.forEach((line) => {
+            const decision = line.approvalDecision ?? "Pending";
+            if (decision === "Approved") acc.approved += 1;
+            else if (decision === "Declined") acc.declined += 1;
+            else acc.pending += 1;
+          });
+          return acc;
+        },
+        { approved: 0, declined: 0, pending: 0 }
+      ),
+    [linkedRepairOrders]
+  );
 
   const activeJobCount = linkedRepairOrders.filter((row) => !["Released", "Closed"].includes(row.status)).length;
   const releasedJobCount = linkedRepairOrders.filter((row) => ["Released", "Closed"].includes(row.status)).length;
@@ -5077,6 +6228,7 @@ function CustomerPortalPage({
             <div style={styles.topBarRight}>
               {isDemoMode ? <span style={styles.statusWarning}>Demo Mode</span> : null}
               {sharedLinkMode ? <span style={styles.statusInfo}>Customer View</span> : null}
+              <span style={styles.statusNeutral}>Read-only customer view</span>
               <span style={styles.statusInfo}>Pending approvals: {pendingApprovalCount}  |  Active links: {activePortalLinks}</span>
               <div style={styles.topBarName}>{customer.fullName}</div>
               <button type="button" onClick={onLogout} style={styles.logoutButtonCompact}>
@@ -5135,6 +6287,11 @@ function CustomerPortalPage({
               <div style={styles.portalHeroTitle}>Welcome back, {customer.fullName}</div>
               <div style={styles.portalHeroText}>
                 Review current repair orders, inspect approval items, and browse the full history of every linked vehicle from one customer portal.
+              </div>
+              <div style={styles.inlineActions}>
+                <span style={styles.statusOk} data-testid="customer-portal-status-approved">Approved {approvalDecisionSummary.approved}</span>
+                <span style={styles.statusWarning} data-testid="customer-portal-status-pending">Pending {approvalDecisionSummary.pending}</span>
+                <span style={styles.statusNeutral} data-testid="customer-portal-status-declined">Declined {approvalDecisionSummary.declined}</span>
               </div>
             </div>
 
@@ -5228,7 +6385,7 @@ function CustomerPortalPage({
                   </div>
                 </div>
                 {portalInspectionRows.length === 0 ? (
-                  <div style={styles.emptyState}>No inspection records available.</div>
+                  <div style={styles.emptyState}>No inspection records available yet. If legacy data is missing, the portal will keep working and show this friendly empty state.</div>
                 ) : (
                   portalInspectionRows.map(({ row, inspection }) => {
                     const sections = buildCustomerInspectionSections(inspection);
@@ -5468,12 +6625,17 @@ function CustomerPortalPage({
                 <div style={styles.sectionCardMuted}>
                   <div style={styles.sectionTitle}>Customer Approval Review</div>
                   <div style={styles.formHint}>
-                    Review the inspection findings by category, then approve, defer, or decline the linked recommendations for each repair order.
+                    Review the inspection findings by category, then approve, defer, or decline the linked recommendations for each repair order. This view is read-only except for the approval buttons.
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, marginTop: 10 }}>
                     <span style={{ background: "#dcfce7", color: "#15803d", borderRadius: 4, padding: "2px 10px", fontWeight: 600, fontSize: 12 }}>Good</span>
                     <span style={{ background: "#fef3c7", color: "#b45309", borderRadius: 4, padding: "2px 10px", fontWeight: 600, fontSize: 12 }}>Needs Attention</span>
                     <span style={{ background: "#fee2e2", color: "#b91c1c", borderRadius: 4, padding: "2px 10px", fontWeight: 600, fontSize: 12 }}>Critical</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, marginTop: 10 }}>
+                    <span style={styles.statusOk} data-testid="customer-portal-approval-approved">Approved {approvalDecisionSummary.approved}</span>
+                    <span style={styles.statusWarning} data-testid="customer-portal-approval-pending">Pending {approvalDecisionSummary.pending}</span>
+                    <span style={styles.statusNeutral} data-testid="customer-portal-approval-declined">Declined {approvalDecisionSummary.declined}</span>
                   </div>
                 </div>
 
@@ -6281,7 +7443,15 @@ function DashboardPage({
   paymentRecords,
   workLogs,
   partsRequests,
+  customerAccounts,
+  smsApprovalLogs,
+  maintenanceIntervalRules,
+  serviceHistoryRecords,
   isCompactLayout,
+  onOpenHistory,
+  onOpenBackjobs,
+  onOpenRepairOrders,
+  onSendSmsTemplate,
 }: {
   currentUser: SessionUser;
   users: UserAccount[];
@@ -6297,7 +7467,15 @@ function DashboardPage({
   paymentRecords: PaymentRecord[];
   workLogs: WorkLog[];
   partsRequests: PartsRequestRecord[];
+  customerAccounts: CustomerAccount[];
+  smsApprovalLogs: SmsApprovalDispatchLog[];
+  maintenanceIntervalRules: MaintenanceIntervalRuleRecord[];
+  serviceHistoryRecords: VehicleServiceHistoryRecord[];
   isCompactLayout: boolean;
+  onOpenHistory: () => void;
+  onOpenBackjobs?: () => void;
+  onOpenRepairOrders: () => void;
+  onSendSmsTemplate: (payload: SmsSendPayload) => Promise<SmsSendResult>;
 }) {
   const activeUsers = users.filter((u) => u.active);
   const userRoleCounts = ALL_ROLES.map((role) => ({
@@ -6419,6 +7597,16 @@ function DashboardPage({
     return { user, assigned, active, total, completed, qcFailed, bookedMinutes, activeTimers, laborProduced, efficiency };
   }).sort((a,b)=>b.laborProduced-a.laborProduced).slice(0,8);
 
+  const maintenanceDashboardData = useMemo(
+    () =>
+      buildMaintenanceDashboardSourceData({
+        repairOrders,
+        serviceHistoryRecords,
+        maintenanceIntervalRules,
+      }),
+    [maintenanceIntervalRules, repairOrders, serviceHistoryRecords]
+  );
+
   return (
     <div style={styles.pageContent}>
       <div style={styles.grid}>
@@ -6432,6 +7620,42 @@ function DashboardPage({
               The app now includes live workflow reporting, payment and invoice metrics, technician performance, bottleneck visibility, and QC / comeback signals tied to your real repair-order pipeline.
             </div>
           </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <AdvisorActionCenter
+            repairOrders={repairOrders}
+            upcomingItems={maintenanceDashboardData.upcomingItems}
+            onOpenRepairOrders={onOpenRepairOrders}
+            onOpenHistory={onOpenHistory}
+            onOpenBackjobs={onOpenBackjobs}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <MaintenanceDashboard
+            vehicles={maintenanceDashboardData.vehicles}
+            upcomingItems={maintenanceDashboardData.upcomingItems}
+            completedItems={maintenanceDashboardData.completedItems}
+            backjobRecords={backjobRecords}
+            customerAccounts={customerAccounts}
+            smsApprovalLogs={smsApprovalLogs}
+            isCompactLayout={isCompactLayout}
+            onOpenHistory={onOpenHistory}
+            onOpenBackjobs={onOpenBackjobs}
+            onSendSmsTemplate={onSendSmsTemplate}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <TechnicianPerformance
+            users={users}
+            repairOrders={repairOrders}
+            workLogs={workLogs}
+            serviceHistoryRecords={serviceHistoryRecords}
+            isCompactLayout={isCompactLayout}
+            onOpenHistory={onOpenHistory}
+          />
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
@@ -7189,6 +8413,33 @@ function InspectionPage({
     () => (selectedIntake ? inspectionRecords.find((row) => row.intakeId === selectedIntake.id) ?? null : null),
     [inspectionRecords, selectedIntake]
   );
+
+  const inspectionAiSourceText = useMemo(
+    () =>
+      [
+        `Inspection ${selectedInspection?.inspectionNumber || selectedIntake?.intakeNumber || "draft"}`,
+        `Customer: ${selectedIntake?.companyName || selectedIntake?.customerName || "-"}`,
+        `Vehicle: ${[selectedIntake?.make, selectedIntake?.model, selectedIntake?.year].filter(Boolean).join(" ") || "-"}`,
+        `Concern: ${selectedIntake?.concern || "-"}`,
+        `Under Hood: ${form.underHoodSummary || "-"}`,
+        `Recommendations: ${form.recommendedWork || "-"}`,
+      ].join("\n"),
+    [form.recommendedWork, form.underHoodSummary, selectedInspection?.inspectionNumber, selectedIntake]
+  );
+
+  const inspectionAi = useOpenAiAssistController({
+    sourceModule: "inspection",
+    sourceText: inspectionAiSourceText,
+    contextKey: selectedInspection?.id || selectedIntake?.id || "inspection-draft",
+    currentUserRole: currentUser.role,
+    currentUserName: currentUser.fullName,
+    moduleKey: "inspection",
+    sourceLabel: "inspection notes",
+    customerName: selectedIntake?.companyName || selectedIntake?.customerName || undefined,
+    vehicleLabel: [selectedIntake?.make, selectedIntake?.model, selectedIntake?.year].filter(Boolean).join(" ") || undefined,
+    roNumber: selectedInspection?.inspectionNumber || selectedIntake?.intakeNumber || undefined,
+    defaultAction: "Customer Inspection Report",
+  });
 
   useEffect(() => {
     if (selectedIntakeId && !intakeRecords.some((row) => row.id === selectedIntakeId)) {
@@ -8127,6 +9378,7 @@ function InspectionPage({
                       <button
                         key={row.id}
                         type="button"
+                        data-testid={`inspection-queue-item-${row.id}`}
                         onClick={() => setSelectedIntakeId(row.id)}
                         style={styles.queueCard}
                       >
@@ -8347,6 +9599,33 @@ function InspectionPage({
                           <div style={styles.formHint}>No automatic recommendations yet.</div>
                         )}
                       </div>
+
+                      <AiAssistPanel
+                        action={inspectionAi.action}
+                        sourceModule="inspection"
+                        sourceText={inspectionAiSourceText}
+                        draftText={inspectionAi.draftText}
+                        draftMeta={inspectionAi.draftMeta}
+                        logs={inspectionAi.logs}
+                      feedback={inspectionAi.feedback}
+                      isGenerating={inspectionAi.isGenerating}
+                      canUseAiAssist={inspectionAi.canUseAiAssist}
+                      accessMessage={inspectionAi.accessMessage}
+                      draftFromCache={inspectionAi.draftFromCache}
+                      reviewed={inspectionAi.reviewed}
+                      onReviewedChange={inspectionAi.setReviewed}
+                      actions={["Fix Grammar", "Explain Finding", "Summarize Inspection", "Customer Inspection Report"]}
+                      providerMode={inspectionAi.providerMode}
+                      model={inspectionAi.model}
+                        maxTokens={inspectionAi.maxTokens}
+                        apiKeyConfigured={inspectionAi.apiKeyConfigured}
+                        onActionChange={inspectionAi.setAction}
+                        onGenerate={(action) => void inspectionAi.generate(action)}
+                        onDraftTextChange={inspectionAi.setDraftText}
+                        onUseDraft={inspectionAi.useDraft}
+                        onCopyDraft={inspectionAi.copyDraft}
+                        onResetSource={inspectionAi.resetToSource}
+                      />
 
                       {selectedInspection ? (
                         <div style={styles.sectionCardMuted}>
@@ -9030,7 +10309,7 @@ function InspectionPage({
                                 style={styles.input}
                                 value={form.acVentTemperature}
                                 onChange={(e) => setForm((prev) => ({ ...prev, acVentTemperature: e.target.value }))}
-                                placeholder="Example: 8°C or 46°F"
+                                placeholder="Example: 8Â°C or 46Â°F"
                               />
                             </div>
                             <div style={styles.formGroup}>
@@ -9385,6 +10664,8 @@ function RepairOrdersPage({
   setBackjobRecords,
   partsRequests,
   releaseRecords,
+  maintenanceIntervalRules,
+  serviceHistoryRecords,
   approvalLinkTokens,
   autoPortalMessage,
   smsApprovalLogs,
@@ -9407,6 +10688,8 @@ function RepairOrdersPage({
   setBackjobRecords: React.Dispatch<React.SetStateAction<BackjobRecord[]>>;
   partsRequests: PartsRequestRecord[];
   releaseRecords: ReleaseRecord[];
+  maintenanceIntervalRules: MaintenanceIntervalRuleRecord[];
+  serviceHistoryRecords: VehicleServiceHistoryRecord[];
   approvalLinkTokens: ApprovalLinkToken[];
   autoPortalMessage: string;
   smsApprovalLogs: SmsApprovalDispatchLog[];
@@ -9437,6 +10720,40 @@ function RepairOrdersPage({
   const [smsTwilioAccountSid, setSmsTwilioAccountSid] = useState(smsProviderDefaults.twilioAccountSid);
   const [smsTwilioFromNumber, setSmsTwilioFromNumber] = useState(smsProviderDefaults.twilioFromNumber);
   const [smsProviderConfigFeedback, setSmsProviderConfigFeedback] = useState("");
+  const [openAiAssistProviderMode, setOpenAiAssistProviderMode] = useState<OpenAiAssistProviderMode>(() => {
+    const stored = readStoredSetting(STORAGE_KEYS.openAiAssistProviderMode);
+    return stored === "OpenAI" ? "OpenAI" : "Disabled";
+  });
+  const [openAiAssistModel, setOpenAiAssistModel] = useState(() => readStoredSetting(STORAGE_KEYS.openAiAssistModel) || "gpt-4.1-mini");
+  const [openAiAssistMaxTokens, setOpenAiAssistMaxTokens] = useState(() => {
+    const stored = Number(readStoredSetting(STORAGE_KEYS.openAiAssistMaxTokens));
+    return Number.isFinite(stored) && stored > 0 ? stored : 240;
+  });
+  const [openAiAssistSettingsFeedback, setOpenAiAssistSettingsFeedback] = useState("");
+  const [openAiAssistDraftCache, setOpenAiAssistDraftCache] = useState<Record<string, OpenAiAssistDraftCacheEntry>>(() =>
+    readLocalStorage<Record<string, OpenAiAssistDraftCacheEntry>>(STORAGE_KEYS.openAiAssistDraftCache, {})
+  );
+  const [openAiAssistLogs, setOpenAiAssistLogs] = useState<OpenAiAssistLogRecord[]>(() =>
+    readLocalStorage<OpenAiAssistLogRecord[]>(STORAGE_KEYS.openAiAssistLogs, [])
+  );
+  const [openAiAssistAction, setOpenAiAssistAction] = useState<OpenAiAssistAction>("Explain to Customer");
+  const [openAiAssistDraftText, setOpenAiAssistDraftText] = useState("");
+  const [openAiAssistDraftMeta, setOpenAiAssistDraftMeta] = useState<OpenAiAssistDraft | null>(null);
+  const [openAiAssistDraftOverride, setOpenAiAssistDraftOverride] = useState("");
+  const [openAiAssistDraftWasCached, setOpenAiAssistDraftWasCached] = useState(false);
+  const [openAiAssistReviewed, setOpenAiAssistReviewed] = useState(false);
+  const [openAiAssistReviewedAt, setOpenAiAssistReviewedAt] = useState("");
+  const [isGeneratingOpenAiAssistDraft, setIsGeneratingOpenAiAssistDraft] = useState(false);
+  const [isSavingOpenAiAssistSettings, setIsSavingOpenAiAssistSettings] = useState(false);
+
+  useEffect(() => {
+    writeLocalStorage(STORAGE_KEYS.openAiAssistDraftCache, openAiAssistDraftCache);
+  }, [openAiAssistDraftCache]);
+
+  useEffect(() => {
+    writeLocalStorage(STORAGE_KEYS.openAiAssistLogs, openAiAssistLogs);
+  }, [openAiAssistLogs]);
+
   const [isCreatingRO, setIsCreatingRO] = useState(false);
   const [isSavingSmsProviderSettings, setIsSavingSmsProviderSettings] = useState(false);
   const [isGeneratingApprovalLink, setIsGeneratingApprovalLink] = useState(false);
@@ -9467,11 +10784,105 @@ function RepairOrdersPage({
     [sortedRepairOrders, selectedRoId]
   );
 
-  const draftMileageSuggestions = useMemo(() => getMileageMaintenanceSuggestions(form.odometerKm), [form.odometerKm]);
-  const selectedRoMileageSuggestions = useMemo(
-    () => getMileageMaintenanceSuggestions(selectedRO?.odometerKm ?? ''),
-    [selectedRO?.odometerKm]
+  const draftMaintenanceSuggestions = useMemo(
+    () =>
+      getUnifiedMaintenanceSuggestions({
+        make: form.make,
+        model: form.model,
+        year: form.year,
+        odometerKm: form.odometerKm,
+          plateNumber: form.plateNumber,
+          conductionNumber: form.conductionNumber,
+          serviceHistoryRepairOrders: repairOrders,
+          serviceHistoryRecords,
+          maintenanceIntervalRules,
+          existingRecommendationTitles: draftRecommendationTitles,
+          existingWorkLineTitles: form.workLines.map((line) => line.title),
+        dismissedSuggestionIds: dismissedMileageSuggestionIdsByScope.draft ?? [],
+      }),
+    [
+      dismissedMileageSuggestionIdsByScope.draft,
+      draftRecommendationTitles,
+      form.conductionNumber,
+      form.make,
+      form.model,
+      form.odometerKm,
+      form.plateNumber,
+      form.workLines,
+      form.year,
+      repairOrders,
+    ]
   );
+  const selectedROMaintenanceSuggestions = useMemo(
+    () =>
+      selectedRO
+        ? getUnifiedMaintenanceSuggestions({
+            make: selectedRO.make,
+            model: selectedRO.model,
+            year: selectedRO.year,
+            odometerKm: selectedRO.odometerKm,
+              plateNumber: selectedRO.plateNumber,
+              conductionNumber: selectedRO.conductionNumber,
+              serviceHistoryRepairOrders: repairOrders,
+              serviceHistoryRecords,
+              maintenanceIntervalRules,
+              existingRecommendationTitles: roRecommendationTitlesById[selectedRO.id] ?? [],
+            existingWorkLineTitles: selectedRO.workLines.map((line) => line.title),
+            dismissedSuggestionIds: dismissedMileageSuggestionIdsByScope[`ro:${selectedRO.id}`] ?? [],
+          })
+        : [],
+    [dismissedMileageSuggestionIdsByScope, repairOrders, roRecommendationTitlesById, selectedRO]
+  );
+
+  const recommendationAiSourceText = useMemo(
+    () =>
+      [
+        `Customer: ${form.customerName || form.companyName || selectedRO?.accountLabel || "Customer"}`,
+        `Vehicle: ${[form.make, form.model, form.year].filter(Boolean).join(" ") || [selectedRO?.make, selectedRO?.model, selectedRO?.year].filter(Boolean).join(" ") || "-"}`,
+        `Plate: ${form.plateNumber || form.conductionNumber || selectedRO?.plateNumber || selectedRO?.conductionNumber || "-"}`,
+        `Concern: ${form.customerConcern.trim() || selectedRO?.customerConcern || "-"}`,
+        "Suggested maintenance:",
+        ...(draftMaintenanceSuggestions.length
+          ? draftMaintenanceSuggestions.slice(0, 6).map((item) => `- ${item.title}: ${item.reason}`)
+          : ["- No maintenance suggestions available."]),
+        "Current recommendation notes:",
+        ...(draftRecommendationTitles.length
+          ? draftRecommendationTitles.map((title) => `- ${title}`)
+          : ["- No recommendation notes added yet."]),
+      ].join("\n"),
+    [
+      draftMaintenanceSuggestions,
+      draftRecommendationTitles,
+      form.companyName,
+      form.conductionNumber,
+      form.customerConcern,
+      form.make,
+      form.model,
+      form.plateNumber,
+      form.year,
+      selectedRO?.accountLabel,
+      selectedRO?.conductionNumber,
+      selectedRO?.customerConcern,
+      selectedRO?.plateNumber,
+    ]
+  );
+
+  const recommendationAi = useOpenAiAssistController({
+    sourceModule: "recommendations",
+    sourceText: recommendationAiSourceText,
+    contextKey:
+      selectedRO?.id ||
+      [form.make, form.model, form.year, form.plateNumber, form.conductionNumber].filter(Boolean).join("|") ||
+      "recommendations-draft",
+    currentUserRole: currentUser.role,
+    currentUserName: currentUser.fullName,
+    moduleKey: "repairOrders",
+    sourceLabel: "maintenance recommendations",
+    customerName: form.customerName || form.companyName || selectedRO?.accountLabel || undefined,
+    vehicleLabel: [form.make, form.model, form.year].filter(Boolean).join(" ") || form.plateNumber || form.conductionNumber || undefined,
+    roNumber: selectedRO?.roNumber || undefined,
+    defaultAction: "Explain to Customer",
+  });
 
   const selectedApproval = useMemo(
     () =>
@@ -9765,6 +11176,35 @@ function RepairOrdersPage({
 
   const activeCustomerNotificationTemplate =
     customerNotificationTemplates.find((template) => template.key === notificationTemplateKey) ?? customerNotificationTemplates[0] ?? null;
+  const openAiApiKey = useMemo(() => String(import.meta.env.VITE_OPENAI_API_KEY ?? "").trim(), []);
+  const [openAiAssistOutputMode] = useAiOutputMode();
+  const openAiAssistSettings: OpenAiAssistSettings = useMemo(
+    () => ({
+      provider: openAiAssistProviderMode,
+      model: openAiAssistModel.trim() || "gpt-4.1-mini",
+      maxTokens: Number.isFinite(openAiAssistMaxTokens) ? Math.max(32, Math.min(4000, Math.round(openAiAssistMaxTokens))) : 240,
+      outputMode: openAiAssistOutputMode,
+    }),
+    [openAiAssistMaxTokens, openAiAssistModel, openAiAssistOutputMode, openAiAssistProviderMode]
+  );
+  const repairOrdersAiEnabled = useAiModuleEnabled("repairOrders");
+  const canUseOpenAiAssist = (currentUser.role === "Admin" || currentUser.role === "Service Advisor") && repairOrdersAiEnabled;
+  const openAiAssistContextKey = useMemo(() => {
+    if (!selectedRO) return "no-ro";
+    const partsUpdatedAtSorted = selectedPartsRequests.map((row) => row.updatedAt).sort();
+    const partsUpdatedAt = partsUpdatedAtSorted[partsUpdatedAtSorted.length - 1] ?? "";
+    return [
+      selectedRO.id,
+      selectedRO.updatedAt,
+      selectedROInspection?.updatedAt ?? "",
+      selectedApproval?.createdAt ?? "",
+      selectedReleaseRecord?.updatedAt ?? "",
+      selectedBackjobs[0]?.updatedAt ?? "",
+      partsUpdatedAt,
+      activeCustomerNotificationTemplate?.key ?? "",
+      activeCustomerNotificationTemplate?.body ?? "",
+    ].join("|");
+  }, [activeCustomerNotificationTemplate?.body, activeCustomerNotificationTemplate?.key, selectedApproval?.createdAt, selectedBackjobs, selectedPartsRequests, selectedRO, selectedROInspection?.updatedAt, selectedReleaseRecord?.updatedAt]);
   const notificationPreviewRoNumber =
     activeCustomerNotificationTemplate?.key === "oil-reminder" && activeOilChangeReminder
       ? activeOilChangeReminder.roNumber
@@ -9799,6 +11239,7 @@ function RepairOrdersPage({
     notificationPreviewPhoneNumber,
     selectedRO,
   ]);
+  const activeCustomerNotificationBody = openAiAssistDraftOverride.trim() || (activeCustomerNotificationTemplate?.body ?? "");
 
   const activeCustomerNotificationSmsPayload = useMemo<SmsSendPayload | null>(() => {
     if (!selectedRO || !activeCustomerNotificationTemplate || !activeCustomerNotificationTemplateSendable) return null;
@@ -9810,12 +11251,13 @@ function RepairOrdersPage({
       phoneNumber: notificationPreviewPhoneNumber,
       tokenId: activeApprovalLinkToken?.id ?? "",
       messageType: activeCustomerNotificationTemplate.key,
-      messageBody: activeCustomerNotificationTemplate.body,
+      messageBody: activeCustomerNotificationBody,
     };
   }, [
     activeApprovalLinkToken,
     activeCustomerNotificationTemplate,
     activeCustomerNotificationTemplateSendable,
+    activeCustomerNotificationBody,
     notificationPreviewCustomerName,
     notificationPreviewPhoneNumber,
     notificationPreviewRoNumber,
@@ -9830,6 +11272,157 @@ function RepairOrdersPage({
       ).slice(0, 5),
     [smsApprovalLogs, selectedRO]
   );
+
+  const openAiAssistSourceText = useMemo(
+    () =>
+      buildOpenAiAssistSourceText({
+        actionType: openAiAssistAction,
+        ro: selectedRO,
+        inspection: selectedROInspection,
+        approvalRecord: selectedApproval,
+        partsRequests: selectedPartsRequests,
+        releaseRecord: selectedReleaseRecord,
+        backjobRecord: selectedBackjobs[0] ?? null,
+        templateBody: activeCustomerNotificationTemplate?.body ?? "",
+      }),
+    [
+      activeCustomerNotificationTemplate?.body,
+      openAiAssistAction,
+      selectedApproval,
+      selectedBackjobs,
+      selectedPartsRequests,
+      selectedRO,
+      selectedROInspection,
+      selectedReleaseRecord,
+    ]
+  );
+
+  const buildCustomerMessageComposerSourceTextForAction = (action: CustomerMessageComposerAction, sourceContext: CustomerMessageSourceContext) =>
+    buildCustomerMessageSourceText(action, sourceContext, {
+      ro: selectedRO
+        ? {
+            roNumber: selectedRO.roNumber,
+            accountLabel: selectedRO.accountLabel,
+            customerName: selectedRO.customerName,
+            plateNumber: selectedRO.plateNumber,
+            conductionNumber: selectedRO.conductionNumber,
+            make: selectedRO.make,
+            model: selectedRO.model,
+            year: selectedRO.year,
+            status: selectedRO.status,
+            customerConcern: selectedRO.customerConcern,
+            pullOutReason: selectedRO.pullOutReason,
+            workLines: selectedRO.workLines.map((line) => ({
+              title: line.title,
+              notes: line.notes,
+              totalEstimate: line.totalEstimate,
+              approvalDecision: line.approvalDecision,
+              status: line.status,
+            })),
+          }
+        : null,
+      inspection: selectedROInspection
+        ? {
+            inspectionNumber: selectedROInspection.inspectionNumber,
+            concern: selectedROInspection.concern,
+            underHoodSummary: selectedROInspection.underHoodSummary,
+            recommendedWork: selectedROInspection.recommendedWork,
+            recommendationLines: selectedROInspection.recommendationLines,
+            enginePerformanceNotes: selectedROInspection.enginePerformanceNotes,
+            coolingSystemNotes: selectedROInspection.coolingSystemNotes,
+            steeringSystemNotes: selectedROInspection.steeringSystemNotes,
+            roadTestNotes: selectedROInspection.roadTestNotes,
+          }
+        : null,
+      approvalRecord: selectedApproval
+        ? {
+            approvalNumber: selectedApproval.approvalNumber,
+            summary: selectedApproval.summary,
+            communicationHook: selectedApproval.communicationHook,
+            items: selectedApproval.items,
+          }
+        : null,
+      approvalLinkToken: activeApprovalLinkToken ? { token: activeApprovalLinkToken.token } : null,
+      partsRequests: selectedPartsRequests.map((request) => ({
+        partName: request.partName,
+        quantity: request.quantity,
+        status: request.status,
+        updatedAt: request.updatedAt,
+      })),
+      releaseRecord: selectedReleaseRecord
+        ? {
+            releaseNumber: selectedReleaseRecord.releaseNumber,
+            releaseSummary: selectedReleaseRecord.releaseSummary,
+            finalTotalAmount: selectedReleaseRecord.finalTotalAmount,
+            paymentSettled: selectedReleaseRecord.paymentSettled,
+            documentsReady: selectedReleaseRecord.documentsReady,
+            cleanVehicle: selectedReleaseRecord.cleanVehicle,
+            toolsRemoved: selectedReleaseRecord.toolsRemoved,
+          }
+        : null,
+      backjobRecord: selectedBackjobs[0]
+        ? {
+            backjobNumber: selectedBackjobs[0].backjobNumber,
+            complaint: selectedBackjobs[0].complaint,
+            findings: selectedBackjobs[0].findings,
+            rootCause: selectedBackjobs[0].rootCause,
+            actionTaken: selectedBackjobs[0].actionTaken,
+            resolutionNotes: selectedBackjobs[0].resolutionNotes,
+            responsibility: selectedBackjobs[0].responsibility,
+            status: selectedBackjobs[0].status,
+          }
+        : null,
+      oilReminder: activeOilChangeReminder
+        ? {
+            dueReason: activeOilChangeReminder.dueReason,
+            dueDate: activeOilChangeReminder.dueDate,
+            currentOdometerKm: activeOilChangeReminder.currentOdometerKm,
+            dueOdometerKm: activeOilChangeReminder.dueOdometerKm,
+            isDue: activeOilChangeReminder.isDue,
+          }
+        : null,
+      followUpReminder: activeReleaseFollowUpReminder
+        ? {
+            dueReason: activeReleaseFollowUpReminder.dueReason,
+            dueDate: activeReleaseFollowUpReminder.dueDate,
+            releaseNumber: activeReleaseFollowUpReminder.releaseNumber,
+            isDue: activeReleaseFollowUpReminder.isDue,
+          }
+        : null,
+      templateBody: activeCustomerNotificationTemplate?.body ?? "",
+      sourceTextFallback: activeCustomerNotificationBody,
+      customerName: selectedRO?.accountLabel ?? selectedRO?.customerName ?? "",
+      vehicleLabel:
+        [selectedRO?.make, selectedRO?.model, selectedRO?.year].filter(Boolean).join(" ") ||
+        selectedRO?.plateNumber ||
+        selectedRO?.conductionNumber ||
+        "",
+      roNumber: selectedRO?.roNumber ?? "",
+    });
+
+  useEffect(() => {
+    if (!selectedRO) {
+      setOpenAiAssistDraftText("");
+      setOpenAiAssistDraftMeta(null);
+      setOpenAiAssistDraftOverride("");
+      return;
+    }
+
+    const cacheKey = getOpenAiAssistCacheKey(openAiAssistAction, openAiAssistContextKey, openAiAssistSettings.model, openAiAssistSettings.outputMode);
+    const cached = openAiAssistDraftCache[cacheKey];
+    if (cached) {
+      setOpenAiAssistDraftText(cached.draftText);
+      setOpenAiAssistDraftMeta(cached);
+      setOpenAiAssistSettingsFeedback(`Loaded cached ${openAiAssistAction.toLowerCase()} draft.`);
+    } else {
+      setOpenAiAssistDraftText(openAiAssistSourceText ?? "");
+      setOpenAiAssistDraftMeta(null);
+      setOpenAiAssistSettingsFeedback("Select an OpenAI action to generate a draft.");
+    }
+    setOpenAiAssistDraftOverride("");
+    setOpenAiAssistReviewed(false);
+    setOpenAiAssistReviewedAt("");
+  }, [openAiAssistAction, openAiAssistContextKey, openAiAssistSettings.model, openAiAssistSourceText, selectedRO]);
 
   const serviceReminderRows = useMemo<ServiceReminderView[]>(() => {
     const latestSentByReminderKey = new Map<string, SmsApprovalDispatchLog>();
@@ -9967,6 +11560,141 @@ function RepairOrdersPage({
     }
   };
 
+  const saveOpenAiAssistSettings = () => {
+    if (isSavingOpenAiAssistSettings) return;
+    setIsSavingOpenAiAssistSettings(true);
+    try {
+      if (typeof window === "undefined") {
+        setOpenAiAssistSettingsFeedback("OpenAI AI Assist settings cannot be saved in this environment.");
+        return;
+      }
+      window.localStorage.setItem(STORAGE_KEYS.openAiAssistProviderMode, openAiAssistProviderMode);
+      window.localStorage.setItem(STORAGE_KEYS.openAiAssistModel, openAiAssistModel.trim());
+      window.localStorage.setItem(STORAGE_KEYS.openAiAssistMaxTokens, String(Math.max(32, Math.min(4000, Math.round(openAiAssistMaxTokens || 240)))));
+      setOpenAiAssistSettingsFeedback(
+        openAiAssistProviderMode === "OpenAI"
+          ? (String(import.meta.env.VITE_OPENAI_API_KEY ?? "").trim()
+              ? "OpenAI AI Assist settings saved."
+              : "OpenAI is selected, but VITE_OPENAI_API_KEY is missing. Fallback drafts will be used.")
+          : "OpenAI AI Assist disabled."
+      );
+    } catch {
+      setOpenAiAssistSettingsFeedback("OpenAI AI Assist settings could not be saved in this browser.");
+    } finally {
+      setIsSavingOpenAiAssistSettings(false);
+    }
+  };
+
+  const handleOpenAiAssistAction = async (actionType: OpenAiAssistAction) => {
+    if (!selectedRO) {
+      setOpenAiAssistSettingsFeedback("Select a repair order before using OpenAI Assist.");
+      return;
+    }
+
+    const sourceModule = "repairOrders";
+    setOpenAiAssistAction(actionType);
+    if (!canUseOpenAiAssist) {
+      setOpenAiAssistSettingsFeedback(getAiAccessMessage("repairOrders", currentUser.role, repairOrdersAiEnabled));
+      return;
+    }
+    const cacheKey = getOpenAiAssistCacheKey(actionType, openAiAssistContextKey, openAiAssistSettings.model, openAiAssistSettings.outputMode);
+    const cached = openAiAssistDraftCache[cacheKey];
+    if (cached) {
+      setOpenAiAssistDraftText(cached.draftText);
+      setOpenAiAssistDraftMeta(cached);
+      setOpenAiAssistDraftWasCached(true);
+      setOpenAiAssistDraftOverride("");
+      setOpenAiAssistReviewed(false);
+      setOpenAiAssistReviewedAt("");
+      setOpenAiAssistSettingsFeedback(`Loaded cached ${actionType.toLowerCase()} draft.`);
+      const cachedLogEntry: OpenAiAssistLogRecord = {
+        id: `ai_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        actionType,
+        status: cached.providerName === "fallback" ? "Failure" : "Success",
+        generatedAt: new Date().toISOString(),
+        provider: "OpenAI",
+        model: openAiAssistSettings.model,
+        sourceModule,
+        note: `Loaded cached ${actionType.toLowerCase()} draft.`,
+        providerName: cached.providerName,
+        user: currentUser.fullName,
+        role: currentUser.role,
+        reviewed: false,
+        reviewedAt: "",
+        copied: false,
+        copiedAt: "",
+        used: false,
+        usedAt: "",
+        success: cached.providerName !== "fallback",
+        warningReason: cached.warning || cached.errorReason,
+        outputMode: cached.outputMode,
+        templateType: cached.templateType,
+        safetyLabel: "AI-generated draft - review before use",
+        moduleEnabled: repairOrdersAiEnabled,
+      };
+      setOpenAiAssistLogs((prev) => [cachedLogEntry, ...prev].slice(0, 40));
+      return;
+    }
+
+    setIsGeneratingOpenAiAssistDraft(true);
+    try {
+      const sourceText = openAiAssistDraftText.trim() || openAiAssistSourceText || "";
+      const result = await generateOpenAiAssistDraft({
+        actionType,
+        sourceText,
+        settings: openAiAssistSettings,
+        apiKey: openAiApiKey,
+        cacheKey,
+        sourceModule,
+        contextLabel: "Repair Orders",
+        customerName: selectedRO.accountLabel || selectedRO.customerName || "",
+        vehicleLabel: [selectedRO.make, selectedRO.model, selectedRO.year].filter(Boolean).join(" ") || selectedRO.plateNumber || selectedRO.conductionNumber || "",
+        roNumber: selectedRO.roNumber,
+      });
+      const logStatus: OpenAiAssistLogRecord["status"] = result.providerName === "fallback" ? "Failure" : "Success";
+      const logEntry: OpenAiAssistLogRecord = {
+        id: `ai_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        actionType,
+        status: logStatus,
+        generatedAt: result.generatedAt,
+        provider: "OpenAI",
+        model: result.model,
+        sourceModule,
+        note: result.note,
+        errorMessage: result.errorMessage,
+        providerName: result.providerName,
+        user: currentUser.fullName,
+        role: currentUser.role,
+        reviewed: false,
+        reviewedAt: "",
+        copied: false,
+        copiedAt: "",
+        used: false,
+        usedAt: "",
+        success: result.providerName !== "fallback",
+        warningReason: result.warning || result.errorMessage,
+        outputMode: result.outputMode,
+        templateType: result.templateType,
+        safetyLabel: "AI-generated draft - review before use",
+        moduleEnabled: repairOrdersAiEnabled,
+      };
+      setOpenAiAssistDraftCache((prev) => ({
+        ...prev,
+        [cacheKey]: result,
+      }));
+      setOpenAiAssistLogs((prev) => [logEntry, ...prev].slice(0, 40));
+      setOpenAiAssistDraftText(result.draftText);
+      setOpenAiAssistDraftMeta(result);
+      setOpenAiAssistDraftWasCached(false);
+      setOpenAiAssistDraftOverride("");
+      setOpenAiAssistReviewed(false);
+      setOpenAiAssistReviewedAt("");
+      setOpenAiAssistSettingsFeedback(result.note);
+    } finally {
+      setIsGeneratingOpenAiAssistDraft(false);
+    }
+  };
+
   const primaryTechnicians = useMemo(
     () =>
       users.filter(
@@ -10031,25 +11759,9 @@ function RepairOrdersPage({
     ? selectedRO.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length
     : 0;
 
-  const selectedROOdometerKm = selectedRO ? parseOdometerValue(selectedRO.odometerKm) : null;
-  const selectedROMaintenanceRecommendations = useMemo(() => {
-    if (!selectedRO) return [];
-    const recommendationTitles = roRecommendationTitlesById[selectedRO.id] ?? [];
-    return selectedRoMileageSuggestions.filter((item) => hasMaintenanceTitleMatch(recommendationTitles, item.title));
-  }, [roRecommendationTitlesById, selectedRO, selectedRoMileageSuggestions]);
-
-  const selectedROMaintenanceSuggestions = useMemo(() => {
-    if (!selectedRO || selectedROOdometerKm == null) return [];
-    const existingWorkLineTitles = selectedRO.workLines.map((line) => line.title);
-    const existingRecommendationTitles = selectedROMaintenanceRecommendations.map((item) => item.title);
-    const dismissedIds = dismissedMileageSuggestionIdsByScope[`ro:${selectedRO.id}`] ?? [];
-    return selectedRoMileageSuggestions.filter((item) => {
-      if (dismissedIds.includes(item.id)) return false;
-      if (hasMaintenanceTitleMatch(existingWorkLineTitles, item.title)) return false;
-      if (hasMaintenanceTitleMatch(existingRecommendationTitles, item.title)) return false;
-      return true;
-    });
-  }, [dismissedMileageSuggestionIdsByScope, selectedRO, selectedROOdometerKm, selectedROMaintenanceRecommendations, selectedRoMileageSuggestions]);
+  const selectedROMaintenanceRecommendations = selectedRO ? roRecommendationTitlesById[selectedRO.id] ?? [] : [];
+  const draftMaintenanceSuggestionGroups = useMemo(() => groupSuggestionsByCategory(draftMaintenanceSuggestions), [draftMaintenanceSuggestions]);
+  const selectedROMaintenanceSuggestionGroups = useMemo(() => groupSuggestionsByCategory(selectedROMaintenanceSuggestions), [selectedROMaintenanceSuggestions]);
 
   useEffect(() => {
     setForm((prev) => ({
@@ -10370,6 +12082,14 @@ function RepairOrdersPage({
 
             if (field === "status" && value === "Completed" && line.status === "Waiting Parts") {
               return line;
+            }
+
+            if (field === "status" && value === "Completed") {
+              return recalculateWorkLine({
+                ...line,
+                status: value,
+                completedAt: line.completedAt || new Date().toISOString(),
+              });
             }
 
             return recalculateWorkLine({
@@ -10864,33 +12584,80 @@ function RepairOrdersPage({
 
               <div style={styles.sectionCardMuted}>
                 <div style={styles.mobileDataCardHeader}>
-                  <div style={styles.sectionTitle}>Maintenance Suggestions {form.odometerKm.trim() ? `(${form.odometerKm.trim()} km)` : '(KM pending)'}</div>
+                  <div>
+                    <div style={styles.sectionTitle}>Maintenance Suggestions {form.odometerKm.trim() ? `(${form.odometerKm.trim()} km)` : '(KM pending)'}</div>
+                    <div style={styles.formHint}>Unified mileage + library matches. More specific vehicle matches appear first when they overlap.</div>
+                  </div>
+                  <span style={draftMaintenanceSuggestions.length ? styles.statusInfo : styles.statusNeutral}>
+                    {draftMaintenanceSuggestions.length} Visible
+                  </span>
                 </div>
-                {draftMileageSuggestions.filter((item) => !(dismissedMileageSuggestionIdsByScope.draft ?? []).includes(item.id)).length === 0 ? (
-                  <div style={styles.formHint}>No mileage-based suggestions for the current odometer input.</div>
+                {draftMaintenanceSuggestionGroups.length === 0 ? (
+                  <div style={styles.formHint}>No matching maintenance suggestions for the current vehicle input.</div>
                 ) : (
                   <div style={styles.formStack}>
-                    {draftMileageSuggestions
-                      .filter((item) => !(dismissedMileageSuggestionIdsByScope.draft ?? []).includes(item.id))
-                      .map((item) => {
-                        const titleKey = item.title.trim().toLowerCase();
-                        const existsInRecommendations = draftRecommendationTitles.some((entry) => entry.trim().toLowerCase() === titleKey);
-                        const existsInWorkLines = form.workLines.some((line) => line.title.trim().toLowerCase() === titleKey);
-                        return (
-                          <div key={item.id} style={styles.concernCard}>
-                            <div style={styles.mobileDataCardHeader}><strong>{item.title}</strong><span style={styles.statusInfo}>{item.intervalTag}</span></div>
-                            <div style={styles.formHint}>{item.reason}</div>
-                            {item.isConditional ? <div style={{ ...styles.statusWarning, marginTop: 6 }}>If applicable</div> : null}
-                            <div style={{ ...styles.inlineActions, marginTop: 8 }}>
-                              <button type="button" style={styles.smallButtonMuted} disabled={existsInRecommendations} onClick={() => addDraftSuggestionToRecommendations(item)}>Add to Recommendations</button>
-                              <button type="button" style={styles.smallButton} disabled={existsInWorkLines} onClick={() => addDraftSuggestionToWorkLine(item)}>Add to Work Line</button>
-                              <button type="button" style={styles.smallButtonMuted} onClick={() => dismissMileageSuggestion('draft', item.id)}>Dismiss</button>
-                            </div>
-                          </div>
-                        );
-                      })}
+                    {draftMaintenanceSuggestionGroups.map((group) => (
+                      <div key={group.category} style={styles.concernCard}>
+                        <div style={styles.mobileDataCardHeader}>
+                          <strong>{group.category}</strong>
+                          <span style={styles.statusInfo}>{group.items.length} suggestions</span>
+                        </div>
+                        <div style={styles.formStack}>
+                          {group.items.map((item) => {
+                            const titleKey = item.title.trim().toLowerCase();
+                            const existsInRecommendations = draftRecommendationTitles.some((entry) => entry.trim().toLowerCase() === titleKey);
+                            const existsInWorkLines = form.workLines.some((line) => line.title.trim().toLowerCase() === titleKey);
+                            return (
+                              <div key={item.id} style={styles.mobileDataCard}>
+                                <div style={styles.mobileDataCardHeader}>
+                                  <strong>{item.title}</strong>
+                                  <span style={styles.statusInfo}>{item.intervalTag}</span>
+                                </div>
+                                <div style={styles.chipWrap}>
+                                  <span style={styles.tagNeutral}>{item.specificityTag || "General"}</span>
+                                </div>
+                                <div style={styles.formHint}>{item.reason}</div>
+                                {item.isConditional ? <div style={{ ...styles.statusWarning, marginTop: 6 }}>If applicable</div> : null}
+                                <div style={{ ...styles.inlineActions, marginTop: 8 }}>
+                                  <button type="button" style={styles.smallButtonMuted} disabled={existsInRecommendations} onClick={() => addDraftSuggestionToRecommendations(item)}>Add to Recommendations</button>
+                                  <button type="button" style={styles.smallButton} disabled={existsInWorkLines} onClick={() => addDraftSuggestionToWorkLine(item)}>Add to Work Line</button>
+                                  <button type="button" style={styles.smallButtonMuted} onClick={() => dismissMileageSuggestion('draft', item.id)}>Dismiss</button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
+                <AiAssistPanel
+                  action={recommendationAi.action}
+                  sourceModule="recommendations"
+                  sourceText={recommendationAiSourceText}
+                  draftText={recommendationAi.draftText}
+                  draftMeta={recommendationAi.draftMeta}
+                  logs={recommendationAi.logs}
+                  feedback={recommendationAi.feedback}
+                  isGenerating={recommendationAi.isGenerating}
+                  canUseAiAssist={recommendationAi.canUseAiAssist}
+                  accessMessage={recommendationAi.accessMessage}
+                  draftFromCache={recommendationAi.draftFromCache}
+                  reviewed={recommendationAi.reviewed}
+                  onReviewedChange={recommendationAi.setReviewed}
+                  actions={["Fix Grammar", "Explain to Customer"]}
+                  providerMode={recommendationAi.providerMode}
+                  model={recommendationAi.model}
+                  maxTokens={recommendationAi.maxTokens}
+                  apiKeyConfigured={recommendationAi.apiKeyConfigured}
+                  testIdPrefix="openai-recommendation-ai"
+                  onActionChange={recommendationAi.setAction}
+                  onGenerate={(action) => void recommendationAi.generate(action)}
+                  onDraftTextChange={recommendationAi.setDraftText}
+                  onUseDraft={recommendationAi.useDraft}
+                  onCopyDraft={recommendationAi.copyDraft}
+                  onResetSource={recommendationAi.resetToSource}
+                />
                 {draftRecommendationTitles.length > 0 ? (
                   <div style={{ marginTop: 10 }}>
                     <div style={styles.formHint}>Recommendations</div>
@@ -11238,34 +13005,54 @@ function RepairOrdersPage({
                   <div><strong>Approved Line Total:</strong> {formatCurrency(approvedEstimateTotal)}</div>
                 </div>
 
-                <div style={styles.sectionCardMuted}>
+                <div style={styles.sectionCardMuted} data-testid="maintenance-suggestions-panel">
                   <div style={styles.mobileDataCardHeader}>
-                    <div style={styles.sectionTitle}>Maintenance Suggestions {selectedRO.odometerKm.trim() ? `(${selectedRO.odometerKm.trim()} km)` : '(KM pending)'}</div>
+                    <div>
+                      <div style={styles.sectionTitle}>Maintenance Suggestions {selectedRO.odometerKm.trim() ? `(${selectedRO.odometerKm.trim()} km)` : '(KM pending)'}</div>
+                      <div style={styles.formHint}>Unified mileage + library matches. The best vehicle-specific version wins when a service appears in both sources.</div>
+                    </div>
+                    <span style={selectedROMaintenanceSuggestions.length ? styles.statusInfo : styles.statusNeutral}>
+                      {selectedROMaintenanceSuggestions.length} Visible
+                    </span>
                   </div>
-                  {selectedRoMileageSuggestions.filter((item) => !(dismissedMileageSuggestionIdsByScope[`ro:${selectedRO.id}`] ?? []).includes(item.id)).length === 0 ? (
-                    <div style={styles.formHint}>No mileage-based suggestions for this RO odometer.</div>
+                  {selectedROMaintenanceSuggestionGroups.length === 0 ? (
+                    <div style={styles.formHint}>No matching maintenance suggestions for this RO vehicle profile.</div>
                   ) : (
                     <div style={styles.formStack}>
-                      {selectedRoMileageSuggestions
-                        .filter((item) => !(dismissedMileageSuggestionIdsByScope[`ro:${selectedRO.id}`] ?? []).includes(item.id))
-                        .map((item) => {
-                          const titleKey = item.title.trim().toLowerCase();
-                          const roRecommendations = roRecommendationTitlesById[selectedRO.id] ?? [];
-                          const existsInRecommendations = roRecommendations.some((entry) => entry.trim().toLowerCase() === titleKey);
-                          const existsInWorkLines = selectedRO.workLines.some((line) => line.title.trim().toLowerCase() === titleKey);
-                          return (
-                            <div key={item.id} style={styles.concernCard}>
-                              <div style={styles.mobileDataCardHeader}><strong>{item.title}</strong><span style={styles.statusInfo}>{item.intervalTag}</span></div>
-                              <div style={styles.formHint}>{item.reason}</div>
-                              {item.isConditional ? <div style={{ ...styles.statusWarning, marginTop: 6 }}>If applicable</div> : null}
-                              <div style={{ ...styles.inlineActions, marginTop: 8 }}>
-                                <button type="button" style={styles.smallButtonMuted} disabled={existsInRecommendations} onClick={() => addRoSuggestionToRecommendations(selectedRO.id, item)}>Add to Recommendations</button>
-                                <button type="button" style={styles.smallButton} disabled={existsInWorkLines} onClick={() => addRoSuggestionToWorkLine(selectedRO.id, item)}>Add to Work Line</button>
-                                <button type="button" style={styles.smallButtonMuted} onClick={() => dismissMileageSuggestion(`ro:${selectedRO.id}`, item.id)}>Dismiss</button>
-                              </div>
-                            </div>
-                          );
-                        })}
+                      {selectedROMaintenanceSuggestionGroups.map((group) => (
+                        <div key={group.category} style={styles.concernCard} data-testid={`maintenance-suggestion-category-${group.category}`}>
+                          <div style={styles.mobileDataCardHeader}>
+                            <strong>{group.category}</strong>
+                            <span style={styles.statusInfo}>{group.items.length} suggestions</span>
+                          </div>
+                          <div style={styles.formStack}>
+                            {group.items.map((item) => {
+                              const titleKey = item.title.trim().toLowerCase();
+                              const roRecommendations = roRecommendationTitlesById[selectedRO.id] ?? [];
+                              const existsInRecommendations = roRecommendations.some((entry) => entry.trim().toLowerCase() === titleKey);
+                              const existsInWorkLines = selectedRO.workLines.some((line) => line.title.trim().toLowerCase() === titleKey);
+                              return (
+                                <div key={item.id} style={styles.mobileDataCard} data-testid={`maintenance-suggestion-card-${item.id}`}>
+                                  <div style={styles.mobileDataCardHeader}>
+                                    <strong>{item.title}</strong>
+                                    <span style={styles.statusInfo}>{item.intervalTag}</span>
+                                  </div>
+                                  <div style={styles.chipWrap}>
+                                    <span style={styles.tagNeutral}>{item.specificityTag || "General"}</span>
+                                  </div>
+                                  <div style={styles.formHint}>{item.reason}</div>
+                                  {item.isConditional ? <div style={{ ...styles.statusWarning, marginTop: 6 }}>If applicable</div> : null}
+                                  <div style={{ ...styles.inlineActions, marginTop: 8 }}>
+                                    <button type="button" data-testid={`maintenance-add-recommendation-${item.id}`} style={styles.smallButtonMuted} disabled={existsInRecommendations} onClick={() => addRoSuggestionToRecommendations(selectedRO.id, item)}>Add to Recommendations</button>
+                                    <button type="button" data-testid={`maintenance-add-workline-${item.id}`} style={styles.smallButton} disabled={existsInWorkLines} onClick={() => addRoSuggestionToWorkLine(selectedRO.id, item)}>Add to Work Line</button>
+                                    <button type="button" data-testid={`maintenance-dismiss-${item.id}`} style={styles.smallButtonMuted} onClick={() => dismissMileageSuggestion(`ro:${selectedRO.id}`, item.id)}>Dismiss</button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                   {(roRecommendationTitlesById[selectedRO.id] ?? []).length > 0 ? (
@@ -11280,45 +13067,25 @@ function RepairOrdersPage({
                   ) : null}
                 </div>
 
-                <div style={styles.sectionCard}>
+                <div style={styles.sectionCardMuted}>
                   <div style={styles.mobileDataCardHeader}>
-                    <div style={styles.sectionTitle}>Maintenance Suggestions ({selectedRO.odometerKm || "-"} km)</div>
-                    <span style={styles.statusInfo}>Mileage-based</span>
+                    <div>
+                      <div style={styles.sectionTitle}>Added Maintenance Recommendations</div>
+                      <div style={styles.formHint}>Selected items from the unified suggestion list appear here as the recommendation set for this RO.</div>
+                    </div>
+                    <span style={selectedROMaintenanceRecommendations.length ? styles.statusOk : styles.statusNeutral}>
+                      {selectedROMaintenanceRecommendations.length} Added
+                    </span>
                   </div>
-                  {selectedROOdometerKm == null ? (
-                    <div style={styles.formHint}>Enter a valid odometer value to generate maintenance suggestions.</div>
-                  ) : selectedROMaintenanceSuggestions.length === 0 ? (
-                    <div style={styles.formHint}>No new maintenance suggestions for the current mileage window.</div>
+                  {selectedROMaintenanceRecommendations.length === 0 ? (
+                    <div style={styles.formHint}>No maintenance recommendations added yet.</div>
                   ) : (
-                    <div style={styles.mobileCardList}>
-                      {selectedROMaintenanceSuggestions.map((suggestion) => (
-                        <div key={`${selectedRO.id}_${suggestion.id}`} style={styles.mobileDataCard}>
-                          <div style={styles.mobileDataCardHeader}>
-                            <strong>{suggestion.title}</strong>
-                            <span style={styles.statusNeutral}>{suggestion.intervalTag}</span>
-                          </div>
-                          <div style={styles.formHint}>{suggestion.reason}</div>
-                          <div style={styles.inlineActions}>
-                            <button type="button" style={styles.smallButton} onClick={() => addSelectedROMaintenanceToRecommendations(suggestion)}>
-                              Add to Recommendations
-                            </button>
-                            <button type="button" style={styles.smallButtonSuccess} onClick={() => addSelectedROMaintenanceToWorkLine(suggestion)}>
-                              Add to Work Line
-                            </button>
-                            <button type="button" style={styles.smallButtonMuted} onClick={() => dismissSelectedROMaintenanceSuggestion(suggestion.id)}>
-                              Dismiss
-                            </button>
-                          </div>
-                        </div>
+                    <div style={styles.chipWrap}>
+                      {selectedROMaintenanceRecommendations.map((title) => (
+                        <span key={title} style={styles.tagNeutral}>{title}</span>
                       ))}
                     </div>
                   )}
-                  {selectedROMaintenanceRecommendations.length ? (
-                    <div style={{ ...styles.sectionCardMuted, marginTop: 8 }}>
-                      <div style={styles.formHint}>Added Recommendations</div>
-                      <div>{selectedROMaintenanceRecommendations.map((item) => item.title).join("  |  ")}</div>
-                    </div>
-                  ) : null}
                 </div>
 
                 <div style={styles.sectionCard}>
@@ -11752,6 +13519,147 @@ function RepairOrdersPage({
                         </button>
                       </div>
                     </div>
+
+                    <CustomerMessageComposerPanel
+                      sourceModule="messages"
+                      currentUserRole={currentUser.role}
+                      currentUserName={currentUser.fullName}
+                      moduleKey="messages"
+                      buildSourceText={buildCustomerMessageComposerSourceTextForAction}
+                      providerMode={openAiAssistSettings.provider}
+                      model={openAiAssistSettings.model}
+                      maxTokens={openAiAssistSettings.maxTokens}
+                      apiKeyConfigured={!!openAiApiKey}
+                      logs={openAiAssistLogs}
+                      setLogs={setOpenAiAssistLogs}
+                      customerName={selectedRO?.accountLabel || selectedRO?.customerName || ""}
+                      vehicleLabel={
+                        [selectedRO?.make, selectedRO?.model, selectedRO?.year].filter(Boolean).join(" ") ||
+                        selectedRO?.plateNumber ||
+                        selectedRO?.conductionNumber ||
+                        ""
+                      }
+                      roNumber={selectedRO?.roNumber || ""}
+                      onApplyDraft={(draftText) => {
+                        setOpenAiAssistDraftOverride(draftText);
+                        setSmsSendFeedback("Customer message draft applied to the SMS preview.");
+                      }}
+                    />
+
+                    <AiAssistPanel
+                      action={openAiAssistAction}
+                      sourceModule="repairOrders"
+                      sourceText={openAiAssistSourceText ?? ""}
+                      draftText={openAiAssistDraftText}
+                      draftMeta={openAiAssistDraftMeta}
+                      logs={openAiAssistLogs}
+                      feedback={openAiAssistSettingsFeedback}
+                      isGenerating={isGeneratingOpenAiAssistDraft}
+                      canUseAiAssist={canUseOpenAiAssist}
+                      accessMessage={getAiAccessMessage("repairOrders", currentUser.role, repairOrdersAiEnabled)}
+                      draftFromCache={openAiAssistDraftWasCached}
+                      reviewed={openAiAssistReviewed}
+                      onReviewedChange={(nextReviewed) => {
+                        setOpenAiAssistReviewed(nextReviewed);
+                        setOpenAiAssistReviewedAt(nextReviewed ? new Date().toISOString() : "");
+                        if (!nextReviewed) {
+                          setOpenAiAssistDraftOverride("");
+                        }
+                      }}
+                      providerMode={openAiAssistSettings.provider}
+                      model={openAiAssistSettings.model}
+                      maxTokens={openAiAssistSettings.maxTokens}
+                      apiKeyConfigured={!!openAiApiKey}
+                      onActionChange={setOpenAiAssistAction}
+                      onGenerate={(action) => void handleOpenAiAssistAction(action)}
+                      onDraftTextChange={(nextDraft) => {
+                        setOpenAiAssistDraftText(nextDraft);
+                        setOpenAiAssistReviewed(false);
+                        setOpenAiAssistReviewedAt("");
+                      }}
+                      onUseDraft={() => {
+                        if (!openAiAssistReviewed) {
+                          setOpenAiAssistSettingsFeedback("Review confirmation is required before using this AI draft.");
+                          return;
+                        }
+                        setOpenAiAssistDraftOverride(openAiAssistDraftText.trim());
+                        setOpenAiAssistReviewedAt(openAiAssistReviewedAt || new Date().toISOString());
+                        setOpenAiAssistSettingsFeedback("Draft applied to the SMS/send preview.");
+                        setOpenAiAssistLogs((prev) => [
+                          ((): OpenAiAssistLogEntry => ({
+                            id: `ai_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                            actionType: openAiAssistAction,
+                            sourceModule: "repairOrders",
+                            status: "Success",
+                            generatedAt: new Date().toISOString(),
+                            provider: "OpenAI",
+                            model: openAiAssistSettings.model,
+                            note: "Draft applied to the SMS/send preview.",
+                            user: currentUser.fullName,
+                            role: currentUser.role,
+                            reviewed: true,
+                            reviewedAt: openAiAssistReviewedAt || new Date().toISOString(),
+                            used: true,
+                            usedAt: new Date().toISOString(),
+                            copied: false,
+                            copiedAt: "",
+                            success: true,
+                            safetyLabel: "AI-generated draft - review before use",
+                            outputMode: openAiAssistSettings.outputMode,
+                            templateType: getAiOutputTemplateType(openAiAssistSettings.outputMode),
+                            moduleEnabled: repairOrdersAiEnabled,
+        }))(),
+        ...prev,
+      ].slice(0, 40));
+                      }}
+                      onCopyDraft={async () => {
+                        if (!openAiAssistReviewed) {
+                          setOpenAiAssistSettingsFeedback("Review confirmation is required before copying this draft.");
+                          return;
+                        }
+                        try {
+                          await navigator.clipboard.writeText(openAiAssistDraftText);
+                          const copiedAt = new Date().toISOString();
+                          setOpenAiAssistLogs((prev) => [
+                          ((): OpenAiAssistLogEntry => ({
+                            id: `ai_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                              actionType: openAiAssistAction,
+                              sourceModule: "repairOrders",
+                              status: "Success",
+                              generatedAt: copiedAt,
+                              provider: "OpenAI",
+                              model: openAiAssistSettings.model,
+                              note: "Draft copied to clipboard.",
+                              user: currentUser.fullName,
+                              role: currentUser.role,
+                              reviewed: true,
+                              reviewedAt: openAiAssistReviewedAt || copiedAt,
+                              copied: true,
+                              copiedAt,
+                              used: false,
+                              usedAt: "",
+                              success: true,
+                              safetyLabel: "AI-generated draft - review before use",
+                              outputMode: openAiAssistSettings.outputMode,
+                              templateType: getAiOutputTemplateType(openAiAssistSettings.outputMode),
+                              moduleEnabled: repairOrdersAiEnabled,
+        }))(),
+        ...prev,
+      ].slice(0, 40));
+                        } catch {
+                          // Clipboard fallback not required for this demo UI.
+                        }
+                      }}
+                      onResetSource={() => {
+                        setOpenAiAssistDraftText(openAiAssistSourceText ?? "");
+                        setOpenAiAssistDraftMeta(null);
+                        setOpenAiAssistDraftWasCached(false);
+                        setOpenAiAssistDraftOverride("");
+                        setOpenAiAssistReviewed(false);
+                        setOpenAiAssistReviewedAt("");
+                        setOpenAiAssistSettingsFeedback("Draft reset to the live source text.");
+                      }}
+                    />
 
                     {activeCustomerNotificationTemplate ? (
                       <div style={styles.formStack}>
@@ -12204,7 +14112,7 @@ function RepairOrdersPage({
 
                   <div style={styles.formStack}>
                     {selectedRO.workLines.map((line, index) => (
-                      <div key={line.id} style={styles.sectionCardMuted}>
+                      <div key={line.id} style={styles.sectionCardMuted} data-testid={`repair-order-workline-${line.id}`}>
                         <div style={styles.mobileDataCardHeader}>
                           <strong>Line {index + 1}</strong>
                           <div style={styles.inlineActions}>
@@ -12237,7 +14145,13 @@ function RepairOrdersPage({
                             </div>
                             <div style={styles.formGroup}>
                               <label style={styles.label}>Status</label>
-                              <select style={styles.select} value={line.status} onChange={(e) => updateROWorkLine(selectedRO.id, line.id, "status", e.target.value)} disabled={(line.approvalDecision ?? "Pending") !== "Approved"}>
+                              <select
+                                style={styles.select}
+                                data-testid={`repair-order-workline-status-${line.id}`}
+                                value={line.status}
+                                onChange={(e) => updateROWorkLine(selectedRO.id, line.id, "status", e.target.value)}
+                                disabled={(line.approvalDecision ?? "Pending") !== "Approved"}
+                              >
                                 <option value="Pending">Pending</option>
                                 <option value="In Progress">In Progress</option>
                                 <option value="Waiting Parts">Waiting Parts</option>
@@ -13229,6 +15143,7 @@ function ShopFloorPage({
                         <label style={styles.label}>Current RO Status</label>
                         <select
                           style={styles.select}
+                          data-testid="repair-order-status-select"
                           value={selectedRO.status}
                           disabled={!canManageShopFloor}
                           onChange={(e) => handleStatusChange(selectedRO.id, e.target.value as ROStatus)}
@@ -13658,6 +15573,15 @@ function AppInner() {
     readLocalStorage<WorkLog[]>(STORAGE_KEYS.workLogs, [])
   );
 
+  const [maintenanceIntervalRules, setMaintenanceIntervalRules] = useState<MaintenanceIntervalRuleRecord[]>(() => {
+    const stored = readLocalStorage<MaintenanceIntervalRuleRecord[]>(STORAGE_KEYS.maintenanceIntervalRules, []);
+    return stored.length > 0 ? stored : DEFAULT_MAINTENANCE_INTERVAL_RULES.map((rule) => ({ ...rule }));
+  });
+
+  const [vehicleServiceHistoryRecords, setVehicleServiceHistoryRecords] = useState<VehicleServiceHistoryRecord[]>(() =>
+    readLocalStorage<VehicleServiceHistoryRecord[]>(STORAGE_KEYS.vehicleServiceHistoryRecords, [])
+  );
+
   const [customerAccounts, setCustomerAccounts] = useState<CustomerAccount[]>(() =>
     readLocalStorage<CustomerAccount[]>(STORAGE_KEYS.customerAccounts, [])
   );
@@ -13776,6 +15700,18 @@ function AppInner() {
   useEffect(() => {
     writeLocalStorage(STORAGE_KEYS.workLogs, workLogs);
   }, [workLogs]);
+
+  useEffect(() => {
+    writeLocalStorage(STORAGE_KEYS.maintenanceIntervalRules, maintenanceIntervalRules);
+  }, [maintenanceIntervalRules]);
+
+  useEffect(() => {
+    setVehicleServiceHistoryRecords((prev) => syncVehicleServiceHistoryRecords(prev, repairOrders));
+  }, [repairOrders]);
+
+  useEffect(() => {
+    writeLocalStorage(STORAGE_KEYS.vehicleServiceHistoryRecords, vehicleServiceHistoryRecords);
+  }, [vehicleServiceHistoryRecords]);
 
   useEffect(() => {
     setCustomerAccounts((prev) => buildCustomerAccountsFromRecords(prev, intakeRecords, repairOrders));
@@ -13974,14 +15910,19 @@ function AppInner() {
     const inspection2Id = uid("insp");
     const ro1Id = uid("ro");
     const ro2Id = uid("ro");
+    const ro3Id = uid("ro");
+    const historicalRoId = uid("ro");
     const workLine1Id = uid("wl");
     const workLine2Id = uid("wl");
     const workLine3Id = uid("wl");
     const workLine4Id = uid("wl");
+    const historicalWorkLineId = uid("wl");
+    const historicalAlignmentWorkLineId = uid("wl");
     const approval1Id = uid("apr");
     const qc1Id = uid("qc");
     const release1Id = uid("rel");
     const parts1Id = uid("pr");
+    const parts2Id = uid("pr");
     const invoice1Id = uid("inv");
     const payment1Id = uid("pay");
     const backjob1Id = uid("bj");
@@ -14115,6 +16056,87 @@ function AppInner() {
 
     const repairOrdersSeed: RepairOrderRecord[] = [
       {
+        id: historicalRoId,
+        roNumber: nextDailyNumber("RO"),
+        createdAt: iso(240),
+        updatedAt: iso(236),
+        workStartedAt: iso(239),
+        sourceType: "Intake",
+        intakeId: intake1Id,
+        inspectionId: inspection1Id,
+        intakeNumber: intakeRecordsSeed[0].intakeNumber,
+        inspectionNumber: inspection1.inspectionNumber,
+        customerName: "Miguel Santos",
+        companyName: "",
+        accountType: "Personal",
+        accountLabel: "Miguel Santos",
+        phone: "09171234567",
+        email: "miguel.santos@example.com",
+        plateNumber: "NEX-2451",
+        conductionNumber: "",
+        make: "Toyota",
+        model: "Fortuner",
+        year: "2021",
+        color: "Gray",
+        odometerKm: "52210",
+        customerConcern: "Routine periodic maintenance package.",
+        advisorName: advisorUser.fullName,
+        status: "Closed",
+        primaryTechnicianId: chiefUser.id,
+        supportTechnicianIds: [mechanicUser.id],
+        workLines: [
+          {
+            ...recalculateWorkLine({
+              ...getEmptyWorkLine(),
+              id: historicalWorkLineId,
+              title: "5,000 km periodic maintenance package",
+              category: "Periodic Maintenance",
+              priority: "High",
+              status: "Completed",
+              laborHours: "1.5",
+              laborRate: "900",
+              partsCost: "4500",
+              partsMarkupPercent: "15",
+              notes: "Historical same-vehicle PMS record for suggestion suppression.",
+              assignedTechnicianId: chiefUser.id,
+              timerStatus: "Completed",
+              timerStartedAt: "",
+              accumulatedMinutes: 90,
+              completedAt: iso(237),
+              approvalDecision: "Approved",
+              approvalAt: iso(238),
+            }),
+          },
+          {
+            ...recalculateWorkLine({
+              ...getEmptyWorkLine(),
+              id: historicalAlignmentWorkLineId,
+              title: "Wheel alignment",
+              category: "Alignment",
+              priority: "Medium",
+              status: "Completed",
+              laborHours: "1",
+              laborRate: "850",
+              partsCost: "0",
+              partsMarkupPercent: "0",
+              notes: "Historical same-vehicle alignment record for suggestion suppression.",
+              assignedTechnicianId: mechanicUser.id,
+              timerStatus: "Completed",
+              timerStartedAt: "",
+              accumulatedMinutes: 30,
+              completedAt: iso(237),
+              approvalDecision: "Approved",
+              approvalAt: iso(238),
+            }),
+          },
+        ],
+        latestApprovalRecordId: "",
+        deferredLineTitles: [],
+        backjobReferenceRoId: "",
+        findingRecommendationDecisions: [],
+        encodedBy: advisorUser.fullName,
+      },
+      {
         id: ro1Id,
         roNumber: nextDailyNumber("RO"),
         createdAt: iso(25),
@@ -14150,6 +16172,7 @@ function AppInner() {
               id: workLine1Id,
               title: "Replace front shock absorbers",
               category: "Suspension",
+              serviceKey: "suspension-review",
               priority: "High",
               status: "In Progress",
               laborHours: "2.5",
@@ -14171,6 +16194,7 @@ function AppInner() {
               id: workLine2Id,
               title: "Wheel alignment",
               category: "Alignment",
+              serviceKey: "alignment-review",
               priority: "Medium",
               status: "Pending",
               laborHours: "1",
@@ -14188,6 +16212,42 @@ function AppInner() {
           },
         ],
         latestApprovalRecordId: approval1Id,
+        deferredLineTitles: [],
+        backjobReferenceRoId: "",
+        findingRecommendationDecisions: [],
+        encodedBy: advisorUser.fullName,
+      },
+      {
+        id: ro3Id,
+        roNumber: nextDailyNumber("RO"),
+        createdAt: iso(8),
+        updatedAt: iso(0),
+        workStartedAt: iso(0),
+        sourceType: "Intake",
+        intakeId: intake1Id,
+        inspectionId: inspection1Id,
+        intakeNumber: intakeRecordsSeed[0].intakeNumber,
+        inspectionNumber: inspection1.inspectionNumber,
+        customerName: "Miguel Santos",
+        companyName: "",
+        accountType: "Personal",
+        accountLabel: "Miguel Santos",
+        phone: "09171234567",
+        email: "miguel.santos@example.com",
+        plateNumber: "NEX-7788",
+        conductionNumber: "",
+        make: "Toyota",
+        model: "Fortuner",
+        year: "2021",
+        color: "Gray",
+        odometerKm: "5005",
+        customerConcern: "General periodic maintenance check.",
+        advisorName: advisorUser.fullName,
+        status: "Waiting Approval",
+        primaryTechnicianId: chiefUser.id,
+        supportTechnicianIds: [mechanicUser.id],
+        workLines: [],
+        latestApprovalRecordId: "",
         deferredLineTitles: [],
         backjobReferenceRoId: "",
         findingRecommendationDecisions: [],
@@ -14281,7 +16341,7 @@ function AppInner() {
         id: approval1Id,
         approvalNumber: nextDailyNumber("APP"),
         roId: ro1Id,
-        roNumber: repairOrdersSeed[0].roNumber,
+        roNumber: repairOrdersSeed[1].roNumber,
         createdAt: iso(20),
         decidedBy: advisorUser.fullName,
         customerName: "Miguel Santos",
@@ -14300,11 +16360,11 @@ function AppInner() {
         id: parts1Id,
         requestNumber: nextDailyNumber("PR"),
         roId: ro1Id,
-        roNumber: repairOrdersSeed[0].roNumber,
+        roNumber: repairOrdersSeed[1].roNumber,
         createdAt: iso(19),
-        updatedAt: iso(4),
+        updatedAt: iso(3.5),
         requestedBy: chiefUser.fullName,
-        status: "Ordered",
+        status: "Arrived",
         partName: "Front shock absorber set",
         partNumber: "FSA-FTN-2021",
         quantity: "2",
@@ -14337,6 +16397,126 @@ function AppInner() {
             courierName: "",
             shippingNotes: "",
           },
+          {
+            id: "bid_demo_2",
+            supplierName: "Metro Auto Supply",
+            brand: "Monroe",
+            quantity: "2",
+            unitCost: "2850",
+            totalCost: "5700",
+            deliveryTime: "3 days",
+            warrantyNote: "12 months distributor warranty",
+            condition: "Brand New",
+            notes: "Lowest quoted cost",
+            createdAt: iso(18),
+            productPhotos: [],
+            invoiceFileName: "",
+            shippingLabelFileName: "",
+            trackingNumber: "",
+            courierName: "",
+            shippingNotes: "",
+          },
+          {
+            id: "bid_demo_3",
+            supplierName: "Rapid Delivery Parts",
+            brand: "KYB",
+            quantity: "2",
+            unitCost: "3300",
+            totalCost: "6600",
+            deliveryTime: "Next day",
+            warrantyNote: "6 months supplier warranty",
+            condition: "Brand New",
+            notes: "Fastest lead time",
+            createdAt: iso(18),
+            productPhotos: [],
+            invoiceFileName: "",
+            shippingLabelFileName: "",
+            trackingNumber: "",
+            courierName: "",
+            shippingNotes: "",
+          },
+        ],
+      },
+      {
+        id: parts2Id,
+        requestNumber: nextDailyNumber("PR"),
+        roId: ro2Id,
+        roNumber: repairOrdersSeed[3].roNumber,
+        workLineId: workLine4Id,
+        createdAt: iso(8.5),
+        updatedAt: iso(2),
+        requestedBy: officeUser.fullName,
+        status: "Parts Arrived",
+        partName: "Cabin air filter",
+        partNumber: "CAF-MST-2023",
+        quantity: "1",
+        urgency: "Medium",
+        notes: "Needed for A/C service completion.",
+        customerSellingPrice: "1250",
+        selectedBidId: "bid_demo_5",
+        plateNumber: "ABJ-9087",
+        vehicleLabel: "Mitsubishi Montero Sport 2023",
+        accountLabel: "Prime Movers Logistics",
+        workshopPhotos: [],
+        returnRecords: [],
+        bids: [
+          {
+            id: "bid_demo_4",
+            supplierName: "Northeast Parts Supply",
+            brand: "Denso",
+            quantity: "1",
+            unitCost: "480",
+            totalCost: "480",
+            deliveryTime: "4 days",
+            warrantyNote: "3 months supplier warranty",
+            condition: "OEM",
+            notes: "Economy option",
+            createdAt: iso(8),
+            productPhotos: [],
+            invoiceFileName: "",
+            shippingLabelFileName: "",
+            trackingNumber: "",
+            courierName: "",
+            shippingNotes: "",
+          },
+          {
+            id: "bid_demo_5",
+            supplierName: "AC Pro Parts",
+            brand: "Mann",
+            quantity: "1",
+            unitCost: "520",
+            totalCost: "520",
+            deliveryTime: "2 days",
+            warrantyNote: "6 months supplier warranty",
+            condition: "Brand New",
+            notes: "Selected for better delivery and availability",
+            createdAt: iso(8),
+            productPhotos: [],
+            invoiceFileName: "",
+            shippingLabelFileName: "",
+            trackingNumber: "",
+            courierName: "",
+            shippingNotes: "",
+          },
+          {
+            id: "bid_demo_6",
+            supplierName: "Metro Auto Supply",
+            brand: "Mann",
+            quantity: "1",
+            unitCost: "450",
+            totalCost: "450",
+            deliveryTime: "6 days",
+            warrantyNote: "12 months distributor warranty",
+            condition: "Brand New",
+            notes: "Lowest quoted cost but slower",
+            createdAt: iso(8),
+            productPhotos: [],
+            invoiceFileName: "",
+            shippingLabelFileName: "",
+            trackingNumber: "",
+            courierName: "",
+            shippingNotes: "",
+          },
         ],
       },
     ];
@@ -14346,7 +16526,7 @@ function AppInner() {
         id: qc1Id,
         qcNumber: nextDailyNumber("QC"),
         roId: ro2Id,
-        roNumber: repairOrdersSeed[1].roNumber,
+        roNumber: repairOrdersSeed[3].roNumber,
         createdAt: iso(4),
         qcBy: chiefUser.fullName,
         result: "Passed",
@@ -14365,7 +16545,7 @@ function AppInner() {
         id: release1Id,
         releaseNumber: nextDailyNumber("REL"),
         roId: ro2Id,
-        roNumber: repairOrdersSeed[1].roNumber,
+        roNumber: repairOrdersSeed[3].roNumber,
         createdAt: iso(2),
         releasedBy: officeUser.fullName,
         finalServiceAmount: "1800",
@@ -14385,7 +16565,7 @@ function AppInner() {
         id: invoice1Id,
         invoiceNumber: nextDailyNumber("INV"),
         roId: ro2Id,
-        roNumber: repairOrdersSeed[1].roNumber,
+        roNumber: repairOrdersSeed[3].roNumber,
         createdAt: iso(3),
         updatedAt: iso(2),
         createdBy: officeUser.fullName,
@@ -14406,7 +16586,7 @@ function AppInner() {
         paymentNumber: nextDailyNumber("PAY"),
         invoiceId: invoice1Id,
         roId: ro2Id,
-        roNumber: repairOrdersSeed[1].roNumber,
+        roNumber: repairOrdersSeed[3].roNumber,
         createdAt: iso(2),
         receivedBy: officeUser.fullName,
         amount: "7442.50",
@@ -14421,7 +16601,7 @@ function AppInner() {
         id: backjob1Id,
         backjobNumber: nextDailyNumber("BJ"),
         linkedRoId: ro2Id,
-        linkedRoNumber: repairOrdersSeed[1].roNumber,
+        linkedRoNumber: repairOrdersSeed[3].roNumber,
         createdAt: iso(1.5),
         updatedAt: iso(0.5),
         plateNumber: "ABJ-9087",
@@ -14444,7 +16624,7 @@ function AppInner() {
         id: backjob2Id,
         backjobNumber: nextDailyNumber("BJ"),
         linkedRoId: ro1Id,
-        linkedRoNumber: repairOrdersSeed[0].roNumber,
+        linkedRoNumber: repairOrdersSeed[1].roNumber,
         createdAt: iso(0.8),
         updatedAt: iso(0.2),
         plateNumber: "NEX-2451",
@@ -14559,7 +16739,7 @@ function AppInner() {
         email: "miguel.santos@example.com",
         password: "4567",
         linkedPlateNumbers: ["NEX-2451", "NEX-7788"],
-        linkedRoIds: [ro1Id],
+        linkedRoIds: [historicalRoId, ro1Id, ro3Id],
         createdAt: iso(30),
         updatedAt: iso(1),
       },
@@ -14605,14 +16785,14 @@ function AppInner() {
       {
         id: uid("sms"),
         roId: ro1Id,
-        roNumber: repairOrdersSeed[0].roNumber,
+        roNumber: repairOrdersSeed[1].roNumber,
         customerId: customer1Id,
         customerName: "Miguel Santos",
         phoneNumber: "09171234567",
         tokenId: token1Id,
         sentTo: "09171234567",
         messageType: "approval-request",
-        message: `Demo approval link for ${repairOrdersSeed[0].roNumber}: ${buildCustomerApprovalLinkUrl(approvalLinkTokensSeed[0].token)}`,
+        message: `Demo approval link for ${repairOrdersSeed[1].roNumber}: ${buildCustomerApprovalLinkUrl(approvalLinkTokensSeed[0].token)}`,
         status: "Sent",
         provider: "Simulated",
         createdAt: iso(20),
@@ -14993,6 +17173,12 @@ function AppInner() {
     setRoleDefinitions(getDefaultRoleDefinitions());
   };
 
+  const resetMaintenanceIntervalRulesToDefault = () => {
+    if (!currentUser) return;
+    if (!hasPermission(currentUser.role, roleDefinitions, "roles.manage")) return;
+    setMaintenanceIntervalRules(DEFAULT_MAINTENANCE_INTERVAL_RULES.map((rule) => ({ ...rule })));
+  };
+
   const resetIntakeRecords = () => {
     setIntakeRecords([]);
     setInspectionRecords([]);
@@ -15004,6 +17190,7 @@ function AppInner() {
     setBackjobRecords([]);
     setInvoiceRecords([]);
     setPaymentRecords([]);
+    setVehicleServiceHistoryRecords([]);
     setCustomerAccounts([]);
     setCustomerSession(null);
     localStorage.removeItem(STORAGE_KEYS.intakeRecords);
@@ -15016,10 +17203,12 @@ function AppInner() {
     localStorage.removeItem(STORAGE_KEYS.backjobRecords);
     localStorage.removeItem(STORAGE_KEYS.invoiceRecords);
     localStorage.removeItem(STORAGE_KEYS.paymentRecords);
+    localStorage.removeItem(STORAGE_KEYS.vehicleServiceHistoryRecords);
     localStorage.removeItem(STORAGE_KEYS.customerAccounts);
     localStorage.removeItem(STORAGE_KEYS.customerSession);
     localStorage.removeItem(STORAGE_KEYS.approvalLinkTokens);
     localStorage.removeItem(STORAGE_KEYS.smsApprovalLogs);
+    localStorage.removeItem(MAINTENANCE_FOLLOW_UP_QUEUE_STORAGE_KEY);
     localStorage.removeItem(STORAGE_KEYS.counters);
   };
 
@@ -15056,7 +17245,15 @@ function AppInner() {
             paymentRecords={paymentRecords}
             workLogs={workLogs}
             partsRequests={partsRequests}
+            customerAccounts={customerAccounts}
+            smsApprovalLogs={smsApprovalLogs}
+            maintenanceIntervalRules={maintenanceIntervalRules}
+            serviceHistoryRecords={vehicleServiceHistoryRecords}
             isCompactLayout={isMobile}
+            onOpenHistory={() => setCurrentView("history")}
+            onOpenBackjobs={() => setCurrentView("backjobs")}
+            onOpenRepairOrders={() => setCurrentView("repairOrders")}
+            onSendSmsTemplate={sendSmsTemplate}
           />
         );
       case "bookings":
@@ -15106,7 +17303,10 @@ function AppInner() {
           <SettingsPage
             currentUser={currentUser}
             roleDefinitions={roleDefinitions}
+            maintenanceIntervalRules={maintenanceIntervalRules}
+            setMaintenanceIntervalRules={setMaintenanceIntervalRules}
             onResetDefaults={resetRolePermissionsToDefault}
+            onResetMaintenanceRules={resetMaintenanceIntervalRulesToDefault}
             onResetIntakes={resetIntakeRecords}
           />
         );
@@ -15137,6 +17337,8 @@ function AppInner() {
             setBackjobRecords={setBackjobRecords}
             partsRequests={partsRequests}
             releaseRecords={releaseRecords}
+            maintenanceIntervalRules={maintenanceIntervalRules}
+            serviceHistoryRecords={vehicleServiceHistoryRecords}
             approvalLinkTokens={approvalLinkTokens}
             autoPortalMessage={autoPortalMessage}
             smsApprovalLogs={smsApprovalLogs}
@@ -15222,6 +17424,8 @@ function AppInner() {
             backjobRecords={backjobRecords}
             invoiceRecords={invoiceRecords}
             paymentRecords={paymentRecords}
+            serviceHistoryRecords={vehicleServiceHistoryRecords}
+            maintenanceIntervalRules={maintenanceIntervalRules}
             isCompactLayout={isMobile}
           />
         );
@@ -15242,7 +17446,15 @@ function AppInner() {
             paymentRecords={paymentRecords}
             workLogs={workLogs}
             partsRequests={partsRequests}
+            customerAccounts={customerAccounts}
+            smsApprovalLogs={smsApprovalLogs}
+            maintenanceIntervalRules={maintenanceIntervalRules}
+            serviceHistoryRecords={vehicleServiceHistoryRecords}
             isCompactLayout={isMobile}
+            onOpenHistory={() => setCurrentView("history")}
+            onOpenBackjobs={() => setCurrentView("backjobs")}
+            onOpenRepairOrders={() => setCurrentView("repairOrders")}
+            onSendSmsTemplate={sendSmsTemplate}
           />
         );
     }
@@ -15416,7 +17628,7 @@ function AppInner() {
             <div style={styles.topBarLeft}>
               {isMobile ? (
                 <button type="button" onClick={() => setSidebarOpen((prev) => !prev)} style={styles.menuButton}>
-                  â˜°
+                  Ã¢ËœÂ°
                 </button>
               ) : null}
               <div>
@@ -16806,3 +19018,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 8,
   },
 };
+
+
+
+

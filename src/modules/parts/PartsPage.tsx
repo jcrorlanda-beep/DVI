@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { SessionUser, RepairOrderRecord, ROStatus, WorkLineStatus } from "../shared/types";
 import { formatCurrency, parseMoneyInput, getResponsiveSpan, formatDateTime } from "../shared/helpers";
+import { SupplierAnalytics } from "./SupplierAnalytics";
 
 // --- local types ---
 
@@ -558,6 +559,14 @@ function PartsPage({
   return (
     <div style={styles.pageContent}>
       <div style={styles.grid}>
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <SupplierAnalytics
+            partsRequests={partsRequests}
+            repairOrders={repairOrders}
+            isCompactLayout={isCompactLayout}
+          />
+        </div>
+
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
           <Card
             title="Parts + Supplier Bidding Control Center"

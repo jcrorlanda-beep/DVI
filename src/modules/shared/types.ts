@@ -257,6 +257,24 @@ export type NavItem = {
   permission: Permission;
 };
 
+export type MaintenanceIntervalRuleRecord = {
+  id: string;
+  serviceKey: string;
+  title: string;
+  category: string;
+  kmInterval: string;
+  timeIntervalValue: string;
+  timeIntervalUnit: "Days" | "Months" | "";
+  active: boolean;
+  adminNote: string;
+  make: string;
+  model: string;
+  yearFrom: string;
+  yearTo: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 // --- MISSING BASE TYPES ---
 
 export type VehicleAccountType = "Personal" | "Company / Fleet";
@@ -290,6 +308,7 @@ export type RepairOrderWorkLine = {
   category: string;
   priority: WorkLinePriority;
   status: WorkLineStatus;
+  serviceKey?: string;
   serviceEstimate: string;
   partsEstimate: string;
   totalEstimate: string;
@@ -309,6 +328,24 @@ export type RepairOrderWorkLine = {
   timerStartedAt?: string;
   accumulatedMinutes?: number;
   completedAt?: string;
+};
+
+export type VehicleServiceHistoryRecord = {
+  id: string;
+  vehicleKey: string;
+  plateNumber: string;
+  roId: string;
+  roNumber: string;
+  serviceKey: string;
+  title: string;
+  category: string;
+  completedAt: string;
+  odometerAtCompletion: string;
+  sourceWorkLineId: string;
+  sourceType: "WorkLine" | "Recommendation";
+  historyOrigin?: "Writeback" | "Seeded / Demo";
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type FindingRecommendationDecision = {

@@ -1,73 +1,39 @@
-# React + TypeScript + Vite
+# DVI Workshop Management App
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+DVI is a React + TypeScript workshop management system for repair orders, inspections, release, parts, backjobs, service history, technician productivity, supplier analytics, customer portals, and advisor dashboards.
 
-Currently, two official plugins are available:
+## Local setup
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. Install dependencies with `npm install`.
+2. Start the app with `npm run dev`.
+3. Create a production build with `npm run build`.
+4. Run end-to-end tests with `npm run test:e2e`.
 
-## React Compiler
+## Hybrid AI assist
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The app uses a local-first hybrid AI setup for advisor communication tools:
 
-## Expanding the ESLint configuration
+1. Ollama local AI first
+2. OpenAI cloud fallback
+3. Template fallback if both fail
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Supported environment variables:
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+- `VITE_OLLAMA_API_URL`
+- `VITE_OLLAMA_MODEL`
+- `VITE_OPENAI_API_KEY`
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+Notes:
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+- AI content is advisory only and remains reviewable before use.
+- API keys are not stored in localStorage.
+- The app continues to work without AI.
+- Use the Settings page to review AI mode, module toggles, and logs.
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+For same-WiFi Ollama use, point `VITE_OLLAMA_API_URL` at the machine running Ollama, such as `http://192.168.1.20:11434`.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Deployment readiness
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+- Keep `.env` and `.env.*` out of git.
+- Do not hardcode API keys in frontend code.
+- Template fallback should remain available when AI providers are offline.
