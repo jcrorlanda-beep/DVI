@@ -275,6 +275,18 @@ export type MaintenanceIntervalRuleRecord = {
   updatedAt: string;
 };
 
+export type ServicePricingCatalogRecord = {
+  id: string;
+  serviceKey: string;
+  title: string;
+  category: string;
+  basePrice: string;
+  active: boolean;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 // --- MISSING BASE TYPES ---
 
 export type VehicleAccountType = "Personal" | "Company / Fleet";

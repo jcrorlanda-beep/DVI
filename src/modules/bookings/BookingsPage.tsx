@@ -401,7 +401,24 @@ function BookingsPage({
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [showDraftRestore, setShowDraftRestore] = useState(() => !!bookingDraftInitial);
+  const [calendarDate, setCalendarDate] = useState(() => getDefaultBookingForm(currentUser.fullName).requestedDate);
   const bookingDraft = useDraftAutosave(STORAGE_KEY_BOOKING_DRAFT, form, hasNonEmptyValues(form));
+
+  const calendarBookings = useMemo(
+    () => bookings
+      .filter((row) => row.requestedDate === calendarDate)
+      .sort((a, b) => a.requestedTime.localeCompare(b.requestedTime)),
+    [bookings, calendarDate]
+  );
+
+  const calendarStatusCounts = useMemo(
+    () =>
+      calendarBookings.reduce<Record<string, number>>((acc, row) => {
+        acc[row.status] = (acc[row.status] ?? 0) + 1;
+        return acc;
+      }, {}),
+    [calendarBookings]
+  );
 
   const filteredBookings = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -678,6 +695,43 @@ function BookingsPage({
                 <button type="button" style={styles.secondaryButton} onClick={resetForm}>Reset</button>
               </div>
             </form>
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(7, isCompactLayout) }}>
+          <Card title="Appointment Calendar" subtitle="Daily booking visibility for front desk and advisor planning" right={<span style={styles.statusInfo}>{calendarBookings.length} appointment(s)</span>}>
+            <div style={styles.formStack} data-testid="booking-calendar-panel">
+              <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Calendar Date</label>
+                  <input data-testid="booking-calendar-date" style={styles.input} type="date" value={calendarDate} onChange={(e) => setCalendarDate(e.target.value)} />
+                </div>
+                <div style={styles.calendarSummary}>
+                  {["New", "Confirmed", "Arrived", "Rescheduled", "Converted to Intake"].map((status) => (
+                    <div key={status} style={styles.calendarPill}>
+                      <span>{status}</span>
+                      <strong>{calendarStatusCounts[status] ?? 0}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {calendarBookings.length === 0 ? (
+                <div style={styles.emptyState}>No appointments scheduled for this date.</div>
+              ) : (
+                <div style={styles.mobileCardList}>
+                  {calendarBookings.map((row) => (
+                    <div key={row.id} style={styles.calendarAppointment} data-testid={`booking-calendar-item-${row.id}`}>
+                      <div>
+                        <strong>{row.requestedTime} / {row.customerName || row.companyName || "Customer"}</strong>
+                        <div style={styles.mobileDataSecondary}>{row.serviceType} / {row.serviceDetail}</div>
+                        <div style={styles.mobileDataSecondary}>{[row.year, row.make, row.model].filter(Boolean).join(" ")} / {row.plateNumber || row.conductionNumber || "-"}</div>
+                      </div>
+                      <span style={getBookingStatusStyle(row.status)}>{row.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </Card>
         </div>
 
@@ -1003,5 +1057,35 @@ const styles: Record<string, React.CSSProperties> = {
     borderTop: "1px solid rgba(226, 232, 240, 0.9)",
     fontSize: 13,
     color: "#475569",
+  },
+  calendarSummary: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+    gap: 8,
+    alignSelf: "end",
+  },
+  calendarPill: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    border: "1px solid rgba(148, 163, 184, 0.22)",
+    borderRadius: 12,
+    padding: "10px 12px",
+    background: "#fff",
+    color: "#334155",
+    fontSize: 12,
+    fontWeight: 800,
+  },
+  calendarAppointment: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    border: "1px solid rgba(148, 163, 184, 0.22)",
+    borderRadius: 16,
+    background: "#fff",
+    padding: 12,
+    flexWrap: "wrap",
   },
 };

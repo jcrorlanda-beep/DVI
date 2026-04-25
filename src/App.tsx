@@ -23,14 +23,29 @@ import { getAiAccessMessage, useAiModuleEnabled, useAiOutputMode, getAiOutputTem
 import type { CustomerMessageComposerAction, CustomerMessageSourceContext } from "./modules/ai/customerMessageComposer";
 import { buildCustomerMessageSourceText } from "./modules/ai/customerMessageComposer";
 import { useOpenAiAssistController } from "./modules/ai/useOpenAiAssistController";
-import type { UserRole, Permission, ViewKey, RoleDefinition, UserAccount, SessionUser, NavItem, VehicleAccountType, IntakeStatus, IntakeRecord, ApprovalDecision, BackjobOutcome, RepairOrderSourceType, ROStatus, WorkLineStatus, WorkLinePriority, RepairOrderWorkLine, RepairOrderRecord, QCResult, QCRecord, ReleaseRecord, ApprovalWorkItem, FindingRecommendationDecision, ApprovalRecord, BackjobRecord, InvoiceStatus, PaymentStatus, PaymentMethod, InvoiceRecord, PaymentRecord, WorkLog, PartsRequestRecord, MaintenanceIntervalRuleRecord, VehicleServiceHistoryRecord } from "./modules/shared/types";
+import type { UserRole, Permission, ViewKey, RoleDefinition, UserAccount, SessionUser, NavItem, VehicleAccountType, IntakeStatus, IntakeRecord, ApprovalDecision, BackjobOutcome, RepairOrderSourceType, ROStatus, WorkLineStatus, WorkLinePriority, RepairOrderWorkLine, RepairOrderRecord, QCResult, QCRecord, ReleaseRecord, ApprovalWorkItem, FindingRecommendationDecision, ApprovalRecord, BackjobRecord, InvoiceStatus, PaymentStatus, PaymentMethod, InvoiceRecord, PaymentRecord, WorkLog, PartsRequestRecord, MaintenanceIntervalRuleRecord, VehicleServiceHistoryRecord, ServicePricingCatalogRecord } from "./modules/shared/types";
 import { getTechnicianProductivity, getAdvisorSalesProduced, getRepeatCustomerFrequency, getQcPassFailSummary, getWaitingPartsAging, getBackjobRate } from "./modules/shared/helpers";
 import { syncVehicleServiceHistoryRecords } from "./modules/maintenance/maintenanceHelpers";
 import { buildMaintenanceDashboardSourceData } from "./modules/maintenance/dashboardHelpers";
 import { MaintenanceDashboard } from "./modules/maintenance/MaintenanceDashboard";
 import { TechnicianPerformance } from "./modules/technicians";
+import { TechnicianEfficiencyPanel } from "./modules/technicians/TechnicianEfficiencyPanel";
 import { AdvisorActionCenter } from "./modules/dashboard/AdvisorActionCenter";
+import { OwnerExecutiveDashboard } from "./modules/dashboard/OwnerExecutiveDashboard";
+import { ManagementAlertsPanel } from "./modules/dashboard/ManagementAlertsPanel";
 import { MAINTENANCE_FOLLOW_UP_QUEUE_STORAGE_KEY } from "./modules/maintenance/followUpHelpers";
+import { RevenueDashboard } from "./modules/finance/RevenueDashboard";
+import { applySuggestedPricingToWorkLine, createDefaultPricingCatalog, findSuggestedPricing } from "./modules/finance/pricingHelpers";
+import { CustomerAnalyticsDashboard } from "./modules/customers/CustomerAnalyticsDashboard";
+import { FollowUpCampaignCenter } from "./modules/campaigns/FollowUpCampaignCenter";
+import { TechnicianScheduleBoard } from "./modules/operations/TechnicianScheduleBoard";
+import { BayManagementBoard } from "./modules/operations/BayManagementBoard";
+import { CapacityPlanningPanel } from "./modules/operations/CapacityPlanningPanel";
+import { RealTimeShopBoard } from "./modules/operations/RealTimeShopBoard";
+import { AdvisorPipelinePanel } from "./modules/advisors/AdvisorPipelinePanel";
+import { EstimateBuilderPanel } from "./modules/repairOrders/EstimateBuilderPanel";
+import { ApprovalEvidencePanel } from "./modules/approvals/ApprovalEvidencePanel";
+import { DocumentAttachmentCenter } from "./modules/documents/DocumentAttachmentCenter";
 
 
 type LoginForm = {
@@ -835,6 +850,7 @@ const STORAGE_KEYS = {
     paymentRecords: "dvi_phase10_payment_records_v1",
     workLogs: "dvi_phase16_work_logs_v1",
     maintenanceIntervalRules: "dvi_maintenance_interval_rules_v1",
+    servicePricingCatalog: "dvi_service_pricing_catalog_v1",
     vehicleServiceHistoryRecords: "dvi_vehicle_service_history_records_v1",
     customerAccounts: "dvi_phase15a_customer_accounts_v1",
   customerSession: "dvi_phase15a_customer_session_v1",
@@ -2298,8 +2314,11 @@ function getMileageMaintenanceSuggestionsFromRules(
   return suggestions.sort((a, b) => (b.specificityRank ?? 0) - (a.specificityRank ?? 0) || a.title.localeCompare(b.title));
 }
 
-function getMaintenanceSuggestionWorkLine(suggestion: MaintenanceSuggestion): RepairOrderWorkLine {
-  return recalculateWorkLine({
+function getMaintenanceSuggestionWorkLine(
+  suggestion: MaintenanceSuggestion,
+  servicePricingCatalog: ServicePricingCatalogRecord[] = []
+): RepairOrderWorkLine {
+  return applySuggestedPricingToWorkLine(recalculateWorkLine({
     ...getEmptyWorkLine(),
     title: suggestion.title,
     category: suggestion.category || 'Periodic Maintenance',
@@ -2307,7 +2326,7 @@ function getMaintenanceSuggestionWorkLine(suggestion: MaintenanceSuggestion): Re
     notes: suggestion.reason,
     customerDescription: `${suggestion.intervalTag}: ${suggestion.reason}`,
     recommendationSource: suggestion.source === "Library" ? 'RecommendationLibrary' : 'MileageSuggestion',
-  });
+  }), servicePricingCatalog);
 }
 
 function getOilChangePolicy(oilType: OilChangeReminderType) {
@@ -7446,6 +7465,7 @@ function DashboardPage({
   customerAccounts,
   smsApprovalLogs,
   maintenanceIntervalRules,
+  servicePricingCatalog,
   serviceHistoryRecords,
   isCompactLayout,
   onOpenHistory,
@@ -7470,6 +7490,7 @@ function DashboardPage({
   customerAccounts: CustomerAccount[];
   smsApprovalLogs: SmsApprovalDispatchLog[];
   maintenanceIntervalRules: MaintenanceIntervalRuleRecord[];
+  servicePricingCatalog: ServicePricingCatalogRecord[];
   serviceHistoryRecords: VehicleServiceHistoryRecord[];
   isCompactLayout: boolean;
   onOpenHistory: () => void;
@@ -7633,6 +7654,78 @@ function DashboardPage({
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <AdvisorPipelinePanel
+            repairOrders={repairOrders}
+            users={users}
+            partsRequests={partsRequests}
+            isCompactLayout={isCompactLayout}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <EstimateBuilderPanel
+            repairOrders={repairOrders}
+            servicePricingCatalog={servicePricingCatalog}
+            isCompactLayout={isCompactLayout}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <ApprovalEvidencePanel
+            approvalRecords={approvalRecords}
+            repairOrders={repairOrders}
+            isCompactLayout={isCompactLayout}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <DocumentAttachmentCenter
+            repairOrders={repairOrders}
+            isCompactLayout={isCompactLayout}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <ManagementAlertsPanel
+            repairOrders={repairOrders}
+            partsRequests={partsRequests}
+            backjobRecords={backjobRecords}
+            upcomingItems={maintenanceDashboardData.upcomingItems}
+            onOpenRepairOrders={onOpenRepairOrders}
+            onOpenHistory={onOpenHistory}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <OwnerExecutiveDashboard
+            currentUser={currentUser}
+            repairOrders={repairOrders}
+            releaseRecords={releaseRecords}
+            partsRequests={partsRequests}
+            qcRecords={qcRecords}
+            backjobRecords={backjobRecords}
+            users={users}
+            workLogs={workLogs}
+            isCompactLayout={isCompactLayout}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <CustomerAnalyticsDashboard
+            currentUser={currentUser}
+            repairOrders={repairOrders}
+            isCompactLayout={isCompactLayout}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <FollowUpCampaignCenter
+            repairOrders={repairOrders}
+            upcomingItems={maintenanceDashboardData.upcomingItems}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
           <MaintenanceDashboard
             vehicles={maintenanceDashboardData.vehicles}
             upcomingItems={maintenanceDashboardData.upcomingItems}
@@ -7655,6 +7748,59 @@ function DashboardPage({
             serviceHistoryRecords={serviceHistoryRecords}
             isCompactLayout={isCompactLayout}
             onOpenHistory={onOpenHistory}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <TechnicianEfficiencyPanel
+            users={users}
+            repairOrders={repairOrders}
+            qcRecords={qcRecords}
+            backjobRecords={backjobRecords}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <TechnicianScheduleBoard
+            users={users}
+            repairOrders={repairOrders}
+            workLogs={workLogs}
+            isCompactLayout={isCompactLayout}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <BayManagementBoard
+            repairOrders={repairOrders}
+            isCompactLayout={isCompactLayout}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <CapacityPlanningPanel
+            users={users}
+            repairOrders={repairOrders}
+            workLogs={workLogs}
+            isCompactLayout={isCompactLayout}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <RealTimeShopBoard
+            users={users}
+            repairOrders={repairOrders}
+            workLogs={workLogs}
+            isCompactLayout={isCompactLayout}
+          />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <RevenueDashboard
+            currentUser={currentUser}
+            repairOrders={repairOrders}
+            users={users}
+            partsRequests={partsRequests}
+            isCompactLayout={isCompactLayout}
           />
         </div>
 
@@ -10665,6 +10811,7 @@ function RepairOrdersPage({
   partsRequests,
   releaseRecords,
   maintenanceIntervalRules,
+  servicePricingCatalog,
   serviceHistoryRecords,
   approvalLinkTokens,
   autoPortalMessage,
@@ -10689,6 +10836,7 @@ function RepairOrdersPage({
   partsRequests: PartsRequestRecord[];
   releaseRecords: ReleaseRecord[];
   maintenanceIntervalRules: MaintenanceIntervalRuleRecord[];
+  servicePricingCatalog: ServicePricingCatalogRecord[];
   serviceHistoryRecords: VehicleServiceHistoryRecord[];
   approvalLinkTokens: ApprovalLinkToken[];
   autoPortalMessage: string;
@@ -11877,7 +12025,7 @@ function RepairOrdersPage({
   const addDraftSuggestionToWorkLine = (suggestion: MaintenanceSuggestion) => {
     const exists = form.workLines.some((line) => line.title.trim().toLowerCase() === suggestion.title.trim().toLowerCase());
     if (exists) return;
-    setForm((prev) => ({ ...prev, workLines: [...prev.workLines, getMaintenanceSuggestionWorkLine(suggestion)] }));
+    setForm((prev) => ({ ...prev, workLines: [...prev.workLines, getMaintenanceSuggestionWorkLine(suggestion, servicePricingCatalog)] }));
   };
 
   const addRoSuggestionToWorkLine = (roId: string, suggestion: MaintenanceSuggestion) => {
@@ -11890,7 +12038,7 @@ function RepairOrdersPage({
           ...row,
           updatedAt: new Date().toISOString(),
           updatedBy: currentUser.fullName,
-          workLines: [...row.workLines, getMaintenanceSuggestionWorkLine(suggestion)],
+          workLines: [...row.workLines, getMaintenanceSuggestionWorkLine(suggestion, servicePricingCatalog)],
         };
       })
     );
@@ -13031,6 +13179,7 @@ function RepairOrdersPage({
                               const roRecommendations = roRecommendationTitlesById[selectedRO.id] ?? [];
                               const existsInRecommendations = roRecommendations.some((entry) => entry.trim().toLowerCase() === titleKey);
                               const existsInWorkLines = selectedRO.workLines.some((line) => line.title.trim().toLowerCase() === titleKey);
+                              const suggestedPrice = findSuggestedPricing(servicePricingCatalog, item.serviceKey, item.title);
                               return (
                                 <div key={item.id} style={styles.mobileDataCard} data-testid={`maintenance-suggestion-card-${item.id}`}>
                                   <div style={styles.mobileDataCardHeader}>
@@ -13041,6 +13190,11 @@ function RepairOrdersPage({
                                     <span style={styles.tagNeutral}>{item.specificityTag || "General"}</span>
                                   </div>
                                   <div style={styles.formHint}>{item.reason}</div>
+                                  {suggestedPrice ? (
+                                    <div style={styles.formHint} data-testid={`maintenance-suggested-price-${item.id}`}>
+                                      Suggested price: {formatCurrency(parseMoneyInput(suggestedPrice.basePrice))}
+                                    </div>
+                                  ) : null}
                                   {item.isConditional ? <div style={{ ...styles.statusWarning, marginTop: 6 }}>If applicable</div> : null}
                                   <div style={{ ...styles.inlineActions, marginTop: 8 }}>
                                     <button type="button" data-testid={`maintenance-add-recommendation-${item.id}`} style={styles.smallButtonMuted} disabled={existsInRecommendations} onClick={() => addRoSuggestionToRecommendations(selectedRO.id, item)}>Add to Recommendations</button>
@@ -14697,6 +14851,17 @@ function ShopFloorPage({
     );
   };
 
+  const adjustWorkLogMinutes = (logId: string, deltaMinutes: number) => {
+    if (!canManageShopFloor) return;
+    setWorkLogs((prev) =>
+      prev.map((row) =>
+        row.id === logId
+          ? { ...row, totalMinutes: Math.max(0, (row.totalMinutes || 0) + deltaMinutes) }
+          : row
+      )
+    );
+  };
+
   const lineMinutesMap = useMemo(() => {
     const map = new Map<string, number>();
     roWorkLogs.forEach((log) => {
@@ -15289,13 +15454,13 @@ function ShopFloorPage({
                             )}
                             <div style={styles.inlineActions}>
                               <button type="button" style={styles.smallButtonSuccess} onClick={() => startWorkLog(line.id, suggestedTechId)}>
-                                Start Primary Timer
+                                Start / Resume Timer
                               </button>
                               {activeLineLogs
                                 .filter((log) => canManageShopFloor || log.technicianId === currentUser.id)
                                 .map((log) => (
                                   <button key={log.id} type="button" style={styles.smallButtonDanger} onClick={() => stopWorkLog(log.id)}>
-                                    Stop {getUserName(log.technicianId)}
+                                    Pause {getUserName(log.technicianId)}
                                   </button>
                                 ))}
                             </div>
@@ -15325,7 +15490,14 @@ function ShopFloorPage({
                                 <td style={styles.td}>{line?.title || "Work Line"}</td>
                                 <td style={styles.td}>{formatDateTime(log.startedAt)}</td>
                                 <td style={styles.td}>{log.endedAt ? formatDateTime(log.endedAt) : "Live"}</td>
-                                <td style={styles.td}>{formatMinutesAsHours(getWorkLogMinutes(log))}</td>
+                                <td style={styles.td}>
+                                  <div style={styles.inlineActions}>
+                                    <span>{formatMinutesAsHours(getWorkLogMinutes(log))}</span>
+                                    <button type="button" style={styles.tinyButton} disabled={!canManageShopFloor} onClick={() => adjustWorkLogMinutes(log.id, 15)}>
+                                      +15m
+                                    </button>
+                                  </div>
+                                </td>
                               </tr>
                             );
                           })}
@@ -15366,7 +15538,7 @@ function ShopFloorPage({
                             </div>
                             <div style={styles.inlineActions}>
                               <button type="button" style={styles.smallButtonDanger} onClick={() => stopWorkLog(log.id)}>
-                                Stop My Timer
+                                Pause My Timer
                               </button>
                             </div>
                           </div>
@@ -15440,7 +15612,7 @@ function ShopFloorPage({
                               style={styles.smallButtonSuccess}
                               onClick={() => markWorkLineComplete(line.id)}
                             >
-                              Mark Complete
+                              Complete Line
                             </button>
                           </div>
                         </div>
@@ -15578,6 +15750,11 @@ function AppInner() {
     return stored.length > 0 ? stored : DEFAULT_MAINTENANCE_INTERVAL_RULES.map((rule) => ({ ...rule }));
   });
 
+  const [servicePricingCatalog, setServicePricingCatalog] = useState<ServicePricingCatalogRecord[]>(() => {
+    const stored = readLocalStorage<ServicePricingCatalogRecord[]>(STORAGE_KEYS.servicePricingCatalog, []);
+    return stored.length > 0 ? stored : createDefaultPricingCatalog();
+  });
+
   const [vehicleServiceHistoryRecords, setVehicleServiceHistoryRecords] = useState<VehicleServiceHistoryRecord[]>(() =>
     readLocalStorage<VehicleServiceHistoryRecord[]>(STORAGE_KEYS.vehicleServiceHistoryRecords, [])
   );
@@ -15704,6 +15881,10 @@ function AppInner() {
   useEffect(() => {
     writeLocalStorage(STORAGE_KEYS.maintenanceIntervalRules, maintenanceIntervalRules);
   }, [maintenanceIntervalRules]);
+
+  useEffect(() => {
+    writeLocalStorage(STORAGE_KEYS.servicePricingCatalog, servicePricingCatalog);
+  }, [servicePricingCatalog]);
 
   useEffect(() => {
     setVehicleServiceHistoryRecords((prev) => syncVehicleServiceHistoryRecords(prev, repairOrders));
@@ -17191,6 +17372,7 @@ function AppInner() {
     setInvoiceRecords([]);
     setPaymentRecords([]);
     setVehicleServiceHistoryRecords([]);
+    setServicePricingCatalog(createDefaultPricingCatalog());
     setCustomerAccounts([]);
     setCustomerSession(null);
     localStorage.removeItem(STORAGE_KEYS.intakeRecords);
@@ -17204,6 +17386,7 @@ function AppInner() {
     localStorage.removeItem(STORAGE_KEYS.invoiceRecords);
     localStorage.removeItem(STORAGE_KEYS.paymentRecords);
     localStorage.removeItem(STORAGE_KEYS.vehicleServiceHistoryRecords);
+    localStorage.removeItem(STORAGE_KEYS.servicePricingCatalog);
     localStorage.removeItem(STORAGE_KEYS.customerAccounts);
     localStorage.removeItem(STORAGE_KEYS.customerSession);
     localStorage.removeItem(STORAGE_KEYS.approvalLinkTokens);
@@ -17248,6 +17431,7 @@ function AppInner() {
             customerAccounts={customerAccounts}
             smsApprovalLogs={smsApprovalLogs}
             maintenanceIntervalRules={maintenanceIntervalRules}
+            servicePricingCatalog={servicePricingCatalog}
             serviceHistoryRecords={vehicleServiceHistoryRecords}
             isCompactLayout={isMobile}
             onOpenHistory={() => setCurrentView("history")}
@@ -17305,6 +17489,8 @@ function AppInner() {
             roleDefinitions={roleDefinitions}
             maintenanceIntervalRules={maintenanceIntervalRules}
             setMaintenanceIntervalRules={setMaintenanceIntervalRules}
+            servicePricingCatalog={servicePricingCatalog}
+            setServicePricingCatalog={setServicePricingCatalog}
             onResetDefaults={resetRolePermissionsToDefault}
             onResetMaintenanceRules={resetMaintenanceIntervalRulesToDefault}
             onResetIntakes={resetIntakeRecords}
@@ -17338,6 +17524,7 @@ function AppInner() {
             partsRequests={partsRequests}
             releaseRecords={releaseRecords}
             maintenanceIntervalRules={maintenanceIntervalRules}
+            servicePricingCatalog={servicePricingCatalog}
             serviceHistoryRecords={vehicleServiceHistoryRecords}
             approvalLinkTokens={approvalLinkTokens}
             autoPortalMessage={autoPortalMessage}
@@ -17449,6 +17636,7 @@ function AppInner() {
             customerAccounts={customerAccounts}
             smsApprovalLogs={smsApprovalLogs}
             maintenanceIntervalRules={maintenanceIntervalRules}
+            servicePricingCatalog={servicePricingCatalog}
             serviceHistoryRecords={vehicleServiceHistoryRecords}
             isCompactLayout={isMobile}
             onOpenHistory={() => setCurrentView("history")}
@@ -18351,6 +18539,17 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     cursor: "pointer",
     fontSize: 12,
+  },
+
+  tinyButton: {
+    border: "1px solid rgba(148, 163, 184, 0.4)",
+    borderRadius: 8,
+    padding: "4px 7px",
+    background: "#ffffff",
+    color: "#0f172a",
+    fontWeight: 700,
+    cursor: "pointer",
+    fontSize: 11,
   },
 
   buttonDisabled: {

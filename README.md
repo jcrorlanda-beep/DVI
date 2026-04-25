@@ -37,3 +37,8 @@ For same-WiFi Ollama use, point `VITE_OLLAMA_API_URL` at the machine running Oll
 - Keep `.env` and `.env.*` out of git.
 - Do not hardcode API keys in frontend code.
 - Template fallback should remain available when AI providers are offline.
+
+## Roadmap notes
+
+- Later: Global UX Declutter Refactor. This is intentionally not implemented in the current operational feature batch.
+- Future UX rule: list pages show summaries only, create actions open modal/page, selecting an item opens detail view, and dashboards stay summary-focused.

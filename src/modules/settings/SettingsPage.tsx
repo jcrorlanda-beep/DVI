@@ -1,8 +1,9 @@
 import React from "react";
-import type { SessionUser, UserRole, RoleDefinition, MaintenanceIntervalRuleRecord } from "../shared/types";
+import type { SessionUser, UserRole, RoleDefinition, MaintenanceIntervalRuleRecord, ServicePricingCatalogRecord } from "../shared/types";
 import { hasPermission } from "../shared/helpers";
 import { OPENAI_ASSIST_LOG_STORAGE_KEY, type OpenAiAssistProviderMode, type OpenAiAssistLogEntry } from "../ai/openaiAssist";
 import { DEFAULT_AI_MODULE_TOGGLES, getAiModuleLabel, readAiModuleToggles, saveAiModuleToggles, type AiModuleKey, type AiModuleToggleSettings } from "../ai/aiSafety";
+import { cleanupInvalidJsonStorage, validateStoredRecords, type DataQualitySummary } from "../dataQuality/dataQualityHelpers";
 
 const ROLE_COLORS: Record<UserRole, { bg: string; text: string }> = {
   Admin: { bg: "#fee2e2", text: "#991b1b" },
@@ -59,6 +60,8 @@ function SettingsPage({
   roleDefinitions,
   maintenanceIntervalRules,
   setMaintenanceIntervalRules,
+  servicePricingCatalog,
+  setServicePricingCatalog,
   onResetDefaults,
   onResetMaintenanceRules,
   onResetIntakes,
@@ -67,6 +70,8 @@ function SettingsPage({
   roleDefinitions: RoleDefinition[];
   maintenanceIntervalRules: MaintenanceIntervalRuleRecord[];
   setMaintenanceIntervalRules: React.Dispatch<React.SetStateAction<MaintenanceIntervalRuleRecord[]>>;
+  servicePricingCatalog: ServicePricingCatalogRecord[];
+  setServicePricingCatalog: React.Dispatch<React.SetStateAction<ServicePricingCatalogRecord[]>>;
   onResetDefaults: () => void;
   onResetMaintenanceRules: () => void;
   onResetIntakes: () => void;
@@ -74,6 +79,7 @@ function SettingsPage({
   const canManageRoles = hasPermission(currentUser.role, roleDefinitions, "roles.manage");
   const canManageMaintenanceRules = hasPermission(currentUser.role, roleDefinitions, "roles.manage");
   const [newRule, setNewRule] = React.useState<MaintenanceIntervalRuleRecord>(() => createEmptyMaintenanceRuleDraft());
+  const [newPrice, setNewPrice] = React.useState<ServicePricingCatalogRecord>(() => createEmptyPricingDraft());
   const [openAiAssistProviderMode, setOpenAiAssistProviderMode] = React.useState<OpenAiAssistProviderMode>(() => {
     if (typeof window === "undefined") return "Disabled";
     return window.localStorage.getItem("dvi_openai_assist_provider_mode_v1") === "OpenAI" ? "OpenAI" : "Disabled";
@@ -101,6 +107,22 @@ function SettingsPage({
   const [aiModuleToggles, setAiModuleToggles] = React.useState<AiModuleToggleSettings>(() => readAiModuleToggles());
   const [aiSafetyFeedback, setAiSafetyFeedback] = React.useState("");
   const [isSavingAiSafety, setIsSavingAiSafety] = React.useState(false);
+  const dataQualityKeys = React.useMemo(
+    () => [
+      "dvi_phase2_intake_records_v1",
+      "dvi_phase3_inspection_records_v1",
+      "dvi_phase4_repair_orders_v1",
+      "dvi_phase6_qc_records_v1",
+      "dvi_phase7_release_records_v1",
+      "dvi_phase8_parts_requests_v1",
+      "dvi_phase9_backjob_records_v1",
+      "dvi_vehicle_service_history_records_v1",
+      "dvi_service_pricing_catalog_v1",
+    ],
+    []
+  );
+  const [dataQualitySummary, setDataQualitySummary] = React.useState<DataQualitySummary>(() => validateStoredRecords(dataQualityKeys));
+  const [dataQualityFeedback, setDataQualityFeedback] = React.useState("");
   const openAiApiKeyConfigured = !!String(import.meta.env.VITE_OPENAI_API_KEY ?? "").trim();
 
   const updateRule = (ruleId: string, patch: Partial<MaintenanceIntervalRuleRecord>) => {
@@ -127,6 +149,21 @@ function SettingsPage({
     };
     setMaintenanceIntervalRules((prev) => [...prev, rule]);
     setNewRule(createEmptyMaintenanceRuleDraft());
+  };
+
+  const updatePrice = (priceId: string, patch: Partial<ServicePricingCatalogRecord>) => {
+    setServicePricingCatalog((prev) =>
+      prev.map((price) => (price.id === priceId ? { ...price, ...patch, updatedAt: new Date().toISOString() } : price))
+    );
+  };
+
+  const addPrice = () => {
+    const now = new Date().toISOString();
+    setServicePricingCatalog((prev) => [
+      ...prev,
+      { ...newPrice, id: `price_${Math.random().toString(36).slice(2, 10)}`, createdAt: now, updatedAt: now },
+    ]);
+    setNewPrice(createEmptyPricingDraft());
   };
 
   const onSaveOpenAiAssistSettings = () => {
@@ -175,6 +212,16 @@ function SettingsPage({
     }
   };
 
+  const refreshDataQuality = () => {
+    setDataQualitySummary(validateStoredRecords(dataQualityKeys));
+  };
+
+  const cleanupDataQuality = () => {
+    const cleaned = cleanupInvalidJsonStorage(dataQualityKeys);
+    setDataQualityFeedback(cleaned.length ? `Removed unreadable saved data for ${cleaned.length} key(s).` : "No invalid JSON records needed cleanup.");
+    refreshDataQuality();
+  };
+
   return (
     <div style={styles.pageContent}>
       <div style={styles.grid}>
@@ -220,6 +267,112 @@ function SettingsPage({
               <div>
                 <strong>Role:</strong> <RoleBadge role={currentUser.role} />
               </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      <div style={{ ...styles.grid, marginTop: 16 }}>
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Service Pricing Catalog" subtitle="Admin-managed suggested prices for maintenance suggestions and new work lines">
+            <div style={styles.moduleText}>
+              Prices are suggestions only. Advisors can still override line estimates before approval.
+            </div>
+            <div style={styles.ruleForm} data-testid="service-pricing-catalog-panel">
+              <div style={styles.ruleFormHeader}>
+                <strong>Create Price</strong>
+                <button type="button" style={styles.smallPrimaryButton} data-testid="service-pricing-add" onClick={addPrice}>
+                  Add Price
+                </button>
+              </div>
+              <div style={styles.ruleFormGrid}>
+                <label style={styles.ruleField}>
+                  <span>Service Key</span>
+                  <input data-testid="service-pricing-new-serviceKey" style={styles.input} value={newPrice.serviceKey} onChange={(event) => setNewPrice((prev) => ({ ...prev, serviceKey: event.target.value }))} />
+                </label>
+                <label style={styles.ruleField}>
+                  <span>Title</span>
+                  <input data-testid="service-pricing-new-title" style={styles.input} value={newPrice.title} onChange={(event) => setNewPrice((prev) => ({ ...prev, title: event.target.value }))} />
+                </label>
+                <label style={styles.ruleField}>
+                  <span>Category</span>
+                  <input data-testid="service-pricing-new-category" style={styles.input} value={newPrice.category} onChange={(event) => setNewPrice((prev) => ({ ...prev, category: event.target.value }))} />
+                </label>
+                <label style={styles.ruleField}>
+                  <span>Base Price</span>
+                  <input data-testid="service-pricing-new-basePrice" style={styles.input} value={newPrice.basePrice} onChange={(event) => setNewPrice((prev) => ({ ...prev, basePrice: event.target.value }))} />
+                </label>
+                <label style={styles.ruleFieldWide}>
+                  <span>Notes</span>
+                  <textarea data-testid="service-pricing-new-notes" style={styles.textarea} value={newPrice.notes} onChange={(event) => setNewPrice((prev) => ({ ...prev, notes: event.target.value }))} />
+                </label>
+              </div>
+            </div>
+
+            <div style={styles.ruleList}>
+              {servicePricingCatalog.map((price) => (
+                <div key={price.id} style={styles.ruleCard} data-testid={`service-pricing-row-${price.id}`}>
+                  <div style={styles.ruleCardHeader}>
+                    <div>
+                      <strong>{price.title || price.serviceKey || "Untitled service"}</strong>
+                      <div style={styles.ruleMeta}>{price.category || "General"} / {price.serviceKey || "no-key"}</div>
+                    </div>
+                    <label style={styles.switchLabel}>
+                      <input
+                        data-testid={`service-pricing-active-${price.id}`}
+                        type="checkbox"
+                        checked={price.active}
+                        onChange={(event) => updatePrice(price.id, { active: event.target.checked })}
+                      />
+                      Active
+                    </label>
+                  </div>
+                  <div style={styles.ruleFormGrid}>
+                    <input data-testid={`service-pricing-title-${price.id}`} style={styles.input} value={price.title} onChange={(event) => updatePrice(price.id, { title: event.target.value })} />
+                    <input data-testid={`service-pricing-category-${price.id}`} style={styles.input} value={price.category} onChange={(event) => updatePrice(price.id, { category: event.target.value })} />
+                    <input data-testid={`service-pricing-basePrice-${price.id}`} style={styles.input} value={price.basePrice} onChange={(event) => updatePrice(price.id, { basePrice: event.target.value })} />
+                    <input data-testid={`service-pricing-notes-${price.id}`} style={styles.input} value={price.notes} onChange={(event) => updatePrice(price.id, { notes: event.target.value })} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      <div style={{ ...styles.grid, marginTop: 16 }}>
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card
+            title="Data Quality + Legacy Cleanup"
+            subtitle="Manual safeguards for old or incomplete local records"
+            right={<span style={dataQualitySummary.issueCount ? styles.warningPill : styles.successPill}>{dataQualitySummary.issueCount} issues</span>}
+          >
+            <div style={styles.moduleText}>
+              This tool checks saved local records and only removes unreadable JSON if you click cleanup. It does not auto-delete operational data.
+            </div>
+            <div style={styles.inlineActions}>
+              <button type="button" style={styles.secondaryButton} data-testid="data-quality-refresh" onClick={refreshDataQuality}>
+                Recheck Data
+              </button>
+              <button type="button" style={styles.secondaryButton} data-testid="data-quality-cleanup" onClick={cleanupDataQuality}>
+                Clean Invalid JSON Only
+              </button>
+            </div>
+            {dataQualityFeedback ? <div style={styles.formHint}>{dataQualityFeedback}</div> : null}
+            <div style={styles.logList} data-testid="data-quality-panel">
+              {dataQualitySummary.issues.length === 0 ? (
+                <div style={styles.emptyState}>No blocking legacy-data issues were found.</div>
+              ) : (
+                dataQualitySummary.issues.slice(0, 8).map((issue) => (
+                  <div key={issue.id} style={styles.logCard}>
+                    <div style={styles.logHeader}>
+                      <strong>{issue.storageKey}</strong>
+                      <span style={issue.severity === "Error" ? styles.warningPill : styles.neutralPill}>{issue.severity}</span>
+                    </div>
+                    <div style={styles.logMeta}>{issue.message}</div>
+                  </div>
+                ))
+              )}
             </div>
           </Card>
         </div>
@@ -668,6 +821,21 @@ function createEmptyMaintenanceRuleDraft(): MaintenanceIntervalRuleRecord {
   };
 }
 
+function createEmptyPricingDraft(): ServicePricingCatalogRecord {
+  const now = new Date().toISOString();
+  return {
+    id: "",
+    serviceKey: "",
+    title: "",
+    category: "General",
+    basePrice: "",
+    active: true,
+    notes: "",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export default SettingsPage;
 
 const styles: Record<string, React.CSSProperties> = {
@@ -887,6 +1055,18 @@ const styles: Record<string, React.CSSProperties> = {
   logMeta: {
     fontSize: 13,
     color: "#64748b",
+  },
+  formHint: {
+    marginTop: 10,
+    fontSize: 13,
+    color: "#64748b",
+  },
+  emptyState: {
+    border: "1px dashed #cbd5e1",
+    borderRadius: 12,
+    padding: 14,
+    color: "#64748b",
+    background: "#f8fafc",
   },
   logNote: {
     fontSize: 13,
