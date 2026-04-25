@@ -23,7 +23,7 @@ import { getAiAccessMessage, useAiModuleEnabled, useAiOutputMode, getAiOutputTem
 import type { CustomerMessageComposerAction, CustomerMessageSourceContext } from "./modules/ai/customerMessageComposer";
 import { buildCustomerMessageSourceText } from "./modules/ai/customerMessageComposer";
 import { useOpenAiAssistController } from "./modules/ai/useOpenAiAssistController";
-import type { UserRole, Permission, ViewKey, RoleDefinition, UserAccount, SessionUser, NavItem, VehicleAccountType, IntakeStatus, IntakeRecord, ApprovalDecision, BackjobOutcome, RepairOrderSourceType, ROStatus, WorkLineStatus, WorkLinePriority, RepairOrderWorkLine, RepairOrderRecord, QCResult, QCRecord, ReleaseRecord, ApprovalWorkItem, FindingRecommendationDecision, ApprovalRecord, BackjobRecord, InvoiceStatus, PaymentStatus, PaymentMethod, InvoiceRecord, PaymentRecord, WorkLog, PartsRequestRecord, MaintenanceIntervalRuleRecord, VehicleServiceHistoryRecord, ServicePricingCatalogRecord } from "./modules/shared/types";
+import type { UserRole, Permission, ViewKey, RoleDefinition, UserAccount, SessionUser, NavItem, VehicleAccountType, IntakeStatus, IntakeRecord, ApprovalDecision, BackjobOutcome, RepairOrderSourceType, ROStatus, WorkLineStatus, WorkLinePriority, RepairOrderWorkLine, RepairOrderRecord, QCResult, QCRecord, ReleaseRecord, ApprovalWorkItem, FindingRecommendationDecision, ApprovalRecord, BackjobRecord, InvoiceStatus, PaymentStatus, PaymentMethod, InvoiceRecord, PaymentRecord, WorkLog, PartsRequestRecord, MaintenanceIntervalRuleRecord, VehicleServiceHistoryRecord, ServicePricingCatalogRecord, ExpenseCategory, ExpensePaymentMethod } from "./modules/shared/types";
 import { getTechnicianProductivity, getAdvisorSalesProduced, getRepeatCustomerFrequency, getQcPassFailSummary, getWaitingPartsAging, getBackjobRate } from "./modules/shared/helpers";
 import { syncVehicleServiceHistoryRecords } from "./modules/maintenance/maintenanceHelpers";
 import { buildMaintenanceDashboardSourceData } from "./modules/maintenance/dashboardHelpers";
@@ -46,6 +46,11 @@ import { AdvisorPipelinePanel } from "./modules/advisors/AdvisorPipelinePanel";
 import { EstimateBuilderPanel } from "./modules/repairOrders/EstimateBuilderPanel";
 import { ApprovalEvidencePanel } from "./modules/approvals/ApprovalEvidencePanel";
 import { DocumentAttachmentCenter } from "./modules/documents/DocumentAttachmentCenter";
+import { ExpensePage } from "./modules/finance/ExpensePage";
+import { PaymentTrackingPage } from "./modules/finance/PaymentTrackingPage";
+import { AuditLogPage } from "./modules/audit/AuditLogPage";
+import { BackupExportPage } from "./modules/backup/BackupExportPage";
+import type { ExpenseRecord, AuditLogRecord, AuditLogModule } from "./modules/shared/types";
 
 
 type LoginForm = {
@@ -867,6 +872,8 @@ const STORAGE_KEYS = {
   openAiAssistMaxTokens: "dvi_openai_assist_max_tokens_v1",
   openAiAssistDraftCache: "dvi_openai_assist_draft_cache_v1",
   openAiAssistLogs: "dvi_openai_assist_logs_v1",
+  expenseRecords: "dvi_phase53_expense_records_v1",
+  auditLogs: "dvi_phase55_audit_logs_v1",
   counters: "dvi_phase2_counters_v1",
 } as const;
 
@@ -898,6 +905,10 @@ const ALL_PERMISSIONS: Permission[] = [
   "roles.view",
   "roles.manage",
   "settings.view",
+  "expenses.view",
+  "payments.view",
+  "audit.view",
+  "backup.view",
 ];
 
 const NAV_ITEMS: NavItem[] = [
@@ -925,6 +936,10 @@ const NAV_ITEMS: NavItem[] = [
   { key: "users", label: "Users", icon: "US", permission: "users.view" },
   { key: "roles", label: "Roles & Permissions", icon: "RP", permission: "roles.view" },
   { key: "settings", label: "Settings", icon: "ST", permission: "settings.view" },
+  { key: "expenses", label: "Expenses", icon: "EX", permission: "expenses.view" },
+  { key: "payments", label: "Payments", icon: "PY", permission: "payments.view" },
+  { key: "audit", label: "Audit Log", icon: "AL", permission: "audit.view" },
+  { key: "backup", label: "Backup & Export", icon: "BK", permission: "backup.view" },
 ];
 
 const ROLE_COLORS: Record<UserRole, { bg: string; text: string }> = {
@@ -10820,6 +10835,7 @@ function RepairOrdersPage({
   onOpenDemoCustomerApprovalLink,
   onSendSmsTemplate,
   onRevokeApprovalLink,
+  onLogAudit,
   isCompactLayout,
 }: {
   currentUser: SessionUser;
@@ -10845,6 +10861,7 @@ function RepairOrdersPage({
   onOpenDemoCustomerApprovalLink: (ro: RepairOrderRecord) => void;
   onSendSmsTemplate: (payload: SmsSendPayload) => Promise<SmsSendResult>;
   onRevokeApprovalLink: (tokenId: string) => void;
+  onLogAudit: (entry: Omit<AuditLogRecord, "id" | "timestamp">) => void;
   isCompactLayout: boolean;
 }) {
   const [creationMode, setCreationMode] = useState<RepairOrderSourceType>("Intake");
@@ -12508,6 +12525,7 @@ function RepairOrdersPage({
       }
     }
 
+    const prevStatus = selectedRO.status;
     updateRO(selectedRO.id, {
       status: nextStatus,
       workStartedAt:
@@ -12515,6 +12533,7 @@ function RepairOrdersPage({
           ? new Date().toISOString()
           : selectedRO.workStartedAt,
     });
+    onLogAudit({ module: "RepairOrders", action: "status_change", entityId: selectedRO.id, entityLabel: selectedRO.roNumber, userId: currentUser.id, userName: currentUser.fullName, detail: `RO status changed: ${prevStatus} → ${nextStatus}`, before: prevStatus, after: nextStatus });
     setError("");
   };
 
@@ -15759,6 +15778,14 @@ function AppInner() {
     readLocalStorage<VehicleServiceHistoryRecord[]>(STORAGE_KEYS.vehicleServiceHistoryRecords, [])
   );
 
+  const [expenseRecords, setExpenseRecords] = useState<ExpenseRecord[]>(() =>
+    readLocalStorage<ExpenseRecord[]>(STORAGE_KEYS.expenseRecords, [])
+  );
+
+  const [auditLogs, setAuditLogs] = useState<AuditLogRecord[]>(() =>
+    readLocalStorage<AuditLogRecord[]>(STORAGE_KEYS.auditLogs, [])
+  );
+
   const [customerAccounts, setCustomerAccounts] = useState<CustomerAccount[]>(() =>
     readLocalStorage<CustomerAccount[]>(STORAGE_KEYS.customerAccounts, [])
   );
@@ -15893,6 +15920,14 @@ function AppInner() {
   useEffect(() => {
     writeLocalStorage(STORAGE_KEYS.vehicleServiceHistoryRecords, vehicleServiceHistoryRecords);
   }, [vehicleServiceHistoryRecords]);
+
+  useEffect(() => {
+    writeLocalStorage(STORAGE_KEYS.expenseRecords, expenseRecords);
+  }, [expenseRecords]);
+
+  useEffect(() => {
+    writeLocalStorage(STORAGE_KEYS.auditLogs, auditLogs);
+  }, [auditLogs]);
 
   useEffect(() => {
     setCustomerAccounts((prev) => buildCustomerAccountsFromRecords(prev, intakeRecords, repairOrders));
@@ -17019,6 +17054,16 @@ function AppInner() {
     setLoginAudience("customer");
   };
 
+  // ── Phase 55: Audit logging helper ───────────────────────────────────────────
+  const logAudit = (entry: Omit<AuditLogRecord, "id" | "timestamp">) => {
+    const record: AuditLogRecord = {
+      id: `aud_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      ...entry,
+    };
+    setAuditLogs((prev) => [record, ...prev].slice(0, 5000));
+  };
+
   const openDemoCustomerApprovalLink = (ro: RepairOrderRecord) => {
     const customer =
       customerAccounts.find((account) => Array.isArray(account.linkedRoIds) && account.linkedRoIds.includes(ro.id)) ||
@@ -17533,6 +17578,7 @@ function AppInner() {
             onOpenDemoCustomerApprovalLink={openDemoCustomerApprovalLink}
             onSendSmsTemplate={sendSmsTemplate}
             onRevokeApprovalLink={revokeApprovalLink}
+            onLogAudit={logAudit}
             isCompactLayout={isMobile}
           />
         );
@@ -17615,6 +17661,38 @@ function AppInner() {
             maintenanceIntervalRules={maintenanceIntervalRules}
             isCompactLayout={isMobile}
           />
+        );
+      case "expenses":
+        return (
+          <ExpensePage
+            currentUser={currentUser}
+            expenses={expenseRecords}
+            setExpenses={setExpenseRecords}
+            onLogAudit={logAudit}
+          />
+        );
+      case "payments":
+        return (
+          <PaymentTrackingPage
+            currentUser={currentUser}
+            repairOrders={repairOrders}
+            invoiceRecords={invoiceRecords}
+            paymentRecords={paymentRecords}
+            setPaymentRecords={setPaymentRecords}
+            onLogAudit={logAudit}
+          />
+        );
+      case "audit":
+        return (
+          <AuditLogPage
+            currentUser={currentUser}
+            auditLogs={auditLogs}
+            users={users}
+          />
+        );
+      case "backup":
+        return (
+          <BackupExportPage currentUser={currentUser} />
         );
       default:
         return (

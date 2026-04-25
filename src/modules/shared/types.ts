@@ -215,7 +215,11 @@ export type Permission =
   | "users.manage"
   | "roles.view"
   | "roles.manage"
-  | "settings.view";
+  | "settings.view"
+  | "expenses.view"
+  | "payments.view"
+  | "audit.view"
+  | "backup.view";
 
 export type ViewKey =
   | "dashboard"
@@ -231,7 +235,80 @@ export type ViewKey =
   | "history"
   | "users"
   | "roles"
-  | "settings";
+  | "settings"
+  | "expenses"
+  | "payments"
+  | "audit"
+  | "backup";
+
+// ── Phase 53: Expense Tracking ────────────────────────────────────────────────
+export type ExpenseCategory =
+  | "Parts & Supplies"
+  | "Utilities"
+  | "Rent"
+  | "Salaries"
+  | "Equipment"
+  | "Marketing"
+  | "Insurance"
+  | "Fuel"
+  | "Repairs & Maintenance"
+  | "Professional Services"
+  | "Other";
+
+export type ExpensePaymentMethod =
+  | "Cash"
+  | "Bank Transfer"
+  | "Check"
+  | "Credit Card"
+  | "GCash"
+  | "Maya"
+  | "Other";
+
+export type ExpenseRecord = {
+  id: string;
+  expenseNumber: string;
+  date: string;
+  category: ExpenseCategory;
+  vendor: string;
+  description: string;
+  amount: string;
+  paymentMethod: ExpensePaymentMethod;
+  referenceNumber: string;
+  note: string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt?: string;
+  updatedBy?: string;
+};
+
+// ── Phase 54: Payment Tracking ────────────────────────────────────────────────
+export type ROPaymentStatus = "Unpaid" | "Partial" | "Paid" | "Waived";
+
+// ── Phase 55: Audit Log ───────────────────────────────────────────────────────
+export type AuditLogModule =
+  | "RepairOrders"
+  | "Approvals"
+  | "Payments"
+  | "Inventory"
+  | "PurchaseOrders"
+  | "AI"
+  | "CustomerPortal"
+  | "Expenses"
+  | "System";
+
+export type AuditLogRecord = {
+  id: string;
+  timestamp: string;
+  module: AuditLogModule;
+  action: string;
+  entityId: string;
+  entityLabel: string;
+  userId: string;
+  userName: string;
+  detail: string;
+  before?: string;
+  after?: string;
+};
 
 export type RoleDefinition = {
   role: UserRole;
