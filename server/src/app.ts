@@ -1,10 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { config } from "./config.js";
 import { logSafeServerError, sendBadRequest, sendError, sendNotFound } from "./response.js";
 import { routes } from "./routes/index.js";
 import type { ApiRoute } from "./routes/types.js";
 
 function applyCors(res: ServerResponse) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Origin", config.corsOrigin);
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }

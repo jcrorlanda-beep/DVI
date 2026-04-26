@@ -167,6 +167,18 @@ export type BackendHealthResponse = {
   databaseConfigured?: boolean;
   databaseConnected?: boolean;
   databaseMessage?: string;
+  productionReadiness?: {
+    environment?: string;
+    ready?: boolean;
+    errorCount?: number;
+    warningCount?: number;
+  };
+  proxyStatus?: {
+    aiProxyEnabled?: boolean;
+    smsProxyEnabled?: boolean;
+  };
+  fileStorageConfigured?: boolean;
+  maxUploadMb?: number;
   generatedAt?: string;
 };
 

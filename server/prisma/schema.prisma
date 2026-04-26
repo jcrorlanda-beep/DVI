@@ -587,11 +587,14 @@ model AuditLog {
 model DocumentAttachment {
   id                String       @id @default(cuid())
   localId           String?      @unique
+  fileId            String?      @unique
   fileName          String
   fileType          String?
+  mimeType          String?
   fileSize          Int?
   storageKey        String?
   dataUrlHash       String?
+  checksum          String?
   uploadedById      String?
   uploadedBy        User?        @relation("DocumentUploadedBy", fields: [uploadedById], references: [id])
   sourceModule      String?
@@ -604,6 +607,7 @@ model DocumentAttachment {
   repairOrderId     String?
   repairOrder       RepairOrder? @relation(fields: [repairOrderId], references: [id])
   customerVisible   Boolean      @default(false)
+  internalOnly      Boolean      @default(true)
   note              String?
   uploadedAt        DateTime?
   createdAt         DateTime     @default(now())

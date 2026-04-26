@@ -1,4 +1,5 @@
 import { protectRoutes } from "../middleware/auth.js";
+import { config } from "../config.js";
 import { sendJson } from "../response.js";
 import type { AiGenerateRequest, AiProxyProvider } from "../contracts/proxy.js";
 import type { ApiRoute } from "./types.js";
@@ -29,6 +30,21 @@ const routes: ApiRoute[] = [
     pattern: /^\/api\/ai\/generate$/,
     description: "Future secure AI proxy route with provider stubs",
     handler: (_req, res, context) => {
+      if (!config.aiProxyEnabled) {
+        sendJson(res, 202, {
+          success: true,
+          data: {
+            text: "",
+            provider: "fallback",
+            usedFallback: true,
+            warning: "Backend AI proxy is disabled by AI_PROXY_ENABLED=false. Frontend hybrid AI remains active.",
+            receivedAction: "disabled",
+            outputMode: "Standard",
+          },
+          meta: { generatedAt: new Date().toISOString(), source: "dvi-server" },
+        });
+        return;
+      }
       const request = normalizeAiRequest(context.body);
       const requestedProvider = request.preferredProvider ?? "fallback";
       const provider: AiProxyProvider = requestedProvider === "ollama" || requestedProvider === "openai" ? "fallback" : "fallback";

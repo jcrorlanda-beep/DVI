@@ -62,6 +62,10 @@ async function main() {
     { method: "GET", path: "/api/audit-logs" },
     { method: "POST", path: "/api/audit-logs" },
     { method: "GET", path: "/api/documents" },
+    { method: "GET", path: "/api/customer-portal/documents" },
+    { method: "GET", path: "/api/customer-portal/documents/doc_1" },
+    { method: "POST", path: "/api/files/upload" },
+    { method: "GET", path: "/api/files/file_1" },
   ];
 
   for (const expected of expectedRoutes) {

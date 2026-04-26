@@ -37,6 +37,9 @@ export type DocumentAttachmentRecord = {
   dataUrl?: string;
   textPreview?: string;
   customerVisible?: boolean;
+  fileId?: string;
+  storageKey?: string;
+  internalOnly?: boolean;
 };
 
 export type DocumentAttachmentPreview = {
@@ -178,6 +181,9 @@ export function normalizeDocumentAttachmentRecord(row: Partial<DocumentAttachmen
     dataUrl: typeof row.dataUrl === "string" && row.dataUrl.trim() ? row.dataUrl : typeof row.previewDataUrl === "string" ? row.previewDataUrl : undefined,
     textPreview: typeof row.textPreview === "string" && row.textPreview.trim() ? row.textPreview : undefined,
     customerVisible: typeof row.customerVisible === "boolean" ? row.customerVisible : false,
+    fileId: typeof row.fileId === "string" && row.fileId.trim() ? row.fileId : undefined,
+    storageKey: typeof row.storageKey === "string" && row.storageKey.trim() ? row.storageKey : undefined,
+    internalOnly: typeof row.internalOnly === "boolean" ? row.internalOnly : row.customerVisible !== true,
   };
 }
 

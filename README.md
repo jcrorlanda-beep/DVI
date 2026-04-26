@@ -177,6 +177,14 @@ Risks and fallback plan:
 - Keep AI and SMS proxy traffic behind simple service boundaries
 - Do not remove the current frontend-only mode until all core flows are validated
 
+Multi-device cutover should be staged:
+
+- back up localStorage first
+- run migration previews
+- import customers/vehicles before workflow/business data
+- verify counts before backend read/write mode
+- keep rollback backups for database and file storage
+
 Backend foundation files now live in `server/`. See:
 
 - `server/README.md`
@@ -185,6 +193,7 @@ Backend foundation files now live in `server/`. See:
 - `server/AUDIT_LOG_PLAN.md`
 - `server/prisma/schema.prisma`
 - `server/MIGRATION_PLAN.md`
+- `DEPLOYMENT_PROFILES.md`
 
 The frontend helper `src/modules/api/backendMigrationExport.ts` can prepare a localStorage export bundle for a future backend import, but it does not run migration or change data sources.
 
@@ -194,7 +203,8 @@ Current backend status:
 - Prisma schema validates with Prisma 7 through `prisma.config.ts`.
 - Backend route smoke tests cover health, route registration, protected routes, and offline-safe DB route behavior.
 - Finance, document metadata, audit log, AI proxy-lite, SMS proxy-lite, and migration preview contracts are present.
-- Production auth, real file storage, live provider proxying, and destructive migration commit are not enabled.
+- Production auth, live provider proxying, and destructive migration commit are not enabled.
+- Backend file storage route foundations exist for controlled testing, but the frontend Document Center remains local-first/localStorage-safe until a later cutover.
 
 ## Roadmap notes
 

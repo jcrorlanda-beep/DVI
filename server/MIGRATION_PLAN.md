@@ -322,3 +322,34 @@ The future import flow should remain preview-first and non-destructive until use
 - Verify counts and sample records before enabling backend reads.
 - Do not remove frontend/local-first behavior until the backend is proven.
 - Keep import batch IDs, `localId` to `remoteId` mapping, `importedAt`, and `importedBy` metadata before any future commit implementation.
+
+## Multi-Device Cutover Plan
+
+Cutover must be staged. Do not switch the entire frontend to backend mode at once.
+
+1. Export a full localStorage backup from the frontend Backup / Export Center.
+2. Back up PostgreSQL and file storage if backend test data already exists.
+3. Run migration preview for customers and vehicles.
+4. Fix duplicate customer, duplicate plate, and missing-link warnings.
+5. Enable `MIGRATION_COMMIT_ENABLED=true` only in a controlled migration window.
+6. Import customers and vehicles first.
+7. Verify customer and vehicle counts plus sample records.
+8. Import intake, repair order, inspection, QC, release, backjob, and service-history data.
+9. Import business modules: parts, inventory, purchase orders, suppliers, invoices, payments, expenses, and documents.
+10. Verify counts, links, audit records, and customer-visible document flags.
+11. Enable backend read-only mode for a pilot group if that mode exists.
+12. Enable backend write mode only after read-only parity testing.
+13. Keep localStorage backup and backend backup available for rollback.
+
+Cutover risks:
+
+- duplicate customers
+- duplicate plates or conduction numbers
+- missing customer/vehicle/RO links
+- localStorage and backend divergence during migration
+- file storage folder not matching document metadata
+- user/role mismatch between frontend accounts and backend users
+- simultaneous editing from multiple browsers during migration
+- old localStorage records with legacy field names
+
+Rollback rule: if counts or sample records do not match expectations, keep frontend in localStorage mode, disable backend write flags, and restore backend database/file storage from the pre-cutover backup if needed.

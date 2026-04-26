@@ -24,6 +24,7 @@ The frontend still runs in localStorage mode. Nothing in this server folder repl
 - Parts requests, inventory, purchase orders, suppliers, finance records, and document metadata now have business-module persistence preparation for controlled backend testing.
 - AI and SMS proxy routes are lite backend stubs behind placeholder permission checks; they do not call live providers yet.
 - Migration import preview is read-only across all major module groups. Import commit remains disabled by default.
+- Backend file storage route foundations are present for controlled testing, but the frontend still uses local metadata/preview mode until a later cutover.
 - Backend auth has a lite login foundation for future backend sessions, but the frontend still uses its existing local login.
 - Environment placeholders live in `.env.example`.
 - Prisma 7 config is handled by the repo-root `prisma.config.ts`.
@@ -54,6 +55,7 @@ The seed draft lives at `server/prisma/seed.ts`. It prepares roles, permissions,
 - Treat this server as preparation only until auth, database migrations, backups, and import validation are complete.
 - Prisma 7 reads the datasource URL from `prisma.config.ts`, not from `schema.prisma`.
 - Review `SECURITY_CHECKLIST.md` before any real deployment or live data import.
+- Review `BACKUP_RESTORE_PLAN.md` before multi-device production use.
 
 ## API Response Wrapper
 
@@ -109,6 +111,8 @@ Backend auth foundation status:
 | `NODE_ENV` | No | Runtime environment label. |
 | `AUTH_TOKEN_SECRET` | Yes for backend auth sessions | At least 32 random characters. Used to hash/verify bearer session tokens. |
 | `AUTH_SESSION_TTL_MINUTES` | No | Session lifetime. Defaults to 480 minutes. |
+| `FILE_STORAGE_ROOT` / `UPLOAD_STORAGE_ROOT` | No | Backend upload folder. Defaults to `server/uploads` for local development. |
+| `MAX_UPLOAD_MB` | No | Maximum JSON/base64 upload size. Defaults to `10`. |
 
 Do not commit real `.env` values. Use `server/.env.example` for placeholders only.
 
@@ -140,7 +144,10 @@ Do not commit real `.env` values. Use `server/.env.example` for placeholders onl
 | `/api/finance/reconciliation` | Read-only reconciliation preview contract |
 | `/api/reports/profit`, `/api/reports/revenue`, `/api/reports/expenses` | Management-estimate report contracts |
 | `/api/audit-logs` | Repository-backed with filters, detail read, and secret redaction on create |
-| `/api/documents` | Metadata-only repository slice; no real file server yet |
+| `/api/documents` | Metadata repository slice with optional backend file references; documents default internal-only |
+| `/api/files/upload` | Backend file-storage foundation using JSON/base64 payloads; protected by `documents.manage` |
+| `/api/files/:id` | Backend file retrieve/delete foundation; returns storage keys, not raw server paths |
+| `/api/customer-portal/documents` | Customer-safe document metadata skeleton; explicit customer-visible records only |
 | `/api/ai/generate` | Lite proxy stub; no live provider calls or exposed keys |
 | `/api/sms/send` | Lite proxy stub; simulated queue response only |
 | `/api/migration/import-preview` | Read-only full import preview across major module groups |
@@ -170,3 +177,26 @@ In restricted environments, set `PRISMA_SCHEMA_ENGINE_BINARY` to the installed s
 4. Review counts, duplicates, missing plate numbers, and file-size warnings.
 5. Commit only after explicit confirmation in a later migration phase.
 6. Enable backend reads module-by-module after parity testing.
+
+## File Storage Notes
+
+The backend upload foundation stores files under `FILE_STORAGE_ROOT` or `UPLOAD_STORAGE_ROOT`, defaulting to `server/uploads`.
+
+Current behavior:
+
+- `POST /api/files/upload` accepts a JSON payload with `fileName`, `mimeType`, and either `base64` or `dataUrl`.
+- Allowed files are images, PDFs, text-like files, and common doc-like files.
+- `MAX_UPLOAD_MB` limits upload size.
+- The API returns `fileId`, `storageKey`, `checksum`, MIME type, size, and upload timestamp.
+- Raw filesystem paths are never returned.
+- `server/uploads/` is gitignored.
+
+Production recommendations:
+
+- Simple deployment: use a dedicated server disk folder and include it in backups.
+- Synology deployment: point `FILE_STORAGE_ROOT` at a backed-up shared folder.
+- Future scale: move file blobs to S3-compatible/object storage while keeping document metadata in PostgreSQL.
+
+Backups must include both PostgreSQL and file storage. A database backup alone is not enough once real files are uploaded.
+
+For backup and restore operations, see `BACKUP_RESTORE_PLAN.md`. Restore commands should be tested on a staging database before touching production.

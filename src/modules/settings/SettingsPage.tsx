@@ -176,6 +176,9 @@ function SettingsPage({
   const [backendHealthStatus, setBackendHealthStatus] = React.useState<"idle" | "checking" | "online" | "offline">("idle");
   const [backendHealthMessage, setBackendHealthMessage] = React.useState("Not checked yet. Backend remains optional.");
   const [backendDatabaseStatus, setBackendDatabaseStatus] = React.useState("Database status not checked.");
+  const [backendProductionReadiness, setBackendProductionReadiness] = React.useState("Production readiness not checked.");
+  const [backendProxyReadiness, setBackendProxyReadiness] = React.useState("AI/SMS proxy readiness not checked.");
+  const [backendFileStorageStatus, setBackendFileStorageStatus] = React.useState("File storage status not checked.");
   const [openAiAssistLogs, setOpenAiAssistLogs] = React.useState<OpenAiAssistLogEntry[]>(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -324,11 +327,29 @@ function SettingsPage({
           result.data.databaseConnected ? "Yes" : "No"
         }. ${result.data.databaseMessage ?? ""}`.trim()
       );
+      setBackendProductionReadiness(
+        result.data.productionReadiness
+          ? `Env: ${result.data.productionReadiness.environment ?? "unknown"}. Ready: ${result.data.productionReadiness.ready ? "yes" : "not yet"}. Errors: ${result.data.productionReadiness.errorCount ?? 0}. Warnings: ${result.data.productionReadiness.warningCount ?? 0}.`
+          : "Production readiness data unavailable."
+      );
+      setBackendProxyReadiness(
+        result.data.proxyStatus
+          ? `AI proxy: ${result.data.proxyStatus.aiProxyEnabled ? "enabled" : "disabled"}. SMS proxy: ${result.data.proxyStatus.smsProxyEnabled ? "enabled" : "disabled/simulated"}.`
+          : "AI/SMS proxy readiness data unavailable."
+      );
+      setBackendFileStorageStatus(
+        result.data.fileStorageConfigured
+          ? `Backend file storage configured. Max upload: ${result.data.maxUploadMb ?? "unknown"} MB.`
+          : "Backend file storage not configured. Document Center remains local metadata/preview mode."
+      );
       return;
     }
     setBackendHealthStatus("offline");
     setBackendHealthMessage(`Backend offline or unavailable. LocalStorage mode is still active. ${result.error}`);
     setBackendDatabaseStatus("Database status unavailable because backend health check failed.");
+    setBackendProductionReadiness("Production readiness unavailable because backend health check failed.");
+    setBackendProxyReadiness("AI/SMS proxy readiness unavailable because backend health check failed.");
+    setBackendFileStorageStatus("File storage status unavailable because backend health check failed.");
   };
 
   const refreshOpenAiAssistLogs = () => {
@@ -915,6 +936,11 @@ function SettingsPage({
                 <br />
                 <span>{smsBackendMode === "Backend Proxy Future" ? "Future flag saved locally; current SMS flow remains active" : "Future-only; frontend SMS settings remain active"}</span>
               </div>
+              <div style={styles.concernCard} data-testid="backend-file-storage-status-card">
+                <strong>File storage:</strong>
+                <br />
+                <span>Frontend Document Center remains local metadata/preview mode until backend upload cutover.</span>
+              </div>
               <div style={styles.concernCard} data-testid="backend-migration-preview-status">
                 <strong>Migration preview:</strong>
                 <br />
@@ -946,14 +972,29 @@ function SettingsPage({
                       : styles.neutralPill
                 }
               >
-                {backendHealthStatus === "online" ? "Online" : backendHealthStatus === "offline" ? "Offline / unavailable" : "Not checked"}
+              {backendHealthStatus === "online" ? "Online" : backendHealthStatus === "offline" ? "Offline / unavailable" : "Not checked"}
               </span>
+            </div>
+            <div style={{ ...styles.concernCard, marginTop: 10 }} data-testid="production-readiness-cutover-warning">
+              Do not enable multi-device backend mode until migration preview, database backup, file storage backup, and role verification are complete.
             </div>
             <div style={{ ...styles.concernCard, marginTop: 12 }} data-testid="backend-health-message">
               {backendHealthMessage}
             </div>
             <div style={{ ...styles.concernCard, marginTop: 10 }} data-testid="backend-database-status">
               {backendDatabaseStatus}
+            </div>
+            <div style={{ ...styles.concernCard, marginTop: 10 }} data-testid="backend-production-readiness-status">
+              {backendProductionReadiness}
+            </div>
+            <div style={{ ...styles.concernCard, marginTop: 10 }} data-testid="backend-proxy-readiness-status">
+              {backendProxyReadiness}
+            </div>
+            <div style={{ ...styles.concernCard, marginTop: 10 }} data-testid="backend-file-storage-status">
+              {backendFileStorageStatus}
+            </div>
+            <div style={{ ...styles.concernCard, marginTop: 10 }} data-testid="production-backup-reminder">
+              Backup reminder: export localStorage before updates, and once backend storage is enabled, back up PostgreSQL and the file storage folder together.
             </div>
           </Card>
         </div>

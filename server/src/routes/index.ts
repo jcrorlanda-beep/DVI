@@ -5,8 +5,10 @@ import { authRoutes } from "./auth.js";
 import { backjobRecordRoutes } from "./backjobRecords.js";
 import { customerRoutes } from "./customers.js";
 import { documentRoutes } from "./documents.js";
+import { customerPortalDocumentRoutes } from "./customerPortalDocuments.js";
 import { expenseRoutes } from "./expenses.js";
 import { financeRoutes } from "./finance.js";
+import { fileRoutes } from "./files.js";
 import { inspectionRoutes } from "./inspections.js";
 import { intakeRoutes } from "./intakes.js";
 import { inventoryRoutes } from "./inventory.js";
@@ -54,7 +56,9 @@ export const routes: ApiRoute[] = [
   ...paymentRoutes,
   ...expenseRoutes,
   ...financeRoutes,
+  ...fileRoutes,
   ...auditLogRoutes,
   ...documentRoutes,
+  ...customerPortalDocumentRoutes,
   ...reportRoutes,
 ];

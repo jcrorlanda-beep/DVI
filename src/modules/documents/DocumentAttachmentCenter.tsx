@@ -38,6 +38,8 @@ export function DocumentAttachmentCenter({ repairOrders, isCompactLayout, curren
   const [selectedAttachmentId, setSelectedAttachmentId] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [fileWarning, setFileWarning] = useState("");
+  const backendApiUrl = typeof import.meta !== "undefined" ? String(import.meta.env.VITE_DVI_API_URL ?? "").trim() : "";
+  const backendUploadEnabled = String(import.meta.env.VITE_DVI_USE_BACKEND ?? "").toLowerCase() === "true" && !!backendApiUrl;
 
   useEffect(() => {
     window.localStorage.setItem("dvi_document_attachments_v1", JSON.stringify(attachments));
@@ -179,7 +181,17 @@ export function DocumentAttachmentCenter({ repairOrders, isCompactLayout, curren
             Internal document tracking for estimates, inspection media, approval evidence, invoices, and release documents.
           </div>
         </div>
-        <span style={styles.badge}>{attachments.length} indexed item(s)</span>
+        <div style={styles.headerBadges}>
+          <span style={styles.badge}>{attachments.length} indexed item(s)</span>
+          <span style={backendUploadEnabled ? styles.smallBadgeSuccess : styles.smallBadgeMuted}>
+            {backendUploadEnabled ? "Backend upload available" : "Local metadata / preview mode"}
+          </span>
+        </div>
+      </div>
+
+      <div style={styles.infoBanner} data-testid="document-center-upload-mode">
+        Current upload mode: {backendUploadEnabled ? `Backend upload configured at ${backendApiUrl}` : "Local metadata / preview mode"}.
+        The app still works offline; large production files should be stored on the backend/file server, not in browser localStorage.
       </div>
 
       <div style={{ ...styles.form, gridTemplateColumns: isCompactLayout ? "1fr" : "repeat(6, minmax(0, 1fr))" }}>
@@ -285,7 +297,9 @@ export function DocumentAttachmentCenter({ repairOrders, isCompactLayout, curren
         >
           Index Attachment
         </button>
-        <span style={styles.meta}>Metadata is stored locally in the browser. No backend file server was added.</span>
+        <span style={styles.meta}>
+          Metadata is stored locally in the browser unless a later backend upload cutover is enabled.
+        </span>
       </div>
 
       {fileWarning ? <div style={styles.warning} data-testid="document-center-upload-warning">{fileWarning}</div> : null}
@@ -309,6 +323,7 @@ export function DocumentAttachmentCenter({ repairOrders, isCompactLayout, curren
                   <span style={styles.smallBadge}>{row.sourceModule}</span>
                   <span style={styles.smallBadge}>{formatDocumentAttachmentSize(row.fileSize)}</span>
                   {row.customerVisible ? <span style={styles.smallBadgeSuccess}>Customer Visible</span> : <span style={styles.smallBadgeMuted}>Internal Only</span>}
+                  {row.fileId || row.storageKey ? <span style={styles.smallBadge}>Backend File Ref</span> : <span style={styles.smallBadgeMuted}>Metadata / Local Preview</span>}
                 </div>
                 <div style={styles.meta}>{row.roNumber || "Unlinked"} / {new Date(row.addedAt).toLocaleString()}</div>
                 {row.note ? <div style={styles.note}>{row.note}</div> : null}
@@ -339,6 +354,11 @@ export function DocumentAttachmentCenter({ repairOrders, isCompactLayout, curren
           <div style={styles.warning} data-testid="document-center-sharing-warning">
             Only mark documents customer-visible after confirming content is appropriate.
           </div>
+          {!selectedAttachment.dataUrl && !selectedAttachment.fileId && !selectedAttachment.storageKey ? (
+            <div style={styles.infoBanner} data-testid="document-center-missing-file-state">
+              Missing file state: this record is metadata-only or legacy data. The detail view stays safe even when no file preview exists.
+            </div>
+          ) : null}
           <label style={styles.visibilityLabel}>
             <input
               data-testid="document-center-customer-visible"
@@ -348,6 +368,11 @@ export function DocumentAttachmentCenter({ repairOrders, isCompactLayout, curren
             />
             Customer visible
           </label>
+          <div style={styles.badgeRow}>
+            {selectedAttachment.customerVisible ? <span style={styles.smallBadgeSuccess}>Customer-visible metadata</span> : <span style={styles.smallBadgeMuted}>Internal-only metadata</span>}
+            {selectedAttachment.fileId ? <span style={styles.smallBadge}>File ID linked</span> : null}
+            {selectedAttachment.storageKey ? <span style={styles.smallBadge}>Storage key linked</span> : null}
+          </div>
           {selectedAttachment.note ? <div style={styles.note}>{selectedAttachment.note}</div> : <div style={styles.note}>No note provided.</div>}
 
           <div style={styles.previewBox} data-testid="document-preview-panel">
@@ -380,6 +405,7 @@ export function DocumentAttachmentCenter({ repairOrders, isCompactLayout, curren
 const styles: Record<string, React.CSSProperties> = {
   panel: { border: "1px solid #e2e8f0", borderRadius: 8, padding: 16, background: "#fff", boxShadow: "0 1px 2px rgba(15,23,42,0.06)" },
   header: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 12 },
+  headerBadges: { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" },
   eyebrow: { fontSize: 12, textTransform: "uppercase", color: "#64748b", fontWeight: 700 },
   title: { margin: "2px 0 0", fontSize: 20, color: "#0f172a" },
   subtitle: { color: "#64748b", fontSize: 13, marginTop: 4 },
@@ -403,6 +429,7 @@ const styles: Record<string, React.CSSProperties> = {
   note: { color: "#334155", fontSize: 12, marginTop: 6 },
   empty: { border: "1px dashed #cbd5e1", borderRadius: 8, padding: 16, color: "#64748b", background: "#f8fafc" },
   warning: { borderRadius: 8, padding: "10px 12px", background: "#fffbeb", border: "1px solid #f59e0b", color: "#92400e", fontSize: 12, fontWeight: 700, marginTop: 10 },
+  infoBanner: { borderRadius: 8, padding: "10px 12px", background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1e3a8a", fontSize: 12, fontWeight: 700, marginTop: 10 },
   fileInfo: { marginTop: 8, color: "#475569", fontSize: 12, fontWeight: 700 },
   detailGrid: { display: "grid", gap: 6, gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", marginTop: 8 },
   detailToolbar: { display: "flex", justifyContent: "flex-end", marginTop: 8 },

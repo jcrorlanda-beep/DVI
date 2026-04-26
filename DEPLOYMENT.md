@@ -49,6 +49,8 @@ npm run preview -- --host 0.0.0.0 --port 4173
 
 Access from other devices: `http://<your-machine-IP>:4173`
 
+For deployment tradeoffs, see `DEPLOYMENT_PROFILES.md`.
+
 ### Option B — serve (lightweight static server)
 
 ```bash
@@ -127,11 +129,83 @@ Current backend capabilities are still migration-prep oriented:
 
 Do not treat this backend as production-ready until production auth, CORS, rate limits, database migrations, file storage, backups, and import rollback are complete.
 
+Production security gate:
+
+- backend auth secret configured and never committed
+- HTTPS enabled
+- `CORS_ORIGIN` restricted to the deployed frontend origin
+- OpenAI and SMS provider credentials backend-only
+- supplier bid privacy verified
+- customer-visible documents default-deny and manually reviewed
+- audit logs redacting secrets
+- backup/restore and migration permissions restricted
+- `MIGRATION_COMMIT_ENABLED=false` unless running a controlled migration window
+- `AI_PROXY_ENABLED` and `SMS_PROXY_ENABLED` intentionally set, with real SMS disabled until tested
+- rate limiting planned before public exposure
+- real customer/supplier portal auth or signed tokens planned before public links
+
 For core migration testing, keep `MIGRATION_COMMIT_ENABLED` unset or `false` by default. Enable it only in a backed-up test environment after reviewing preview output. The frontend remains localStorage-first until an explicit cutover phase.
 
 Workflow migration is preview-only in this batch. Treat inspection media as metadata only; no real file storage is active yet.
 
 Business-module migration is also preview-only. Supplier bids remain privacy-scoped, document records remain metadata-only, and customer-visible documents should be manually reviewed before any future import commit.
+
+Backend file storage foundations are available for controlled testing only. The frontend Document Center still works in local metadata/preview mode unless a later cutover enables backend uploads.
+
+Backend file env vars:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `FILE_STORAGE_ROOT` / `UPLOAD_STORAGE_ROOT` | Optional | Folder for backend file uploads. Defaults to `server/uploads`. |
+| `MAX_UPLOAD_MB` | Optional | Maximum upload size in MB. Defaults to `10`. |
+
+Allowed upload types are images, PDFs, text-like files, and common doc-like files. The backend returns `fileId` and `storageKey`, never arbitrary server paths.
+
+Production storage options:
+
+- Simple server deployment: store files on a dedicated server disk path and back it up.
+- Synology deployment: point `FILE_STORAGE_ROOT` at a protected shared folder.
+- Future scale: use S3-compatible/object storage and keep only metadata in PostgreSQL.
+
+Backup warning: database backups are not enough once real file uploads are enabled. The file storage folder must be backed up with the database.
+
+### Backend Database Backup / Restore Plan
+
+Use `server/BACKUP_RESTORE_PLAN.md` as the operator runbook before multi-device production use.
+
+Minimum backup set:
+
+- PostgreSQL dump from `pg_dump`
+- file storage folder/archive from `FILE_STORAGE_ROOT`
+- app commit/version note
+- migration preview output if a migration is being prepared
+
+Recommended schedule:
+
+- daily after shop close
+- before every migration/import test
+- before every deployment update
+- before enabling backend write/cutover mode
+
+Restore should be drilled against a staging database first. Do not run destructive restore commands automatically from the app.
+
+### Multi-Device Backend Cutover Plan
+
+True multi-device shared data requires the backend, PostgreSQL, shared file storage, and tested role/auth behavior. Use this staged sequence:
+
+1. Export localStorage backup.
+2. Run migration preview.
+3. Fix duplicate and missing-link warnings.
+4. Enable import commit only during a controlled migration window.
+5. Import customers and vehicles first.
+6. Import intake, RO, and workflow data.
+7. Import business modules.
+8. Verify record counts and sample records.
+9. Enable backend read-only mode if available.
+10. Enable backend write mode only after testing.
+11. Keep rollback backups.
+
+Cutover risks include duplicate customers/plates, localStorage/backend divergence, file-storage mismatch, role mismatches, and simultaneous editing during migration. Avoid multi-browser editing until backend write mode is proven.
 
 ### Reading env vars in code
 

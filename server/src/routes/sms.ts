@@ -1,4 +1,5 @@
 import { protectRoutes } from "../middleware/auth.js";
+import { config } from "../config.js";
 import { sendJson } from "../response.js";
 import type { SmsSendRequest, SmsSendResponse } from "../contracts/proxy.js";
 import type { ApiRoute } from "./types.js";
@@ -21,6 +22,26 @@ const routes: ApiRoute[] = [
     pattern: /^\/api\/sms\/send$/,
     description: "Future secure SMS proxy route with provider stubs",
     handler: (_req, res, context) => {
+      if (!config.smsProxyEnabled) {
+        sendJson(res, 202, {
+          success: true,
+          data: {
+            status: "queued",
+            provider: "simulated",
+            providerResponse: "Backend SMS proxy is disabled by SMS_PROXY_ENABLED=false. Current frontend SMS flow remains active.",
+            sendLog: {
+              id: `sms-disabled-${Date.now()}`,
+              to: "not-sent",
+              status: "queued",
+              provider: "simulated",
+              queuedAt: new Date().toISOString(),
+            },
+            messageLength: 0,
+          },
+          meta: { generatedAt: new Date().toISOString(), source: "dvi-server" },
+        });
+        return;
+      }
       const request = normalizeSmsRequest(context.body);
       const queuedAt = new Date().toISOString();
       const response: SmsSendResponse = {

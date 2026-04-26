@@ -7,11 +7,14 @@ import type { BaseRepository } from "./types.js";
 export type DocumentAttachmentDto = {
   id: string;
   localId?: string | null;
+  fileId?: string | null;
   fileName: string;
   fileType?: string | null;
+  mimeType?: string | null;
   fileSize?: number | null;
   storageKey?: string | null;
   dataUrlHash?: string | null;
+  checksum?: string | null;
   uploadedById?: string | null;
   sourceModule?: string | null;
   linkedEntityId?: string | null;
@@ -20,6 +23,7 @@ export type DocumentAttachmentDto = {
   vehicleId?: string | null;
   repairOrderId?: string | null;
   customerVisible: boolean;
+  internalOnly: boolean;
   note?: string | null;
   uploadedAt?: string | null;
   createdAt?: string | null;
@@ -30,10 +34,13 @@ function buildDocumentInput(data: Record<string, unknown>) {
   const input: Record<string, unknown> = {};
   for (const key of [
     "localId",
+    "fileId",
     "fileName",
     "fileType",
+    "mimeType",
     "storageKey",
     "dataUrlHash",
+    "checksum",
     "uploadedById",
     "sourceModule",
     "linkedEntityId",
@@ -51,12 +58,16 @@ function buildDocumentInput(data: Record<string, unknown>) {
   if (fileSize !== undefined) input.fileSize = fileSize;
 
   if (!("fileName" in data) && "title" in data) input.fileName = optionalText(data, "title");
+  if (!("fileType" in data) && "mimeType" in data) input.fileType = optionalText(data, "mimeType");
+  if (!("mimeType" in data) && "fileType" in data) input.mimeType = optionalText(data, "fileType");
   if (!input.fileName) input.fileName = "Untitled document";
 
   const internalOnly = optionalBoolean(data, "internalOnly");
   const customerVisible = optionalBoolean(data, "customerVisible");
   if (internalOnly === true) input.customerVisible = false;
   else if (customerVisible !== undefined) input.customerVisible = customerVisible;
+  if (internalOnly !== undefined) input.internalOnly = internalOnly;
+  else if (customerVisible === true) input.internalOnly = false;
 
   if ("uploadedAt" in data) {
     const uploadedAt = typeof data.uploadedAt === "string" && data.uploadedAt.trim() ? new Date(data.uploadedAt) : null;
@@ -127,11 +138,14 @@ const baseDocumentsRepository = createPrismaRepository<DocumentAttachmentDto, Re
   normalize: (record) => ({
     id: String(record.id),
     localId: typeof record.localId === "string" ? record.localId : null,
+    fileId: typeof record.fileId === "string" ? record.fileId : null,
     fileName: String(record.fileName ?? "Untitled document"),
     fileType: typeof record.fileType === "string" ? record.fileType : null,
+    mimeType: typeof record.mimeType === "string" ? record.mimeType : null,
     fileSize: typeof record.fileSize === "number" ? record.fileSize : null,
     storageKey: typeof record.storageKey === "string" ? record.storageKey : null,
     dataUrlHash: typeof record.dataUrlHash === "string" ? record.dataUrlHash : null,
+    checksum: typeof record.checksum === "string" ? record.checksum : null,
     uploadedById: typeof record.uploadedById === "string" ? record.uploadedById : null,
     sourceModule: typeof record.sourceModule === "string" ? record.sourceModule : null,
     linkedEntityId: typeof record.linkedEntityId === "string" ? record.linkedEntityId : null,
@@ -140,6 +154,7 @@ const baseDocumentsRepository = createPrismaRepository<DocumentAttachmentDto, Re
     vehicleId: typeof record.vehicleId === "string" ? record.vehicleId : null,
     repairOrderId: typeof record.repairOrderId === "string" ? record.repairOrderId : null,
     customerVisible: typeof record.customerVisible === "boolean" ? record.customerVisible : false,
+    internalOnly: typeof record.internalOnly === "boolean" ? record.internalOnly : record.customerVisible !== true,
     note: typeof record.note === "string" ? record.note : null,
     uploadedAt: dateToIso(record.uploadedAt),
     createdAt: dateToIso(record.createdAt),
