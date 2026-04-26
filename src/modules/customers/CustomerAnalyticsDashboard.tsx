@@ -25,9 +25,14 @@ export function CustomerAnalyticsDashboard({ currentUser, repairOrders, isCompac
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [search, setSearch] = useState("");
+  const [selectedCustomerKey, setSelectedCustomerKey] = useState("");
   const viewModel = useMemo(
     () => buildCustomerAnalyticsViewModel({ repairOrders, currentRole: currentUser.role, filters: { dateFrom, dateTo, search } }),
     [currentUser.role, dateFrom, dateTo, repairOrders, search]
+  );
+  const selectedCustomer = useMemo(
+    () => viewModel.visitRows.find((row) => row.key === selectedCustomerKey) ?? null,
+    [selectedCustomerKey, viewModel.visitRows]
   );
   const totalClassified = CLASSIFICATIONS.reduce((sum, key) => sum + viewModel.classificationCounts[key], 0);
 
@@ -61,32 +66,64 @@ export function CustomerAnalyticsDashboard({ currentUser, repairOrders, isCompac
 
       <div style={{ ...styles.columns, gridTemplateColumns: isCompactLayout ? "1fr" : "1fr 1fr" }}>
         <div>
-          <h3 style={styles.cardTitle}>Repeat Customer Ranking</h3>
-          {viewModel.repeatCustomers.slice(0, 6).map((row) => (
-            <div key={row.key} style={styles.row}>
-              <span>{row.customerName} / {row.plateNumber}</span>
-              <strong>{row.visitCount} visits</strong>
-            </div>
-          ))}
-          {viewModel.repeatCustomers.length === 0 ? <div style={styles.empty}>No repeat customers in this filter.</div> : null}
+          <h3 style={styles.cardTitle}>Customer Profiles</h3>
+          <div style={styles.list}>
+            {viewModel.visitRows.slice(0, 8).map((row) => (
+              <button
+                key={row.key}
+                type="button"
+                data-testid={`customer-profile-row-${row.key}`}
+                style={{ ...styles.profileRow, ...(selectedCustomer?.key === row.key ? styles.profileRowSelected : {}) }}
+                onClick={() => setSelectedCustomerKey(row.key)}
+              >
+                <div style={styles.profileRowTop}>
+                  <strong>{row.customerName}</strong>
+                  <span style={styles.profileBadge}>{row.classification}</span>
+                </div>
+                <div style={styles.profileMeta}>{row.plateNumber || "-"}</div>
+                <div style={styles.profileMeta}>{row.visitCount} visits | Last visit {formatDate(row.lastVisitDate)}</div>
+              </button>
+            ))}
+          </div>
+          {viewModel.visitRows.length === 0 ? <div style={styles.empty}>No customer profiles in this filter.</div> : null}
         </div>
-        <div data-testid="customer-lifetime-value-panel">
-          <h3 style={styles.cardTitle}>Customer Lifetime Value</h3>
-          {!viewModel.clvAllowed ? (
-            <div style={styles.empty} data-testid="clv-restricted">Customer value ranking is restricted.</div>
+        <div data-testid="customer-profile-detail-panel">
+          <h3 style={styles.cardTitle}>Customer Profile Detail</h3>
+          {!selectedCustomer ? (
+            <div style={styles.empty}>Select a customer to view profile details.</div>
           ) : (
-            viewModel.lifetimeValueRows.slice(0, 6).map((row) => (
-              <div key={row.key} style={styles.row}>
-                <span>
-                  {row.customerName} / {row.plateNumber}
-                  <small style={styles.rowNote}>
-                    {row.visitCount} visits / Avg {row.averageSpendPerVisit > 0 ? formatCurrency(row.averageSpendPerVisit) : "counts only"} / Last {formatDate(row.lastVisitDate)}
-                  </small>
-                </span>
-                <strong>{row.totalSpend > 0 ? formatCurrency(row.totalSpend) : `${row.visitCount} visits`}</strong>
+            <div style={styles.detailCard}>
+              <div style={styles.detailHeader}>
+                <strong>{selectedCustomer.customerName}</strong>
+                <span style={styles.profileBadge}>{selectedCustomer.classification}</span>
               </div>
-            ))
+              <div style={styles.detailMeta}>{selectedCustomer.plateNumber || "-"}</div>
+              <div style={styles.detailMeta}>Visit count: {selectedCustomer.visitCount}</div>
+              <div style={styles.detailMeta}>Last visit: {formatDate(selectedCustomer.lastVisitDate)}</div>
+              <div style={styles.detailMeta}>Total spend: {selectedCustomer.totalSpend > 0 ? formatCurrency(selectedCustomer.totalSpend) : "Counts only"}</div>
+              <div style={styles.detailMeta}>Avg spend / visit: {selectedCustomer.averageSpendPerVisit > 0 ? formatCurrency(selectedCustomer.averageSpendPerVisit) : "Counts only"}</div>
+              <div style={styles.detailMeta}>Inactive: {selectedCustomer.inactive ? "Yes" : "No"}</div>
+            </div>
           )}
+
+          <div style={{ marginTop: 14 }}>
+            <h3 style={styles.cardTitle}>Customer Lifetime Value</h3>
+            {!viewModel.clvAllowed ? (
+              <div style={styles.empty} data-testid="clv-restricted">Customer value ranking is restricted.</div>
+            ) : (
+              viewModel.lifetimeValueRows.slice(0, 6).map((row) => (
+                <div key={row.key} style={styles.row}>
+                  <span>
+                    {row.customerName} / {row.plateNumber}
+                    <small style={styles.rowNote}>
+                      {row.visitCount} visits / Avg {row.averageSpendPerVisit > 0 ? formatCurrency(row.averageSpendPerVisit) : "counts only"} / Last {formatDate(row.lastVisitDate)}
+                    </small>
+                  </span>
+                  <strong>{row.totalSpend > 0 ? formatCurrency(row.totalSpend) : `${row.visitCount} visits`}</strong>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </section>
@@ -104,7 +141,16 @@ const styles: Record<string, React.CSSProperties> = {
   kpi: { display: "grid", gap: 4, border: "1px solid #e2e8f0", borderRadius: 8, padding: 12, background: "#f8fafc" },
   columns: { display: "grid", gap: 14 },
   cardTitle: { margin: "0 0 8px", fontSize: 14, color: "#0f172a" },
+  list: { display: "grid", gap: 8 },
   row: { display: "flex", justifyContent: "space-between", gap: 10, padding: "8px 0", borderBottom: "1px solid #e2e8f0", color: "#334155" },
   rowNote: { display: "block", marginTop: 3, color: "#64748b" },
   empty: { color: "#64748b", fontSize: 13 },
+  profileRow: { border: "1px solid #e2e8f0", borderRadius: 8, padding: 10, background: "#f8fafc", textAlign: "left" as const, cursor: "pointer" },
+  profileRowSelected: { borderColor: "#2563eb", background: "#eff6ff" },
+  profileRowTop: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" },
+  profileBadge: { display: "inline-flex", padding: "2px 8px", borderRadius: 999, background: "#e2e8f0", color: "#334155", fontSize: 11, fontWeight: 700 },
+  profileMeta: { color: "#64748b", fontSize: 12, marginTop: 4 },
+  detailCard: { border: "1px solid #e2e8f0", borderRadius: 8, padding: 12, background: "#f8fafc", display: "grid", gap: 6 },
+  detailHeader: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" },
+  detailMeta: { color: "#475569", fontSize: 13 },
 };

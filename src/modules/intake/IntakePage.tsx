@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import type { SessionUser, IntakeRecord, IntakeStatus, VehicleAccountType } from "../shared/types";
 import { formatDateTime, getResponsiveSpan } from "../shared/helpers";
 

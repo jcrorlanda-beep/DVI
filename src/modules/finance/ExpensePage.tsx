@@ -73,6 +73,7 @@ const styles: Record<string, React.CSSProperties> = {
   filterRow: { display: "flex", gap: 8, flexWrap: "wrap" as const, marginBottom: 12 },
   badge: { display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600 },
   emptyState: { textAlign: "center" as const, padding: "32px 0", color: "#94a3b8", fontSize: 14 },
+  detailGrid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, fontSize: 13, color: "#334155" },
 };
 
 export function ExpensePage({
@@ -88,6 +89,7 @@ export function ExpensePage({
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
+  const [selectedExpenseId, setSelectedExpenseId] = useState<string | null>(null);
   const [form, setForm] = useState(getDefaultForm());
   const [error, setError] = useState("");
   const [filterMonth, setFilterMonth] = useState(() => {
@@ -116,6 +118,7 @@ export function ExpensePage({
 
   const totalFiltered = useMemo(() =>
     filtered.reduce((s, e) => s + parseMoneyInput(e.amount), 0), [filtered]);
+  const selectedExpense = selectedExpenseId ? expenses.find((expense) => expense.id === selectedExpenseId) ?? null : null;
 
   const categoryBreakdown = useMemo(() => {
     const map = new Map<string, number>();
@@ -309,7 +312,12 @@ export function ExpensePage({
             </thead>
             <tbody>
               {filtered.map((expense) => (
-                <tr key={expense.id}>
+                <tr
+                  key={expense.id}
+                  data-testid={`expense-row-${expense.id}`}
+                  style={{ cursor: "pointer", background: selectedExpenseId === expense.id ? "#eff6ff" : "transparent" }}
+                  onClick={() => setSelectedExpenseId(expense.id)}
+                >
                   <td style={styles.td}>{expense.date}</td>
                   <td style={styles.td}><span style={{ ...styles.badge, background: "#f1f5f9", color: "#334155" }}>{expense.category}</span></td>
                   <td style={styles.td}>{expense.vendor || <span style={{ color: "#94a3b8" }}>—</span>}</td>
@@ -332,6 +340,27 @@ export function ExpensePage({
           </table>
         )}
       </div>
+
+      {selectedExpense ? (
+        <div style={styles.card} data-testid="expense-detail-panel">
+          <div style={styles.cardTitle}>Expense Detail</div>
+          <div style={styles.detailGrid}>
+            <div><strong>{selectedExpense.description}</strong></div>
+            <div>{selectedExpense.expenseNumber}</div>
+            <div>{selectedExpense.date}</div>
+            <div>{selectedExpense.vendor || "-"}</div>
+            <div>{selectedExpense.category}</div>
+            <div>{selectedExpense.paymentMethod}</div>
+            <div>{selectedExpense.referenceNumber || "-"}</div>
+            <div>{formatCurrency(parseMoneyInput(selectedExpense.amount))}</div>
+            <div style={{ gridColumn: "1 / -1" }}>{selectedExpense.note || "No note provided."}</div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button style={styles.secondaryBtn} onClick={() => openEdit(selectedExpense)}>Edit Expense</button>
+            <button style={styles.secondaryBtn} onClick={() => setSelectedExpenseId(null)}>Close Detail</button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

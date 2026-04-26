@@ -4,6 +4,7 @@ import { AI_GENERATED_DRAFT_LABEL, AI_REVIEW_CONFIRMATION_LABEL, AI_REVIEW_REMIN
 import { OPENAI_ASSIST_LOG_STORAGE_KEY, type OpenAiAssistLogEntry, type OpenAiAssistProviderMode } from "./openaiAssist";
 import type { AiAction as OllamaAiAction, AiProviderName } from "./ollamaProvider";
 import {
+  buildCustomerPrintSummary,
   buildReportBuilderSourceText,
   getReportBuilderAction,
   REPORT_BUILDER_REPORT_TYPES,
@@ -259,7 +260,8 @@ export function ReportBuilderPanel({
       return;
     }
     try {
-      await navigator.clipboard.writeText(draftText);
+      const copyText = customerSummaryText.trim() || draftText;
+      await navigator.clipboard.writeText(copyText);
       setFeedback("Report copied to clipboard.");
       const copiedAt = new Date().toISOString();
       appendLog(
@@ -300,7 +302,7 @@ export function ReportBuilderPanel({
         sourceModule
       );
     }
-  }, [appendLog, currentUserName, currentUserRole, draftText, reviewed, reviewedAt, sourceModule]);
+  }, [appendLog, currentUserName, currentUserRole, customerSummaryText, draftText, reviewed, reviewedAt, sourceModule]);
 
   const useDraft = React.useCallback(() => {
     if (!reviewed) {
@@ -327,7 +329,7 @@ export function ReportBuilderPanel({
       return;
     }
     const usedAt = new Date().toISOString();
-    setCustomerSummaryText(draftText);
+    setCustomerSummaryText(customerSummaryText.trim() || draftText);
     setFeedback("Report applied to the customer summary preview.");
     appendLog(
       {
@@ -346,7 +348,7 @@ export function ReportBuilderPanel({
       },
       sourceModule
     );
-  }, [appendLog, currentUserName, currentUserRole, draftText, logNote, reviewed, reviewedAt, sourceModule]);
+  }, [appendLog, currentUserName, currentUserRole, customerSummaryText, draftText, logNote, reviewed, reviewedAt, sourceModule]);
 
   const markReviewed = React.useCallback(() => {
     const now = new Date().toISOString();
@@ -472,13 +474,13 @@ export function ReportBuilderPanel({
             {isGenerating ? "Generating..." : "Generate Report"}
           </button>
           <button type="button" data-testid={`${testIdPrefix}-copy-button`} style={styles.secondaryButton} disabled={!draftText.trim() || !reviewed} onClick={() => void copyDraft()}>
-            Copy Report
+            Copy Summary
           </button>
           <button type="button" data-testid={`${testIdPrefix}-use-button`} style={styles.secondaryButton} disabled={!draftText.trim() || !reviewed} onClick={useDraft}>
-            Use as Customer Summary
+            Use AI-polished summary
           </button>
           <button type="button" data-testid={`${testIdPrefix}-print-preview-button`} style={styles.secondaryButton} onClick={() => setPrintPreview((prev) => !prev)}>
-            {printPreview ? "Close Print View" : "Print-friendly view"}
+            {printPreview ? "Close Print Summary" : "Preview Print Summary"}
           </button>
           <button type="button" data-testid={`${testIdPrefix}-reviewed-button`} style={styles.secondaryButton} onClick={markReviewed}>
             Mark as reviewed
@@ -514,7 +516,7 @@ export function ReportBuilderPanel({
             setReviewed(false);
             setReviewedAt("");
           }}
-          placeholder="Click 'Use as Customer Summary' to move the draft here."
+          placeholder="Click 'Use AI-polished summary' to move the draft here."
         />
       </div>
 
@@ -561,13 +563,15 @@ export function ReportBuilderPanel({
 
       {printPreview ? (
         <div style={styles.printPreviewCard} data-testid={`${testIdPrefix}-print-view`}>
-          <div style={styles.sectionLabel}>Print-Friendly View</div>
+          <div style={styles.sectionLabel}>Print Summary Preview</div>
           <div style={styles.printPreviewMeta}>
             <span>Customer: {sourceData.vehicle.customerName || "Customer"}</span>
             <span>Vehicle: {[sourceData.vehicle.year, sourceData.vehicle.make, sourceData.vehicle.model].filter(Boolean).join(" ") || "Vehicle"}</span>
             <span>Plate: {sourceData.vehicle.plateNumber || "-"}</span>
           </div>
-          <pre style={styles.printPreviewText}>{draftText || sourceText}</pre>
+          <pre style={styles.printPreviewText}>
+            {buildCustomerPrintSummary(reportType, sourceModule, sourceData, customerSummaryText.trim() || draftText || sourceText)}
+          </pre>
           <button type="button" style={styles.secondaryButton} onClick={() => window.print()}>
             Print
           </button>

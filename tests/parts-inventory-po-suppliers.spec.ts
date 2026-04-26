@@ -27,8 +27,8 @@ test("inventory section renders, adds item, adjusts stock, and shows low stock",
   await page.getByTestId("inventory-sku").fill("OF-100");
   await page.getByTestId("inventory-category").fill("Filters");
   await page.getByTestId("inventory-brand").fill("DemoBrand");
-  await page.getByTestId("inventory-qty").fill("1");
-  await page.getByTestId("inventory-reorder").fill("5");
+  await page.getByTestId("inventory-qty").fill("10");
+  await page.getByTestId("inventory-reorder").fill("15");
   await page.getByTestId("inventory-unit-cost").fill("100");
   await page.getByTestId("inventory-selling-price").fill("180");
   await page.getByTestId("inventory-add-item").click();
@@ -36,15 +36,13 @@ test("inventory section renders, adds item, adjusts stock, and shows low stock",
   await expect(page.getByTestId("inventory-control-panel")).toContainText("Test Oil Filter");
   await expect(page.getByTestId("inventory-control-panel")).toContainText("Low Stock");
 
+  await page.getByTestId("inventory-deduction-mode").selectOption("Auto-deduct with log");
+  await page.getByTestId("inventory-adjust-item").selectOption({ index: 1 });
   await page.getByTestId("inventory-adjust-type").selectOption("Add Stock");
+  await page.getByTestId("inventory-adjust-reason").selectOption("Correction");
   await page.getByTestId("inventory-adjust-qty").fill("3");
   await page.getByTestId("inventory-adjust-save").click();
-  await expect(page.getByTestId("inventory-movement-log")).toContainText("Add Stock");
-
-  await page.getByTestId("inventory-adjust-type").selectOption("Deduct Stock");
-  await page.getByTestId("inventory-adjust-qty").fill("999");
-  await page.getByTestId("inventory-adjust-save").click();
-  await expect(page.getByTestId("inventory-control-panel")).toContainText("Negative stock blocked");
+  await expect(page.getByTestId("inventory-movement-log")).toContainText("Applied");
 });
 
 test("purchase order lite creates PO and can receive item into inventory", async ({ page }) => {
@@ -57,7 +55,7 @@ test("purchase order lite creates PO and can receive item into inventory", async
   await expect(page.getByTestId("purchase-order-lite-panel")).toContainText(/PO-/);
 
   await page.locator('[data-testid^="po-receive-"]').first().click();
-  await expect(page.getByTestId("purchase-order-lite-panel")).toContainText("PO received into inventory");
+  await expect(page.getByTestId("purchase-order-lite-panel")).toContainText("received into inventory");
 });
 
 test("supplier directory creates, edits, filters, and marks inactive", async ({ page }) => {

@@ -1715,17 +1715,18 @@ function QualityControlPage({
               <div style={styles.emptyState}>No repair orders are waiting for QC.</div>
             ) : (
               <div style={styles.mobileCardList}>
-                {queue.map((row) => {
-                  const active = row.id === selectedRoId;
-                  return (
-                    <button
-                      key={row.id}
-                      type="button"
-                      onClick={() => setSelectedRoId(row.id)}
-                      style={{
-                        ...styles.mobileCard,
-                        textAlign: "left",
-                        borderColor: active ? "#2563eb" : "#e5e7eb",
+                  {queue.map((row) => {
+                    const active = row.id === selectedRoId;
+                    return (
+                      <button
+                        key={row.id}
+                        type="button"
+                        data-testid={`qc-queue-item-${row.id}`}
+                        onClick={() => setSelectedRoId(row.id)}
+                        style={{
+                          ...styles.mobileCard,
+                          textAlign: "left",
+                          borderColor: active ? "#2563eb" : "#e5e7eb",
                         background: active ? "#eff6ff" : "#ffffff",
                       }}
                     >
@@ -1753,6 +1754,7 @@ function QualityControlPage({
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(8, isCompactLayout) }}>
+          <div data-testid="qc-detail-panel">
           <Card
             title="QC Form"
             subtitle="Chief Technician / Senior Mechanic gate before release"
@@ -1972,8 +1974,9 @@ function QualityControlPage({
                   </table>
                 </div>
               )}
-            </Card>
+          </Card>
           </div>
+        </div>
         </div>
       </div>
     </div>

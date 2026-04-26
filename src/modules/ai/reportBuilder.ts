@@ -96,6 +96,32 @@ function normalizeVehicleKey(value?: string) {
   return String(value ?? "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 }
 
+type WorkshopPrintProfile = {
+  shopName?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+};
+
+function readWorkshopPrintProfile(): WorkshopPrintProfile {
+  try {
+    if (typeof window === "undefined") return {};
+    const raw = window.localStorage.getItem("dvi_settings");
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Partial<WorkshopPrintProfile> | null;
+    return {
+      shopName: parsed?.shopName?.trim() || "",
+      address: parsed?.address?.trim() || "",
+      phone: parsed?.phone?.trim() || "",
+      email: parsed?.email?.trim() || "",
+      website: parsed?.website?.trim() || "",
+    };
+  } catch {
+    return {};
+  }
+}
+
 function normalizeText(value: string) {
   return value.replace(/\r\n/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -168,6 +194,16 @@ function formatVehicleSummary(vehicle: TimelineVehicleSummary) {
     `Plate: ${vehicle.plateNumber || "-"}`,
     `Current KM: ${typeof vehicle.currentMileage === "number" ? vehicle.currentMileage.toLocaleString() : "-"}`,
   ].join("\n");
+}
+
+function formatWorkshopHeader(profile: WorkshopPrintProfile) {
+  return [
+    profile.shopName ? profile.shopName : "",
+    profile.address ? profile.address : "",
+    profile.phone ? `Phone: ${profile.phone}` : "",
+    profile.email ? `Email: ${profile.email}` : "",
+    profile.website ? `Website: ${profile.website}` : "",
+  ].filter(Boolean);
 }
 
 function formatRepairOrderSummary(ro: RepairOrderRecord | null) {
@@ -442,4 +478,37 @@ export function buildReportBuilderSourceText(
 
   const lines = sections.flatMap((section) => (section ? [section, ""] : [])).filter(Boolean);
   return lines.join("\n").trim();
+}
+
+export function buildCustomerPrintSummary(
+  reportType: ReportBuilderReportType,
+  sourceModule: ReportBuilderSourceModule,
+  data: ReportBuilderSourceData,
+  contentText: string
+) {
+  const vehicleKey = getVehicleKey(data.vehicle);
+  const latestRo = getLatestRepairOrderForVehicle(data.repairOrders, vehicleKey);
+  const profile = readWorkshopPrintProfile();
+  const reportBody = normalizeText(contentText) || "No summary content was available.";
+  const headerLines = formatWorkshopHeader(profile);
+
+  return [
+    reportType,
+    `Prepared: ${new Date().toLocaleString()}`,
+    ...(headerLines.length ? ["", ...headerLines] : []),
+    "",
+    `Customer: ${data.vehicle.customerName || "Customer"}`,
+    `Vehicle: ${[data.vehicle.year, data.vehicle.make, data.vehicle.model].filter(Boolean).join(" ") || data.vehicle.plateNumber || "Vehicle"}`,
+    `Plate: ${data.vehicle.plateNumber || "-"}`,
+    latestRo?.roNumber ? `RO Number: ${latestRo.roNumber}` : "",
+    latestRo?.advisorName ? `Advisor: ${latestRo.advisorName}` : "",
+    sourceModule ? `Source: ${sourceModule}` : "",
+    "",
+    reportBody,
+    "",
+    "Customer-facing summary only. Internal pricing and audit details are intentionally omitted.",
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .trim();
 }

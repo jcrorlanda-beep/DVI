@@ -1,52 +1,46 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { RepairOrderRecord } from "../shared/types";
+import { BackToListButton } from "../shared/BackToListButton";
+import {
+  buildDocumentAttachmentPreview,
+  buildLinkedAttachmentLabel,
+  DOCUMENT_ATTACHMENT_SOURCE_MODULES,
+  DOCUMENT_ATTACHMENT_TYPES,
+  formatDocumentAttachmentSize,
+  normalizeDocumentAttachmentRecord,
+  readDocumentAttachmentRecords,
+  type DocumentAttachmentRecord,
+} from "./documentAttachmentHelpers";
 
 type Props = {
   repairOrders: RepairOrderRecord[];
   isCompactLayout: boolean;
+  currentUserFullName?: string;
 };
-
-type AttachmentRecord = {
-  id: string;
-  roId: string;
-  roNumber: string;
-  documentType: "Estimate" | "Inspection Photo" | "Approval Evidence" | "Invoice" | "Release Document" | "Other";
-  fileName: string;
-  note: string;
-  addedAt: string;
-  addedBy: string;
-};
-
-const STORAGE_KEY = "dvi_document_attachments_v1";
-
-function readAttachments() {
-  if (typeof window === "undefined") return [];
-  try {
-    return JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "[]") as AttachmentRecord[];
-  } catch {
-    return [];
-  }
-}
-
-function uid() {
-  return `doc_${Math.random().toString(36).slice(2, 10)}`;
-}
 
 function vehicleLabel(ro: RepairOrderRecord) {
   return [ro.year, ro.make, ro.model].filter(Boolean).join(" ") || ro.plateNumber || ro.conductionNumber || "Vehicle";
 }
 
-export function DocumentAttachmentCenter({ repairOrders, isCompactLayout }: Props) {
+function legacySafeLabel(record: DocumentAttachmentRecord) {
+  return record.linkedEntityLabel.trim() || record.roNumber.trim() || "Unlinked attachment";
+}
+
+export function DocumentAttachmentCenter({ repairOrders, isCompactLayout, currentUserFullName }: Props) {
   const activeRos = repairOrders.filter((ro) => !["Closed"].includes(ro.status));
-  const [attachments, setAttachments] = useState<AttachmentRecord[]>(() => readAttachments());
+  const [attachments, setAttachments] = useState<DocumentAttachmentRecord[]>(() => readDocumentAttachmentRecords());
   const [roId, setRoId] = useState(() => activeRos[0]?.id ?? "");
-  const [documentType, setDocumentType] = useState<AttachmentRecord["documentType"]>("Estimate");
+  const [documentType, setDocumentType] = useState<DocumentAttachmentRecord["documentType"]>("Estimate");
+  const [sourceModule, setSourceModule] = useState<DocumentAttachmentRecord["sourceModule"]>("Repair Orders");
   const [fileName, setFileName] = useState("");
   const [note, setNote] = useState("");
   const [filter, setFilter] = useState("all");
+  const [selectedAttachmentId, setSelectedAttachmentId] = useState("");
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [fileWarning, setFileWarning] = useState("");
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(attachments));
+    window.localStorage.setItem("dvi_document_attachments_v1", JSON.stringify(attachments));
   }, [attachments]);
 
   const selectedRo = activeRos.find((ro) => ro.id === roId) ?? activeRos[0] ?? null;
@@ -57,25 +51,123 @@ export function DocumentAttachmentCenter({ repairOrders, isCompactLayout }: Prop
         .sort((a, b) => b.addedAt.localeCompare(a.addedAt)),
     [attachments, filter]
   );
+  const selectedAttachment = filteredAttachments.find((row) => row.id === selectedAttachmentId) ?? null;
 
-  const addAttachment = () => {
+  useEffect(() => {
     if (!selectedRo) return;
-    const name = fileName.trim();
-    if (!name) return;
-    const record: AttachmentRecord = {
-      id: uid(),
-      roId: selectedRo.id,
-      roNumber: selectedRo.roNumber,
-      documentType,
-      fileName: name,
-      note: note.trim(),
-      addedAt: new Date().toISOString(),
-      addedBy: "Staff",
-    };
-    setAttachments((current) => [record, ...current]);
+    if (!roId || !activeRos.some((row) => row.id === roId)) {
+      setRoId(selectedRo.id);
+    }
+  }, [activeRos, roId, selectedRo]);
+
+  const addAttachment = async () => {
+    if (!selectedRo && !pendingFile && !fileName.trim()) return;
+    const now = new Date().toISOString();
+    const chosenName = fileName.trim() || pendingFile?.name?.trim() || "Attachment";
+    const linkedEntityId = selectedRo?.id ?? "";
+    const linkedEntityLabel = selectedRo ? `${selectedRo.roNumber} / ${vehicleLabel(selectedRo)}` : "Unlinked attachment";
+    const uploadedBy = currentUserFullName?.trim() || "Staff";
+
+    if (pendingFile) {
+      const preview = await buildDocumentAttachmentPreview(pendingFile);
+      const record = normalizeDocumentAttachmentRecord({
+        id: `doc_${Math.random().toString(36).slice(2, 10)}`,
+        roId: selectedRo?.id ?? "",
+        roNumber: selectedRo?.roNumber ?? "",
+        documentType,
+        fileName: chosenName,
+        note: note.trim(),
+        addedAt: now,
+        addedBy: uploadedBy,
+        fileType: pendingFile.type || "application/octet-stream",
+        fileSize: pendingFile.size,
+        uploadedAt: now,
+        uploadedBy,
+        sourceModule,
+        linkedEntityId,
+        linkedEntityLabel,
+        previewKind: preview.previewKind,
+        dataUrl: preview.dataUrl,
+        textPreview: preview.textPreview,
+        customerVisible: false,
+      });
+      setAttachments((current) => [record, ...current]);
+      setSelectedAttachmentId(record.id);
+      setFileWarning(preview.warning || "");
+    } else {
+      const record = normalizeDocumentAttachmentRecord({
+        id: `doc_${Math.random().toString(36).slice(2, 10)}`,
+        roId: selectedRo?.id ?? "",
+        roNumber: selectedRo?.roNumber ?? "",
+        documentType,
+        fileName: chosenName,
+        note: note.trim(),
+        addedAt: now,
+        addedBy: uploadedBy,
+        fileType: "application/octet-stream",
+        fileSize: 0,
+        uploadedAt: now,
+        uploadedBy,
+        sourceModule,
+        linkedEntityId,
+        linkedEntityLabel,
+        previewKind: "file",
+        customerVisible: false,
+      });
+      setAttachments((current) => [record, ...current]);
+      setSelectedAttachmentId(record.id);
+      setFileWarning("");
+    }
+
     setFileName("");
     setNote("");
+    setPendingFile(null);
   };
+
+  const deleteAttachment = (attachmentId: string) => {
+    const target = attachments.find((row) => row.id === attachmentId);
+    if (!target) return;
+    const confirmDelete = typeof window !== "undefined" ? window.confirm(`Delete attachment ${target.fileName}?`) : true;
+    if (!confirmDelete) return;
+    setAttachments((current) => current.filter((row) => row.id !== attachmentId));
+    if (selectedAttachmentId === attachmentId) {
+      setSelectedAttachmentId("");
+    }
+  };
+
+  const setCustomerVisible = (attachmentId: string, nextVisible: boolean) => {
+    setAttachments((current) =>
+      current.map((row) =>
+        row.id === attachmentId
+          ? {
+              ...row,
+              customerVisible: nextVisible,
+            }
+          : row
+      )
+    );
+  };
+
+  const onFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    setPendingFile(file);
+    if (!file) {
+      setFileWarning("");
+      return;
+    }
+    setFileName(file.name);
+    if (file.size > 1_500_000) {
+      setFileWarning("Large files can exceed browser storage. Metadata will still be saved, but preview data may be omitted.");
+    } else if (file.size > 1_000_000) {
+      setFileWarning("This file is large. Keep file sizes small when possible.");
+    } else {
+      setFileWarning("");
+    }
+  };
+
+  const selectedFileInfo = pendingFile
+    ? `${pendingFile.name} / ${pendingFile.type || "application/octet-stream"} / ${formatDocumentAttachmentSize(pendingFile.size)}`
+    : "";
 
   return (
     <section style={styles.panel} data-testid="document-attachment-center">
@@ -83,70 +175,204 @@ export function DocumentAttachmentCenter({ repairOrders, isCompactLayout }: Prop
         <div>
           <div style={styles.eyebrow}>Document / Attachment Center</div>
           <h2 style={styles.title}>Attachment index</h2>
-          <div style={styles.subtitle}>Internal document tracking for estimates, inspection media, approval evidence, invoices, and release documents.</div>
+          <div style={styles.subtitle}>
+            Internal document tracking for estimates, inspection media, approval evidence, invoices, and release documents.
+          </div>
         </div>
         <span style={styles.badge}>{attachments.length} indexed item(s)</span>
       </div>
 
-      <div style={{ ...styles.form, gridTemplateColumns: isCompactLayout ? "1fr" : "repeat(5, minmax(0, 1fr))" }}>
+      <div style={{ ...styles.form, gridTemplateColumns: isCompactLayout ? "1fr" : "repeat(6, minmax(0, 1fr))" }}>
         <label style={styles.label}>
           Repair Order
-          <select data-testid="document-center-ro-select" style={styles.input} value={selectedRo?.id ?? ""} onChange={(event) => setRoId(event.target.value)}>
+          <select
+            data-testid="document-center-ro-select"
+            style={styles.input}
+            value={selectedRo?.id ?? ""}
+            onChange={(event) => setRoId(event.target.value)}
+          >
             {activeRos.map((ro) => (
-              <option key={ro.id} value={ro.id}>{ro.roNumber} / {vehicleLabel(ro)}</option>
+              <option key={ro.id} value={ro.id}>
+                {ro.roNumber} / {vehicleLabel(ro)}
+              </option>
             ))}
           </select>
         </label>
         <label style={styles.label}>
-          Type
-          <select data-testid="document-center-type" style={styles.input} value={documentType} onChange={(event) => setDocumentType(event.target.value as AttachmentRecord["documentType"])}>
-            <option>Estimate</option>
-            <option>Inspection Photo</option>
-            <option>Approval Evidence</option>
-            <option>Invoice</option>
-            <option>Release Document</option>
-            <option>Other</option>
+          Source Module
+          <select
+            data-testid="document-center-source-module"
+            style={styles.input}
+            value={sourceModule}
+            onChange={(event) => setSourceModule(event.target.value as DocumentAttachmentRecord["sourceModule"])}
+          >
+            {DOCUMENT_ATTACHMENT_SOURCE_MODULES.map((module) => (
+              <option key={module} value={module}>
+                {module}
+              </option>
+            ))}
           </select>
         </label>
         <label style={styles.label}>
+          Document Type
+          <select
+            data-testid="document-center-type"
+            style={styles.input}
+            value={documentType}
+            onChange={(event) => setDocumentType(event.target.value as DocumentAttachmentRecord["documentType"])}
+          >
+            {DOCUMENT_ATTACHMENT_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label style={styles.label}>
+          File Upload
+          <input
+            data-testid="document-center-file-input"
+            style={styles.input}
+            type="file"
+            accept="image/*,application/pdf,text/plain,text/markdown,text/csv,application/json,application/xml,.txt,.md,.csv,.json,.xml,.rtf,.log,.html,.htm,.doc,.docx"
+            onChange={onFileChange}
+          />
+        </label>
+        <label style={styles.label}>
           File / Link Name
-          <input data-testid="document-center-file-name" style={styles.input} value={fileName} onChange={(event) => setFileName(event.target.value)} placeholder="estimate-ro-001.pdf" />
+          <input
+            data-testid="document-center-file-name"
+            style={styles.input}
+            value={fileName}
+            onChange={(event) => setFileName(event.target.value)}
+            placeholder="estimate-ro-001.pdf"
+          />
         </label>
         <label style={styles.label}>
           Note
-          <input data-testid="document-center-note" style={styles.input} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional note" />
+          <input
+            data-testid="document-center-note"
+            style={styles.input}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Optional note"
+          />
         </label>
         <label style={styles.label}>
           Filter
-          <select data-testid="document-center-filter" style={styles.input} value={filter} onChange={(event) => setFilter(event.target.value)}>
+          <select
+            data-testid="document-center-filter"
+            style={styles.input}
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+          >
             <option value="all">All documents</option>
-            <option>Estimate</option>
-            <option>Inspection Photo</option>
-            <option>Approval Evidence</option>
-            <option>Invoice</option>
-            <option>Release Document</option>
-            <option>Other</option>
+            {DOCUMENT_ATTACHMENT_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
           </select>
         </label>
       </div>
 
       <div style={styles.actions}>
-        <button type="button" style={styles.button} onClick={addAttachment} disabled={!selectedRo || !fileName.trim()}>Index Attachment</button>
-        <span style={styles.meta}>Metadata only. No public exposure and no customer portal document sharing added.</span>
+        <button
+          type="button"
+          style={styles.button}
+          onClick={() => void addAttachment()}
+          disabled={!selectedRo && !pendingFile && !fileName.trim()}
+        >
+          Index Attachment
+        </button>
+        <span style={styles.meta}>Metadata is stored locally in the browser. No backend file server was added.</span>
       </div>
 
+      {fileWarning ? <div style={styles.warning} data-testid="document-center-upload-warning">{fileWarning}</div> : null}
+      {selectedFileInfo ? <div style={styles.fileInfo}>{selectedFileInfo}</div> : null}
+
       <div style={styles.list}>
-        {filteredAttachments.length ? filteredAttachments.slice(0, 10).map((row) => (
-          <article key={row.id} style={styles.card} data-testid={`document-center-row-${row.id}`}>
-            <div style={styles.cardHeader}>
-              <strong>{row.fileName}</strong>
-              <span style={styles.type}>{row.documentType}</span>
-            </div>
-            <div style={styles.meta}>{row.roNumber} / {new Date(row.addedAt).toLocaleString()}</div>
-            {row.note ? <div style={styles.note}>{row.note}</div> : null}
-          </article>
-        )) : <div style={styles.empty}>No indexed attachments yet.</div>}
+        {filteredAttachments.length
+          ? filteredAttachments.slice(0, 10).map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                style={styles.cardButton}
+                data-testid={`document-center-row-${row.id}`}
+                onClick={() => setSelectedAttachmentId(row.id)}
+              >
+                <div style={styles.cardHeader}>
+                  <strong>{row.fileName}</strong>
+                  <span style={styles.type}>{row.documentType}</span>
+                </div>
+                <div style={styles.badgeRow}>
+                  <span style={styles.smallBadge}>{row.sourceModule}</span>
+                  <span style={styles.smallBadge}>{formatDocumentAttachmentSize(row.fileSize)}</span>
+                  {row.customerVisible ? <span style={styles.smallBadgeSuccess}>Customer Visible</span> : <span style={styles.smallBadgeMuted}>Internal Only</span>}
+                </div>
+                <div style={styles.meta}>{row.roNumber || "Unlinked"} / {new Date(row.addedAt).toLocaleString()}</div>
+                {row.note ? <div style={styles.note}>{row.note}</div> : null}
+              </button>
+            ))
+          : <div style={styles.empty}>No indexed attachments yet.</div>}
       </div>
+
+      {selectedAttachment ? (
+        <div style={{ ...styles.card, marginTop: 12 }} data-testid="document-detail-panel">
+          <div style={styles.cardHeader}>
+            <strong>Document Detail</strong>
+            <span style={styles.type}>{selectedAttachment.documentType}</span>
+          </div>
+          <div style={styles.detailToolbar}>
+            <BackToListButton onClick={() => setSelectedAttachmentId("")} testId="document-back-to-list" />
+          </div>
+          <div style={styles.detailGrid}>
+            <div style={styles.meta}><strong>File:</strong> {selectedAttachment.fileName}</div>
+            <div style={styles.meta}><strong>Source:</strong> {selectedAttachment.sourceModule}</div>
+            <div style={styles.meta}><strong>Type:</strong> {selectedAttachment.fileType}</div>
+            <div style={styles.meta}><strong>Size:</strong> {formatDocumentAttachmentSize(selectedAttachment.fileSize)}</div>
+            <div style={styles.meta}><strong>Linked:</strong> {legacySafeLabel(selectedAttachment)}</div>
+            <div style={styles.meta}><strong>Uploaded:</strong> {new Date(selectedAttachment.uploadedAt).toLocaleString()}</div>
+            <div style={styles.meta}><strong>Uploaded by:</strong> {selectedAttachment.uploadedBy}</div>
+            <div style={styles.meta}><strong>Visibility:</strong> {selectedAttachment.customerVisible ? "Customer visible" : "Internal only"}</div>
+          </div>
+          <div style={styles.warning} data-testid="document-center-sharing-warning">
+            Only mark documents customer-visible after confirming content is appropriate.
+          </div>
+          <label style={styles.visibilityLabel}>
+            <input
+              data-testid="document-center-customer-visible"
+              type="checkbox"
+              checked={!!selectedAttachment.customerVisible}
+              onChange={(event) => setCustomerVisible(selectedAttachment.id, event.target.checked)}
+            />
+            Customer visible
+          </label>
+          {selectedAttachment.note ? <div style={styles.note}>{selectedAttachment.note}</div> : <div style={styles.note}>No note provided.</div>}
+
+          <div style={styles.previewBox} data-testid="document-preview-panel">
+            {selectedAttachment.dataUrl ? (
+              selectedAttachment.previewKind === "image" ? (
+                <img src={selectedAttachment.dataUrl} alt={selectedAttachment.fileName} style={styles.previewImage} />
+              ) : selectedAttachment.previewKind === "pdf" ? (
+                <iframe title={selectedAttachment.fileName} src={selectedAttachment.dataUrl} style={styles.previewFrame} />
+              ) : selectedAttachment.previewKind === "text" ? (
+                <pre style={styles.previewText}>{selectedAttachment.textPreview || "Preview loaded."}</pre>
+              ) : (
+                <div style={styles.empty}>Preview is not supported for this file type, but the attachment metadata was saved.</div>
+              )
+            ) : (
+              <div style={styles.empty}>Preview unavailable. The file may be too large for browser storage, or the record may be legacy metadata only.</div>
+            )}
+          </div>
+
+          <div style={styles.actions}>
+            <button type="button" style={styles.dangerButton} data-testid="document-center-delete" onClick={() => deleteAttachment(selectedAttachment.id)}>
+              Delete Attachment
+            </button>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -163,11 +389,26 @@ const styles: Record<string, React.CSSProperties> = {
   input: { border: "1px solid #cbd5e1", borderRadius: 6, padding: "8px 10px", background: "#fff", color: "#0f172a", textTransform: "none", fontWeight: 600 },
   actions: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10 },
   button: { border: "none", borderRadius: 8, padding: "9px 12px", background: "#2563eb", color: "#fff", fontWeight: 800, cursor: "pointer" },
+  dangerButton: { border: "none", borderRadius: 8, padding: "9px 12px", background: "#b91c1c", color: "#fff", fontWeight: 800, cursor: "pointer" },
   list: { display: "grid", gap: 8, marginTop: 12 },
   card: { border: "1px solid #e2e8f0", borderRadius: 8, padding: 10, background: "#f8fafc" },
+  cardButton: { border: "1px solid #e2e8f0", borderRadius: 8, padding: 10, background: "#f8fafc", cursor: "pointer", textAlign: "left" as const },
   cardHeader: { display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
   type: { borderRadius: 999, padding: "4px 8px", background: "#dbeafe", color: "#1d4ed8", fontSize: 11, fontWeight: 800 },
+  badgeRow: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 },
+  smallBadge: { borderRadius: 999, padding: "3px 8px", background: "#e2e8f0", color: "#334155", fontSize: 11, fontWeight: 700 },
+  smallBadgeSuccess: { borderRadius: 999, padding: "3px 8px", background: "#dcfce7", color: "#166534", fontSize: 11, fontWeight: 700 },
+  smallBadgeMuted: { borderRadius: 999, padding: "3px 8px", background: "#f1f5f9", color: "#475569", fontSize: 11, fontWeight: 700 },
   meta: { color: "#64748b", fontSize: 12 },
   note: { color: "#334155", fontSize: 12, marginTop: 6 },
   empty: { border: "1px dashed #cbd5e1", borderRadius: 8, padding: 16, color: "#64748b", background: "#f8fafc" },
+  warning: { borderRadius: 8, padding: "10px 12px", background: "#fffbeb", border: "1px solid #f59e0b", color: "#92400e", fontSize: 12, fontWeight: 700, marginTop: 10 },
+  fileInfo: { marginTop: 8, color: "#475569", fontSize: 12, fontWeight: 700 },
+  detailGrid: { display: "grid", gap: 6, gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", marginTop: 8 },
+  detailToolbar: { display: "flex", justifyContent: "flex-end", marginTop: 8 },
+  visibilityLabel: { display: "flex", alignItems: "center", gap: 8, marginTop: 10, color: "#475569", fontSize: 13, fontWeight: 700 },
+  previewBox: { border: "1px solid #e2e8f0", borderRadius: 8, padding: 10, background: "#fff", marginTop: 10 },
+  previewImage: { maxWidth: "100%", width: "100%", borderRadius: 8, objectFit: "contain" as const, display: "block" },
+  previewFrame: { width: "100%", minHeight: 420, border: "none", borderRadius: 8, background: "#fff" },
+  previewText: { margin: 0, padding: 12, whiteSpace: "pre-wrap" as const, wordBreak: "break-word" as const, fontSize: 12, color: "#0f172a", background: "#f8fafc", borderRadius: 8, maxHeight: 420, overflow: "auto" },
 };

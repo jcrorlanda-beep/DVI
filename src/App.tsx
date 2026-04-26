@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import RolesPage from "./modules/roles/RolesPage";
 import HistoryPage from "./modules/history/HistoryPage";
 import SettingsPage from "./modules/settings/SettingsPage";
@@ -46,10 +46,23 @@ import { AdvisorPipelinePanel } from "./modules/advisors/AdvisorPipelinePanel";
 import { EstimateBuilderPanel } from "./modules/repairOrders/EstimateBuilderPanel";
 import { ApprovalEvidencePanel } from "./modules/approvals/ApprovalEvidencePanel";
 import { DocumentAttachmentCenter } from "./modules/documents/DocumentAttachmentCenter";
+import { formatDocumentAttachmentSize, readDocumentAttachmentRecords, type DocumentAttachmentRecord } from "./modules/documents/documentAttachmentHelpers";
+import { getVisibleBidsForContext, isSupplierAssignedToRequest } from "./modules/parts/supplierPrivacy";
 import { ExpensePage } from "./modules/finance/ExpensePage";
 import { PaymentTrackingPage } from "./modules/finance/PaymentTrackingPage";
 import { AuditLogPage } from "./modules/audit/AuditLogPage";
 import { BackupExportPage } from "./modules/backup/BackupExportPage";
+import { AccessLockedCard } from "./modules/shared/AccessLockedCard";
+import { canAccessAdvisorTools, canAccessFinancialReports, canAccessManagementSummary, canAccessTechnicianOperations } from "./modules/shared/roleAccess";
+import { CURRENT_DATA_MIGRATION_VERSION, normalizeAuditLogRecord, normalizeBookingRecord, normalizePaymentRecord, normalizeRepairOrderRecord, saveDataMigrationVersion } from "./modules/dataQuality/migrationHelpers";
+import { BookingServiceSelection } from "./modules/bookings/BookingServiceSelection";
+import { GlobalSearchPanel } from "./modules/search/GlobalSearchPanel";
+import {
+  buildBookingIntakeConcern,
+  getBookingServicesPreview,
+  mapBookingServiceTypeToRequestedService,
+  normalizeRequestedServices,
+} from "./modules/bookings/bookingMultiService";
 import type { ExpenseRecord, AuditLogRecord, AuditLogModule } from "./modules/shared/types";
 
 
@@ -83,7 +96,7 @@ type SupplierLoginForm = {
   supplierName: string;
 };
 
-type CustomerPortalView = "dashboard" | "jobs" | "approvals" | "inspection" | "myVehicles" | "bookings";
+type CustomerPortalView = "dashboard" | "jobs" | "approvals" | "inspection" | "documents" | "myVehicles" | "bookings";
 
 type CustomerAccount = {
   id: string;
@@ -467,6 +480,7 @@ type PartsMediaRecord = {
 type SupplierBid = {
   id: string;
   supplierName: string;
+  status?: "Draft" | "Submitted" | "Revised" | "Withdrawn";
   brand: string;
   quantity: string;
   unitCost: string;
@@ -482,6 +496,7 @@ type SupplierBid = {
   trackingNumber: string;
   courierName: string;
   shippingNotes: string;
+  updatedAt?: string;
 };
 
 type PartsReturnRecord = {
@@ -803,6 +818,7 @@ type BookingRecord = {
   year: string;
   serviceType: BookingServiceType;
   serviceDetail: BookingServiceDetail;
+  requestedServices?: string[];
   concern: string;
   notes: string;
   status: BookingStatus;
@@ -827,6 +843,7 @@ type BookingForm = {
   year: string;
   serviceType: BookingServiceType;
   serviceDetail: BookingServiceDetail;
+  requestedServices: string[];
   concern: string;
   notes: string;
   status: BookingStatus;
@@ -2251,14 +2268,14 @@ function getMileageMaintenanceSuggestions(odometerKmRaw: string): MaintenanceSug
 
   push(odometerKm >= 50000 - MILEAGE_SUGGESTION_TOLERANCE_KM && odometerKm <= 60000 + MILEAGE_SUGGESTION_TOLERANCE_KM, {
     id: 'mileage-50000-60000-major-checks',
-    title: '50,000â€“60,000 km full suspension and brake system check',
+    title: '50,000Ã¢â‚¬â€œ60,000 km full suspension and brake system check',
     reason: 'Mid-life range where full chassis and braking system review is recommended.',
     category: 'Suspension',
     source: 'Mileage',
     serviceKey: 'suspension-review',
     specificityTag: 'Interval-based',
     specificityRank: 2,
-    intervalTag: '50,000â€“60,000 km',
+    intervalTag: '50,000Ã¢â‚¬â€œ60,000 km',
   });
 
   push(odometerKm >= 80000 - MILEAGE_SUGGESTION_TOLERANCE_KM, {
@@ -3194,6 +3211,7 @@ function getDefaultRoleDefinitions(): RoleDefinition[] {
         "parts.view",
         "backjobs.view",
         "history.view",
+        "payments.view",
       ],
     },
     {
@@ -3290,6 +3308,7 @@ function getDefaultBookingForm(currentUserName: string): BookingForm {
   const yyyy = today.getFullYear();
   const mm = String(today.getMonth() + 1).padStart(2, "0");
   const dd = String(today.getDate()).padStart(2, "0");
+  const defaultRequestedService = mapBookingServiceTypeToRequestedService("Preventive Maintenance");
   return {
     requestedDate: `${yyyy}-${mm}-${dd}`,
     requestedTime: "09:00",
@@ -3305,10 +3324,24 @@ function getDefaultBookingForm(currentUserName: string): BookingForm {
     year: "",
     serviceType: "Preventive Maintenance",
     serviceDetail: "5,000 km maintenance",
+    requestedServices: [defaultRequestedService],
     concern: "",
     notes: "",
     status: "New",
   };
+}
+
+function getNextRequestedServicesForServiceType(
+  previousRequestedServices: string[],
+  previousServiceType: BookingServiceType,
+  nextServiceType: BookingServiceType
+) {
+  const currentDefaultService = mapBookingServiceTypeToRequestedService(previousServiceType);
+  const nextRequestedService = mapBookingServiceTypeToRequestedService(nextServiceType);
+  const keepDefaultSelection =
+    previousRequestedServices.length === 0 ||
+    (previousRequestedServices.length === 1 && previousRequestedServices[0] === currentDefaultService);
+  return keepDefaultSelection ? [nextRequestedService] : previousRequestedServices;
 }
 
 function getDefaultIntakeForm(currentUserName: string): IntakeForm {
@@ -3673,6 +3706,13 @@ function getPartsRequestStatusStyle(status: PartsRequestStatus): React.CSSProper
   if (["Cancelled", "Return Rejected"].includes(status)) return styles.statusLocked;
   if (["Ordered", "In Transit", "Shipped", "Waiting for Bids", "Sent to Suppliers", "Bidding", "Supplier Selected", "Return Requested"].includes(status)) return styles.statusWarning;
   return styles.statusInfo;
+}
+
+function getSupplierBidStatusStyle(status?: SupplierBid["status"]): React.CSSProperties {
+  if (status === "Withdrawn") return styles.statusLocked;
+  if (status === "Revised") return styles.statusWarning;
+  if (status === "Submitted") return styles.statusOk;
+  return styles.statusNeutral;
 }
 
 function getApprovalDecisionStyle(decision: ApprovalDecision): React.CSSProperties {
@@ -4857,7 +4897,7 @@ function buildOpenAiAssistSourceText({
       return [
         `Hi ${ro.accountLabel || ro.customerName || "Customer"},`,
         "",
-        `We’re following up on ${ro.roNumber} for ${vehicleLabel} (${plateLabel}).`,
+        `Weâ€™re following up on ${ro.roNumber} for ${vehicleLabel} (${plateLabel}).`,
         "If you have a moment, please let us know how the service went and if everything feels right after release.",
         "",
         "Thank you for trusting DVI Workshop.",
@@ -5454,7 +5494,7 @@ function PermissionPill({
         ...(disabled ? styles.permissionPillDisabled : {}),
       }}
     >
-      {checked ? "âœ“ " : ""}
+      {checked ? "Ã¢Å“â€œ " : ""}
       {permission}
     </button>
   );
@@ -5500,7 +5540,7 @@ function BookingCalendarPicker({
           </button>
         ))}
       </div>
-    </div>
+     </div>
   );
 }
 
@@ -5769,10 +5809,12 @@ function LoginScreen({
                   onChange={(e) =>
                     setPublicBookingForm((prev) => {
                       const nextType = e.target.value as BookingServiceType;
+                      const nextRequestedServices = getNextRequestedServicesForServiceType(prev.requestedServices, prev.serviceType, nextType);
                       return {
                         ...prev,
                         serviceType: nextType,
                         serviceDetail: getBookingServiceDetailOptions(nextType)[0],
+                        requestedServices: nextRequestedServices,
                       };
                     })
                   }
@@ -5798,6 +5840,12 @@ function LoginScreen({
                   ))}
                 </select>
               </div>
+              <BookingServiceSelection
+                value={publicBookingForm.requestedServices}
+                onChange={(next) => setPublicBookingForm((prev) => ({ ...prev, requestedServices: next }))}
+                dataTestIdPrefix="public-booking"
+              />
+              <div style={styles.formHint}>{getBookingServicesPreview(publicBookingForm)}</div>
               <div style={styles.formGroup}>
                 <label style={styles.label}>Concern / Requested Service</label>
                 <textarea style={styles.textarea} value={publicBookingForm.concern} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, concern: e.target.value }))} placeholder="Describe the service request" />
@@ -5878,6 +5926,7 @@ function CustomerPortalPage({
   portalLaunchView,
   sharedLinkRoId,
   sharedLinkMode,
+  onLogAudit,
 }: {
   customer: CustomerAccount;
   repairOrders: RepairOrderRecord[];
@@ -5902,9 +5951,11 @@ function CustomerPortalPage({
   portalLaunchView?: CustomerPortalView;
   sharedLinkRoId?: string;
   sharedLinkMode?: boolean;
+  onLogAudit?: (entry: Omit<AuditLogRecord, "id" | "timestamp">) => void;
 }) {
   const [portalView, setPortalView] = useState<CustomerPortalView>(portalLaunchView ?? "dashboard");
   const [selectedVehicleKey, setSelectedVehicleKey] = useState("");
+  const [documentAttachments, setDocumentAttachments] = useState<DocumentAttachmentRecord[]>(() => readDocumentAttachmentRecords());
 
   const customerLinkedPlateNumbers = Array.isArray(customer.linkedPlateNumbers) ? customer.linkedPlateNumbers : [];
   const customerLinkedRoIds = Array.isArray(customer.linkedRoIds) ? customer.linkedRoIds : [];
@@ -6013,10 +6064,27 @@ function CustomerPortalPage({
     }
   }, [portalLaunchView]);
 
+  useEffect(() => {
+    const syncDocumentAttachments = () => setDocumentAttachments(readDocumentAttachmentRecords());
+    syncDocumentAttachments();
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key === "dvi_document_attachments_v1") {
+        syncDocumentAttachments();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
   const pendingApprovalCount = linkedRepairOrders.reduce(
     (sum, row) => sum + row.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length,
     0
   );
+  const deferredApprovalCount = linkedRepairOrders.reduce(
+    (sum, row) => sum + row.workLines.filter((line) => line.approvalDecision === "Deferred").length,
+    0
+  );
+  const readyForReleaseCount = linkedRepairOrders.filter((row) => row.status === "Ready Release").length;
   const approvalDecisionSummary = useMemo(
     () =>
       linkedRepairOrders.reduce(
@@ -6099,6 +6167,15 @@ function CustomerPortalPage({
       .sort((a, b) => (b.requestedDate + b.requestedTime).localeCompare(a.requestedDate + a.requestedTime));
   }, [bookings, customer.id, customerPhone, customerEmail, linkedVehicleKeys]);
 
+  const customerVisibleDocuments = useMemo(() => {
+    const linkedRoIds = new Set(linkedRepairOrders.map((row) => row.id));
+    const linkedRoNumbers = new Set(linkedRepairOrders.map((row) => row.roNumber));
+    return documentAttachments
+      .filter((row) => row.customerVisible)
+      .filter((row) => linkedRoIds.has(row.roId) || linkedRoIds.has(row.linkedEntityId) || linkedRoNumbers.has(row.roNumber))
+      .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+  }, [documentAttachments, linkedRepairOrders]);
+
   const submitPortalBooking = (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmittingPortalBooking) return;
@@ -6130,6 +6207,7 @@ function CustomerPortalPage({
       setBookingError("Preferred date, time, and service request are required.");
       return;
     }
+    const requestedServices = normalizeRequestedServices(bookingForm.requestedServices);
     const newBooking: BookingRecord = {
       id: uid("book"),
       bookingNumber: nextDailyNumber("BKG"),
@@ -6149,6 +6227,7 @@ function CustomerPortalPage({
       year,
       serviceType: bookingForm.serviceType,
       serviceDetail: bookingForm.serviceDetail,
+      requestedServices: requestedServices.length ? requestedServices : [mapBookingServiceTypeToRequestedService(bookingForm.serviceType)],
       concern,
       notes: bookingForm.notes.trim(),
       status: "New",
@@ -6244,6 +6323,20 @@ function CustomerPortalPage({
         };
       })
     );
+    if (onLogAudit) {
+      const targetRo = linkedRepairOrders.find((row) => row.id === roId);
+      const targetLine = targetRo?.workLines.find((line) => line.id === lineId);
+      onLogAudit({
+        module: "CustomerPortal",
+        action: "approval_decision_updated",
+        entityId: roId,
+        entityLabel: targetRo?.roNumber || roId,
+        userId: customer.id,
+        userName: customer.fullName,
+        detail: `Customer marked ${targetLine ? targetLine.title : "the linked work item"} as ${decision.toLowerCase()}`,
+        after: decision,
+      });
+    }
   };
 
   return (
@@ -6303,6 +6396,13 @@ function CustomerPortalPage({
               </button>
               <button
                 type="button"
+                style={{ ...styles.secondaryButton, ...(portalView === "documents" ? styles.portalTabActive : {}) }}
+                onClick={() => setPortalView("documents")}
+              >
+                Documents
+              </button>
+              <button
+                type="button"
                 style={{ ...styles.secondaryButton, ...(portalView === "myVehicles" ? styles.portalTabActive : {}) }}
                 onClick={() => setPortalView("myVehicles")}
               >
@@ -6322,10 +6422,15 @@ function CustomerPortalPage({
               <div style={styles.portalHeroText}>
                 Review current repair orders, inspect approval items, and browse the full history of every linked vehicle from one customer portal.
               </div>
+              <div style={{ ...styles.formHint, marginTop: 10 }}>
+                Please review all findings, prices, promises, and safety notes before approving.
+              </div>
               <div style={styles.inlineActions}>
                 <span style={styles.statusOk} data-testid="customer-portal-status-approved">Approved {approvalDecisionSummary.approved}</span>
                 <span style={styles.statusWarning} data-testid="customer-portal-status-pending">Pending {approvalDecisionSummary.pending}</span>
                 <span style={styles.statusNeutral} data-testid="customer-portal-status-declined">Declined {approvalDecisionSummary.declined}</span>
+                <span style={styles.statusWarning}>Deferred {deferredApprovalCount}</span>
+                <span style={styles.statusOk}>Ready for Release {readyForReleaseCount}</span>
               </div>
             </div>
 
@@ -6544,7 +6649,7 @@ function CustomerPortalPage({
                               <span style={getBookingStatusStyle(row.status)}>{row.status}</span>
                             </div>
                             <div style={styles.mobileDataPrimary}>{row.plateNumber || row.conductionNumber || "-"}</div>
-                            <div style={styles.mobileDataSecondary}>{row.serviceType}  |  {row.serviceDetail || "-"}  |  {row.requestedDate} {row.requestedTime}</div>
+                            <div style={styles.mobileDataSecondary}>{getBookingServicesPreview(row)}  |  {row.requestedDate} {row.requestedTime}</div>
                             <div style={styles.formHint}>{row.concern || row.notes || "Booking request"}</div>
                           </div>
                         ))}
@@ -6610,10 +6715,12 @@ function CustomerPortalPage({
                             onChange={(e) =>
                               setBookingForm((prev) => {
                                 const nextType = e.target.value as BookingServiceType;
+                                const nextRequestedServices = getNextRequestedServicesForServiceType(prev.requestedServices, prev.serviceType, nextType);
                                 return {
                                   ...prev,
                                   serviceType: nextType,
                                   serviceDetail: getBookingServiceDetailOptions(nextType)[0],
+                                  requestedServices: nextRequestedServices,
                                 };
                               })
                             }
@@ -6640,6 +6747,12 @@ function CustomerPortalPage({
                           </select>
                         </div>
                       </div>
+                      <BookingServiceSelection
+                        value={bookingForm.requestedServices}
+                        onChange={(next) => setBookingForm((prev) => ({ ...prev, requestedServices: next }))}
+                        dataTestIdPrefix="customer-booking"
+                      />
+                      <div style={styles.formHint}>{getBookingServicesPreview(bookingForm)}</div>
                       <div style={styles.formGroup}>
                         <label style={styles.label}>Concern / Request</label>
                         <textarea style={styles.textarea} value={bookingForm.concern} onChange={(e) => setBookingForm((prev) => ({ ...prev, concern: e.target.value }))} placeholder="Describe the service request" />
@@ -6661,10 +6774,15 @@ function CustomerPortalPage({
                   <div style={styles.formHint}>
                     Review the inspection findings by category, then approve, defer, or decline the linked recommendations for each repair order. This view is read-only except for the approval buttons.
                   </div>
+                  <div style={styles.formHint}>
+                    Reminder: verify all findings, prices, promises, and safety notes before sending or approving.
+                  </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, marginTop: 10 }}>
                     <span style={{ background: "#dcfce7", color: "#15803d", borderRadius: 4, padding: "2px 10px", fontWeight: 600, fontSize: 12 }}>Good</span>
                     <span style={{ background: "#fef3c7", color: "#b45309", borderRadius: 4, padding: "2px 10px", fontWeight: 600, fontSize: 12 }}>Needs Attention</span>
                     <span style={{ background: "#fee2e2", color: "#b91c1c", borderRadius: 4, padding: "2px 10px", fontWeight: 600, fontSize: 12 }}>Critical</span>
+                    <span style={{ background: "#e2e8f0", color: "#334155", borderRadius: 4, padding: "2px 10px", fontWeight: 600, fontSize: 12 }}>Deferred {deferredApprovalCount}</span>
+                    <span style={{ background: "#dcfce7", color: "#15803d", borderRadius: 4, padding: "2px 10px", fontWeight: 600, fontSize: 12 }}>Ready for Release {readyForReleaseCount}</span>
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, marginTop: 10 }}>
                     <span style={styles.statusOk} data-testid="customer-portal-approval-approved">Approved {approvalDecisionSummary.approved}</span>
@@ -6809,6 +6927,62 @@ function CustomerPortalPage({
                           </div>
                         )}
                       </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : portalView === "documents" ? (
+              <div style={styles.mobileCardList}>
+                <div style={styles.sectionCardMuted}>
+                  <div style={styles.sectionTitle}>Customer-visible documents</div>
+                  <div style={styles.formHint}>
+                    Only documents explicitly marked customer-visible by the workshop are shown here. Internal-only files stay hidden.
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, marginTop: 10 }}>
+                    <span style={styles.statusOk}>Visible {customerVisibleDocuments.length}</span>
+                    <span style={styles.statusWarning}>Read-only</span>
+                  </div>
+                </div>
+
+                {customerVisibleDocuments.length === 0 ? (
+                  <div style={styles.emptyState}>No customer-visible documents are available for this portal yet.</div>
+                ) : (
+                  customerVisibleDocuments.map((doc) => (
+                    <div key={doc.id} style={styles.mobileDataCard}>
+                      <div style={styles.mobileDataCardHeader}>
+                        <strong>{doc.fileName}</strong>
+                        <span style={styles.statusInfo}>{doc.documentType}</span>
+                      </div>
+                      <div style={styles.mobileDataSecondary}>{doc.sourceModule}</div>
+                      <div style={styles.mobileDataPrimary}>{doc.linkedEntityLabel || doc.roNumber || "Linked record"}</div>
+                      <div style={styles.mobileMetaRow}>
+                        <span>Uploaded</span>
+                        <strong>{formatDateTime(doc.uploadedAt || doc.addedAt)}</strong>
+                      </div>
+                      <div style={styles.mobileMetaRow}>
+                        <span>File Type</span>
+                        <strong>{doc.fileType || "-"}</strong>
+                      </div>
+                      <div style={styles.mobileMetaRow}>
+                        <span>File Size</span>
+                        <strong>{formatDocumentAttachmentSize(doc.fileSize || 0)}</strong>
+                      </div>
+                      {doc.note ? <div style={styles.formHint}>{doc.note}</div> : null}
+                      {doc.dataUrl ? (
+                        doc.previewKind === "image" ? (
+                          <img src={doc.dataUrl} alt={doc.fileName} style={{ width: "100%", borderRadius: 8, marginTop: 8, objectFit: "cover" as const }} />
+                        ) : doc.previewKind === "pdf" ? (
+                          <iframe title={doc.fileName} src={doc.dataUrl} style={{ width: "100%", minHeight: 320, border: "none", borderRadius: 8, marginTop: 8, background: "#fff" }} />
+                        ) : doc.previewKind === "text" ? (
+                          <pre style={{ marginTop: 8, whiteSpace: "pre-wrap" as const, wordBreak: "break-word" as const, fontSize: 12, padding: 10, background: "#f8fafc", borderRadius: 8, overflow: "auto" }}>
+                            {doc.textPreview || "Preview loaded."}
+                          </pre>
+                        ) : (
+                          <div style={styles.emptyState}>Preview is not available for this file type.</div>
+                        )
+                      ) : (
+                        <div style={styles.emptyState}>Preview unavailable. This record may be legacy metadata only or the file was too large for browser storage.</div>
+                      )}
                     </div>
                   ))
                 )}
@@ -6966,11 +7140,13 @@ function SupplierPortalPage({
   const [isSubmittingBid, setIsSubmittingBid] = useState(false);
   const [returnResponseStatus, setReturnResponseStatus] = useState<Exclude<PartsReturnResponseStatus, "Requested">>("Approved");
   const [returnResponseNotes, setReturnResponseNotes] = useState("");
+  const supplierContext = useMemo(() => ({ viewerType: "supplier" as const, supplierName: supplier.supplierName }), [supplier.supplierName]);
 
   const openRequests = useMemo(() => {
     const term = search.trim().toLowerCase();
     return partsRequests
       .filter((row) => !["Closed", "Cancelled", "Return Approved", "Return Rejected"].includes(row.status))
+      .filter((row) => isSupplierAssignedToRequest(row, supplier.supplierName))
       .filter((row) =>
         !term
           ? true
@@ -6985,11 +7161,9 @@ function SupplierPortalPage({
   const myBids = useMemo(
     () =>
       partsRequests.flatMap((request) =>
-        request.bids
-          .filter((bid) => bid.supplierName.trim().toLowerCase() === supplier.supplierName.trim().toLowerCase())
-          .map((bid) => ({ request, bid }))
+        getVisibleBidsForContext(request, request.bids, supplierContext).map((bid) => ({ request, bid }))
       ),
-    [partsRequests, supplier.supplierName]
+    [partsRequests, supplierContext]
   );
 
   const selectedRequest = openRequests.find((row) => row.id === selectedRequestId) ?? openRequests[0] ?? null;
@@ -7027,10 +7201,15 @@ function SupplierPortalPage({
     const totalCostValue = quantityValue * unitCostValue;
     const productPhotoInput = document.getElementById("supplier-product-photos") as HTMLInputElement | null;
     const productPhotos = await buildPartsMediaRecords(productPhotoInput?.files ?? null, "Supplier", "Supplier Item Photo", supplier.supplierName);
+    const now = new Date().toISOString();
+    const existingOwnBid = selectedRequest.bids.find(
+      (bid) => bid.supplierName.trim().toLowerCase() === supplier.supplierName.trim().toLowerCase() && bid.status !== "Withdrawn"
+    );
 
     const newBid: SupplierBid = {
-      id: uid("bid"),
+      id: existingOwnBid?.id ?? uid("bid"),
       supplierName: supplier.supplierName,
+      status: existingOwnBid ? "Revised" : "Submitted",
       brand: brand.trim(),
       quantity: quantityValue.toString(),
       unitCost: unitCostValue.toFixed(2),
@@ -7046,11 +7225,14 @@ function SupplierPortalPage({
       trackingNumber: trackingNumber.trim(),
       courierName: courierName.trim(),
       shippingNotes: shippingNotes.trim(),
+      updatedAt: now,
     };
 
     updateRequest(selectedRequest.id, (request) => ({
       ...request,
-      bids: [newBid, ...request.bids],
+      bids: existingOwnBid
+        ? request.bids.map((bid) => (bid.id === existingOwnBid.id ? { ...bid, ...newBid, createdAt: bid.createdAt, updatedAt: now } : bid))
+        : [newBid, ...request.bids],
       status:
         newBid.invoiceFileName || newBid.shippingLabelFileName || newBid.trackingNumber
           ? "In Transit"
@@ -7135,6 +7317,18 @@ function SupplierPortalPage({
     setReturnResponseNotes("");
   };
 
+  const withdrawBid = (requestId: string, bidId: string) => {
+    updateRequest(requestId, (request) => ({
+      ...request,
+      bids: request.bids.map((bid) =>
+        bid.id === bidId && bid.supplierName.trim().toLowerCase() === supplier.supplierName.trim().toLowerCase()
+          ? { ...bid, status: "Withdrawn", updatedAt: new Date().toISOString() }
+          : bid
+      ),
+      updatedAt: new Date().toISOString(),
+    }));
+  };
+
   return (
     <>
       <style>{globalCss}</style>
@@ -7149,6 +7343,7 @@ function SupplierPortalPage({
             </div>
 
             <div style={styles.topBarRight}>
+              <span style={styles.statusInfo}>Simulated supplier access</span>
               <span style={styles.statusInfo}>Open requests: {openRequests.length}  |  My bids: {myBids.length}</span>
               <div style={styles.topBarName}>{supplier.supplierName}</div>
               <button type="button" onClick={onLogout} style={styles.logoutButtonCompact}>
@@ -7361,10 +7556,11 @@ function SupplierPortalPage({
                       <div key={bid.id} style={styles.mobileDataCard}>
                         <div style={styles.mobileDataCardHeader}>
                           <strong>{request.requestNumber}</strong>
-                          <span style={getPartsRequestStatusStyle(request.status)}>{request.status}</span>
+                          <span style={getSupplierBidStatusStyle(bid.status)}>{bid.status || "Submitted"}</span>
                         </div>
                         <div style={styles.mobileDataPrimary}>{request.partName}</div>
                         <div style={styles.mobileDataSecondary}>{bid.brand || "No brand"}  |  {bid.condition}</div>
+                        <div style={styles.mobileMetaRow}><span>Status</span><strong>{bid.status || "Submitted"}</strong></div>
                         <div style={styles.mobileMetaRow}><span>Total Bid</span><strong>{formatCurrency(parseMoneyInput(bid.totalCost))}</strong></div>
                         <div style={styles.mobileMetaRow}><span>Delivery</span><strong>{bid.deliveryTime || "-"}</strong></div>
                         <div style={styles.mobileMetaRow}><span>Tracking</span><strong>{bid.trackingNumber || "-"}</strong></div>
@@ -7406,9 +7602,14 @@ function SupplierPortalPage({
                               <input style={styles.input} value={shippingNotes} onChange={(e) => setShippingNotes(e.target.value)} placeholder={bid.shippingNotes || "Optional note"} />
                             </div>
                           </div>
-                          <button type="button" style={styles.smallButton} onClick={() => updateShippingForBid(request.id, bid.id)}>
-                            Save Shipping Update
-                          </button>
+                          <div style={styles.inlineActions}>
+                            <button type="button" style={styles.smallButton} onClick={() => updateShippingForBid(request.id, bid.id)}>
+                              Save Shipping Update
+                            </button>
+                            <button type="button" style={styles.smallButtonMuted} onClick={() => withdrawBid(request.id, bid.id)}>
+                              Withdraw Bid
+                            </button>
+                          </div>
                         </div>
                         {latestReturn ? (
                           <div style={styles.sectionCardMuted}>
@@ -7467,7 +7668,9 @@ function DashboardPage({
   users,
   roleDefinitions,
   allowedNav,
+  bookings,
   intakeRecords,
+  inspectionRecords,
   repairOrders,
   qcRecords,
   releaseRecords,
@@ -7475,6 +7678,7 @@ function DashboardPage({
   backjobRecords,
   invoiceRecords,
   paymentRecords,
+  expenseRecords,
   workLogs,
   partsRequests,
   customerAccounts,
@@ -7483,6 +7687,7 @@ function DashboardPage({
   servicePricingCatalog,
   serviceHistoryRecords,
   isCompactLayout,
+  onOpenView,
   onOpenHistory,
   onOpenBackjobs,
   onOpenRepairOrders,
@@ -7492,7 +7697,9 @@ function DashboardPage({
   users: UserAccount[];
   roleDefinitions: RoleDefinition[];
   allowedNav: NavItem[];
+  bookings: BookingRecord[];
   intakeRecords: IntakeRecord[];
+  inspectionRecords: InspectionRecord[];
   repairOrders: RepairOrderRecord[];
   qcRecords: QCRecord[];
   releaseRecords: ReleaseRecord[];
@@ -7500,6 +7707,7 @@ function DashboardPage({
   backjobRecords: BackjobRecord[];
   invoiceRecords: InvoiceRecord[];
   paymentRecords: PaymentRecord[];
+  expenseRecords: ExpenseRecord[];
   workLogs: WorkLog[];
   partsRequests: PartsRequestRecord[];
   customerAccounts: CustomerAccount[];
@@ -7508,6 +7716,7 @@ function DashboardPage({
   servicePricingCatalog: ServicePricingCatalogRecord[];
   serviceHistoryRecords: VehicleServiceHistoryRecord[];
   isCompactLayout: boolean;
+  onOpenView: (view: ViewKey) => void;
   onOpenHistory: () => void;
   onOpenBackjobs?: () => void;
   onOpenRepairOrders: () => void;
@@ -7642,6 +7851,15 @@ function DashboardPage({
       }),
     [maintenanceIntervalRules, repairOrders, serviceHistoryRecords]
   );
+  const supplierProfiles = useMemo(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem("dvi_supplier_directory_v1");
+      return raw ? (JSON.parse(raw) as Array<Record<string, unknown>>) : [];
+    } catch {
+      return [];
+    }
+  }, []);
 
   return (
     <div style={styles.pageContent}>
@@ -7659,13 +7877,33 @@ function DashboardPage({
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <AdvisorActionCenter
-            repairOrders={repairOrders}
-            upcomingItems={maintenanceDashboardData.upcomingItems}
-            onOpenRepairOrders={onOpenRepairOrders}
-            onOpenHistory={onOpenHistory}
-            onOpenBackjobs={onOpenBackjobs}
+          <GlobalSearchPanel
+            data={{
+              bookings,
+              intakeRecords,
+              inspectionRecords,
+              repairOrders,
+              partsRequests,
+              serviceHistoryRecords,
+              customerAccounts: customerAccounts as Array<Record<string, unknown>>,
+              supplierProfiles,
+            }}
+            onOpenView={onOpenView}
           />
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          {canAccessAdvisorTools(currentUser.role) ? (
+            <AdvisorActionCenter
+              repairOrders={repairOrders}
+              upcomingItems={maintenanceDashboardData.upcomingItems}
+              onOpenRepairOrders={onOpenRepairOrders}
+              onOpenHistory={onOpenHistory}
+              onOpenBackjobs={onOpenBackjobs}
+            />
+          ) : (
+            <AccessLockedCard title="Advisor Action Center" subtitle="Operational follow-up, message drafting, and review tools." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
@@ -7686,18 +7924,27 @@ function DashboardPage({
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <ApprovalEvidencePanel
-            approvalRecords={approvalRecords}
-            repairOrders={repairOrders}
-            isCompactLayout={isCompactLayout}
-          />
+          {canAccessAdvisorTools(currentUser.role) ? (
+            <ApprovalEvidencePanel
+              approvalRecords={approvalRecords}
+              repairOrders={repairOrders}
+              isCompactLayout={isCompactLayout}
+            />
+          ) : (
+            <AccessLockedCard title="Approval Evidence" subtitle="Customer approval evidence and decision tracking." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <DocumentAttachmentCenter
-            repairOrders={repairOrders}
-            isCompactLayout={isCompactLayout}
-          />
+          {canAccessAdvisorTools(currentUser.role) ? (
+            <DocumentAttachmentCenter
+              repairOrders={repairOrders}
+              isCompactLayout={isCompactLayout}
+              currentUserFullName={currentUser.fullName}
+            />
+          ) : (
+            <AccessLockedCard title="Document Attachment Center" subtitle="Internal attachments and indexed document notes." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
@@ -7712,32 +7959,44 @@ function DashboardPage({
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <OwnerExecutiveDashboard
-            currentUser={currentUser}
-            repairOrders={repairOrders}
-            releaseRecords={releaseRecords}
-            partsRequests={partsRequests}
-            qcRecords={qcRecords}
-            backjobRecords={backjobRecords}
-            users={users}
-            workLogs={workLogs}
-            isCompactLayout={isCompactLayout}
-          />
+          {canAccessManagementSummary(currentUser.role) ? (
+            <OwnerExecutiveDashboard
+              currentUser={currentUser}
+              repairOrders={repairOrders}
+              releaseRecords={releaseRecords}
+              partsRequests={partsRequests}
+              qcRecords={qcRecords}
+              backjobRecords={backjobRecords}
+              users={users}
+              workLogs={workLogs}
+              isCompactLayout={isCompactLayout}
+            />
+          ) : (
+            <AccessLockedCard title="Owner Executive Dashboard" subtitle="High-level management overview." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <CustomerAnalyticsDashboard
-            currentUser={currentUser}
-            repairOrders={repairOrders}
-            isCompactLayout={isCompactLayout}
-          />
+          {canAccessAdvisorTools(currentUser.role) ? (
+            <CustomerAnalyticsDashboard
+              currentUser={currentUser}
+              repairOrders={repairOrders}
+              isCompactLayout={isCompactLayout}
+            />
+          ) : (
+            <AccessLockedCard title="Customer Analytics" subtitle="Customer repeat-visit and retention reporting." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <FollowUpCampaignCenter
-            repairOrders={repairOrders}
-            upcomingItems={maintenanceDashboardData.upcomingItems}
-          />
+          {canAccessAdvisorTools(currentUser.role) ? (
+            <FollowUpCampaignCenter
+              repairOrders={repairOrders}
+              upcomingItems={maintenanceDashboardData.upcomingItems}
+            />
+          ) : (
+            <AccessLockedCard title="Follow-Up Campaign Center" subtitle="Overdue, due soon, and post-service outreach queue." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
@@ -7756,67 +8015,98 @@ function DashboardPage({
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <TechnicianPerformance
-            users={users}
-            repairOrders={repairOrders}
-            workLogs={workLogs}
-            serviceHistoryRecords={serviceHistoryRecords}
-            isCompactLayout={isCompactLayout}
-            onOpenHistory={onOpenHistory}
-          />
+          {canAccessTechnicianOperations(currentUser.role) ? (
+            <TechnicianPerformance
+              users={users}
+              repairOrders={repairOrders}
+              workLogs={workLogs}
+              serviceHistoryRecords={serviceHistoryRecords}
+              isCompactLayout={isCompactLayout}
+              onOpenHistory={onOpenHistory}
+            />
+          ) : (
+            <AccessLockedCard title="Technician Performance" subtitle="Technician productivity and service output." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <TechnicianEfficiencyPanel
-            users={users}
-            repairOrders={repairOrders}
-            qcRecords={qcRecords}
-            backjobRecords={backjobRecords}
-          />
+          {canAccessTechnicianOperations(currentUser.role) ? (
+            <TechnicianEfficiencyPanel
+              users={users}
+              repairOrders={repairOrders}
+              qcRecords={qcRecords}
+              backjobRecords={backjobRecords}
+            />
+          ) : (
+            <AccessLockedCard title="Technician Efficiency" subtitle="Productivity and quality scoring." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <TechnicianScheduleBoard
-            users={users}
-            repairOrders={repairOrders}
-            workLogs={workLogs}
-            isCompactLayout={isCompactLayout}
-          />
+          {canAccessTechnicianOperations(currentUser.role) ? (
+            <TechnicianScheduleBoard
+              users={users}
+              repairOrders={repairOrders}
+              workLogs={workLogs}
+              isCompactLayout={isCompactLayout}
+            />
+          ) : (
+            <AccessLockedCard title="Technician Schedule" subtitle="Daily workload and technician board." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <BayManagementBoard
-            repairOrders={repairOrders}
-            isCompactLayout={isCompactLayout}
-          />
+          {canAccessTechnicianOperations(currentUser.role) ? (
+            <BayManagementBoard
+              repairOrders={repairOrders}
+              isCompactLayout={isCompactLayout}
+            />
+          ) : (
+            <AccessLockedCard title="Bay Management" subtitle="Bay and work area tracking." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <CapacityPlanningPanel
-            users={users}
-            repairOrders={repairOrders}
-            workLogs={workLogs}
-            isCompactLayout={isCompactLayout}
-          />
+          {canAccessTechnicianOperations(currentUser.role) ? (
+            <CapacityPlanningPanel
+              users={users}
+              repairOrders={repairOrders}
+              workLogs={workLogs}
+              isCompactLayout={isCompactLayout}
+            />
+          ) : (
+            <AccessLockedCard title="Capacity Planning" subtitle="Workshop workload and capacity summary." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <RealTimeShopBoard
-            users={users}
-            repairOrders={repairOrders}
-            workLogs={workLogs}
-            isCompactLayout={isCompactLayout}
-          />
+          {canAccessTechnicianOperations(currentUser.role) ? (
+            <RealTimeShopBoard
+              users={users}
+              repairOrders={repairOrders}
+              workLogs={workLogs}
+              isCompactLayout={isCompactLayout}
+            />
+          ) : (
+            <AccessLockedCard title="Real-Time Shop Board" subtitle="Operational command board for shop floor visibility." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          {canAccessFinancialReports(currentUser.role) ? (
           <RevenueDashboard
-            currentUser={currentUser}
-            repairOrders={repairOrders}
-            users={users}
-            partsRequests={partsRequests}
-            isCompactLayout={isCompactLayout}
-          />
+              currentUser={currentUser}
+              repairOrders={repairOrders}
+              users={users}
+              partsRequests={partsRequests}
+              invoiceRecords={invoiceRecords}
+              paymentRecords={paymentRecords}
+              expenseRecords={expenseRecords}
+              isCompactLayout={isCompactLayout}
+            />
+          ) : (
+            <AccessLockedCard title="Revenue / Sales Tracking" subtitle="Financial summary and profitability signals." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(3, isCompactLayout) }}>
@@ -9562,8 +9852,8 @@ function InspectionPage({
         {!selectedIntake ? (
           <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(8, isCompactLayout) }}>
             <Card
-              title="Inspection Edit + History Lookup"
-              subtitle="Search any prior inspection by plate, customer, company, or inspection number and reopen it for editing"
+              title="Inspection Records"
+              subtitle="Summary-first list. Open a record to continue editing in the inspection detail view."
               right={<span style={styles.statusInfo}>{inspectionHistoryMatches.length} match(es)</span>}
             >
               {showDraftRestore ? (
@@ -9616,7 +9906,7 @@ function InspectionPage({
                       </div>
                       <div style={styles.inlineActions}>
                         <button type="button" style={styles.smallButton} onClick={() => setSelectedIntakeId(row.intakeId)}>
-                          Edit Inspection
+                          Open Inspection
                         </button>
                       </div>
                     </div>
@@ -9636,7 +9926,7 @@ function InspectionPage({
             {!selectedIntake ? (
               <div style={styles.emptyState}>Select an intake from the queue to start inspection.</div>
             ) : (
-              <div style={styles.formStack}>
+              <div data-testid="inspection-detail-panel" style={styles.formStack}>
                 <div style={styles.inspectionActionBanner}>
                   <div style={styles.inspectionActionSummary}>
                     <div style={styles.inspectionSummaryPill}><strong>{form.status}</strong><span>Current status</span></div>
@@ -10470,7 +10760,7 @@ function InspectionPage({
                                 style={styles.input}
                                 value={form.acVentTemperature}
                                 onChange={(e) => setForm((prev) => ({ ...prev, acVentTemperature: e.target.value }))}
-                                placeholder="Example: 8Â°C or 46Â°F"
+                                placeholder="Example: 8Ã‚Â°C or 46Ã‚Â°F"
                               />
                             </div>
                             <div style={styles.formGroup}>
@@ -10725,6 +11015,7 @@ function InspectionPage({
             title="Inspection Registry"
             subtitle="Saved inspections linked to intake records"
             right={<span style={styles.statusNeutral}>{filteredInspectionRecords.length} saved</span>}
+            key="inspection-registry"
           >
             <div style={styles.formGroup}>
               <label style={styles.label}>Search</label>
@@ -10741,7 +11032,7 @@ function InspectionPage({
             ) : isCompactLayout ? (
               <div style={styles.mobileCardList}>
                 {filteredInspectionRecords.map((row) => (
-                  <div key={row.id} style={styles.mobileDataCard}>
+                  <div key={row.id} data-testid={`inspection-list-item-${row.id}`} style={styles.mobileDataCard}>
                     <div style={styles.mobileDataCardHeader}>
                       <strong>{row.inspectionNumber}</strong>
                       <InspectionStatusBadge status={row.status} />
@@ -10754,6 +11045,11 @@ function InspectionPage({
                     </div>
                     <div style={styles.formHint}>Evidence: {(row as any).evidenceItems?.length || 0}</div>
                     <div style={styles.concernCard}>{row.underHoodSummary || "No under the hood summary."}</div>
+                    <div style={styles.inlineActions}>
+                      <button type="button" style={styles.smallButton} onClick={() => setSelectedIntakeId(row.intakeId)}>
+                        Open Inspection
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -10769,11 +11065,12 @@ function InspectionPage({
                       <th style={styles.th}>Default Category</th>
                       <th style={styles.th}>Evidence</th>
                       <th style={styles.th}>Status</th>
+                      <th style={styles.th}>Open</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredInspectionRecords.map((row) => (
-                      <tr key={row.id}>
+                      <tr key={row.id} data-testid={`inspection-list-item-${row.id}`}>
                         <td style={styles.td}>
                           <div style={styles.tablePrimary}>{row.inspectionNumber}</div>
                           <div style={styles.tableSecondary}>{formatDateTime(row.createdAt)}</div>
@@ -10796,6 +11093,11 @@ function InspectionPage({
                         <td style={styles.td}>{(row as any).evidenceItems?.length || 0}</td>
                         <td style={styles.td}>
                           <InspectionStatusBadge status={row.status} />
+                        </td>
+                        <td style={styles.td}>
+                          <button type="button" style={styles.smallButton} onClick={() => setSelectedIntakeId(row.intakeId)}>
+                            Open
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -15717,7 +16019,7 @@ function AppInner() {
   });
 
   const [bookings, setBookings] = useState<BookingRecord[]>(() =>
-    readLocalStorage<BookingRecord[]>(STORAGE_KEYS.bookings, [])
+    readLocalStorage<BookingRecord[]>(STORAGE_KEYS.bookings, []).map(normalizeBookingRecord)
   );
   const [intakeRecords, setIntakeRecords] = useState<IntakeRecord[]>(() =>
     readLocalStorage<IntakeRecord[]>(STORAGE_KEYS.intakeRecords, [])
@@ -15728,7 +16030,7 @@ function AppInner() {
   );
 
   const [repairOrders, setRepairOrders] = useState<RepairOrderRecord[]>(() =>
-    readLocalStorage<RepairOrderRecord[]>(STORAGE_KEYS.repairOrders, []).map(migrateRepairOrderRecord)
+    readLocalStorage<RepairOrderRecord[]>(STORAGE_KEYS.repairOrders, []).map(normalizeRepairOrderRecord).map(migrateRepairOrderRecord)
   );
 
   const [qcRecords, setQcRecords] = useState<QCRecord[]>(() =>
@@ -15757,7 +16059,7 @@ function AppInner() {
   );
 
   const [paymentRecords, setPaymentRecords] = useState<PaymentRecord[]>(() =>
-    readLocalStorage<PaymentRecord[]>(STORAGE_KEYS.paymentRecords, []).map(migratePaymentRecord)
+    readLocalStorage<PaymentRecord[]>(STORAGE_KEYS.paymentRecords, []).map(normalizePaymentRecord).map(migratePaymentRecord)
   );
 
   const [workLogs, setWorkLogs] = useState<WorkLog[]>(() =>
@@ -15783,7 +16085,7 @@ function AppInner() {
   );
 
   const [auditLogs, setAuditLogs] = useState<AuditLogRecord[]>(() =>
-    readLocalStorage<AuditLogRecord[]>(STORAGE_KEYS.auditLogs, [])
+    readLocalStorage<AuditLogRecord[]>(STORAGE_KEYS.auditLogs, []).map(normalizeAuditLogRecord)
   );
 
   const [customerAccounts, setCustomerAccounts] = useState<CustomerAccount[]>(() =>
@@ -15956,6 +16258,10 @@ function AppInner() {
   useEffect(() => {
     writeLocalStorage(STORAGE_KEYS.currentView, currentView);
   }, [currentView]);
+
+  useEffect(() => {
+    saveDataMigrationVersion(CURRENT_DATA_MIGRATION_VERSION);
+  }, []);
 
   useEffect(() => {
     const onResize = () => {
@@ -16591,6 +16897,7 @@ function AppInner() {
         plateNumber: "NEX-2451",
         vehicleLabel: "Toyota Fortuner 2021",
         accountLabel: "Miguel Santos",
+        supplierRecipients: ["Northeast Parts Supply"],
         workshopPhotos: [],
         returnRecords: [],
         bids: [
@@ -16673,6 +16980,7 @@ function AppInner() {
         plateNumber: "ABJ-9087",
         vehicleLabel: "Mitsubishi Montero Sport 2023",
         accountLabel: "Prime Movers Logistics",
+        supplierRecipients: ["AC Pro Parts"],
         workshopPhotos: [],
         returnRecords: [],
         bids: [
@@ -17054,7 +17362,7 @@ function AppInner() {
     setLoginAudience("customer");
   };
 
-  // ── Phase 55: Audit logging helper ───────────────────────────────────────────
+  // â”€â”€ Phase 55: Audit logging helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const logAudit = (entry: Omit<AuditLogRecord, "id" | "timestamp">) => {
     const record: AuditLogRecord = {
       id: `aud_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -17256,6 +17564,9 @@ function AppInner() {
       year: publicBookingForm.year.trim(),
       serviceType: publicBookingForm.serviceType,
       serviceDetail: publicBookingForm.serviceDetail,
+      requestedServices: normalizeRequestedServices(publicBookingForm.requestedServices).length
+        ? normalizeRequestedServices(publicBookingForm.requestedServices)
+        : [mapBookingServiceTypeToRequestedService(publicBookingForm.serviceType)],
       concern,
       notes: publicBookingForm.notes.trim(),
       status: "New",
@@ -17463,7 +17774,9 @@ function AppInner() {
             users={users}
             roleDefinitions={roleDefinitions}
             allowedNav={allowedNav}
+            bookings={bookings}
             intakeRecords={intakeRecords}
+            inspectionRecords={inspectionRecords}
             repairOrders={repairOrders}
             qcRecords={qcRecords}
             releaseRecords={releaseRecords}
@@ -17471,6 +17784,7 @@ function AppInner() {
             backjobRecords={backjobRecords}
             invoiceRecords={invoiceRecords}
             paymentRecords={paymentRecords}
+            expenseRecords={expenseRecords}
             workLogs={workLogs}
             partsRequests={partsRequests}
             customerAccounts={customerAccounts}
@@ -17479,6 +17793,7 @@ function AppInner() {
             servicePricingCatalog={servicePricingCatalog}
             serviceHistoryRecords={vehicleServiceHistoryRecords}
             isCompactLayout={isMobile}
+            onOpenView={setCurrentView}
             onOpenHistory={() => setCurrentView("history")}
             onOpenBackjobs={() => setCurrentView("backjobs")}
             onOpenRepairOrders={() => setCurrentView("repairOrders")}
@@ -17630,6 +17945,7 @@ function AppInner() {
             partsRequests={partsRequests}
             setPartsRequests={setPartsRequests}
             isCompactLayout={isMobile}
+            onLogAudit={logAudit}
           />
         );
       case "backjobs":
@@ -17701,7 +18017,9 @@ function AppInner() {
             users={users}
             roleDefinitions={roleDefinitions}
             allowedNav={allowedNav}
+            bookings={bookings}
             intakeRecords={intakeRecords}
+            inspectionRecords={inspectionRecords}
             repairOrders={repairOrders}
             qcRecords={qcRecords}
             releaseRecords={releaseRecords}
@@ -17709,6 +18027,7 @@ function AppInner() {
             backjobRecords={backjobRecords}
             invoiceRecords={invoiceRecords}
             paymentRecords={paymentRecords}
+            expenseRecords={expenseRecords}
             workLogs={workLogs}
             partsRequests={partsRequests}
             customerAccounts={customerAccounts}
@@ -17717,6 +18036,7 @@ function AppInner() {
             servicePricingCatalog={servicePricingCatalog}
             serviceHistoryRecords={vehicleServiceHistoryRecords}
             isCompactLayout={isMobile}
+            onOpenView={setCurrentView}
             onOpenHistory={() => setCurrentView("history")}
             onOpenBackjobs={() => setCurrentView("backjobs")}
             onOpenRepairOrders={() => setCurrentView("repairOrders")}
@@ -17777,6 +18097,7 @@ function AppInner() {
           portalLaunchView={customerPortalLaunchView}
           sharedLinkRoId={customerPortalSharedRoId}
           sharedLinkMode={!!customerPortalSharedRoId}
+          onLogAudit={logAudit}
         />
       </CustomerPortalErrorBoundary>
     );
@@ -17894,7 +18215,7 @@ function AppInner() {
             <div style={styles.topBarLeft}>
               {isMobile ? (
                 <button type="button" onClick={() => setSidebarOpen((prev) => !prev)} style={styles.menuButton}>
-                  Ã¢ËœÂ°
+                  ÃƒÂ¢Ã‹Å“Ã‚Â°
                 </button>
               ) : null}
               <div>
@@ -19295,6 +19616,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 8,
   },
 };
+
 
 
 

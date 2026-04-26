@@ -5,6 +5,13 @@ import type {
   VehicleAccountType,
 } from "../shared/types";
 import { getResponsiveSpan } from "../shared/helpers";
+import { BookingServiceSelection } from "./BookingServiceSelection";
+import {
+  buildBookingIntakeConcern,
+  getBookingServicesPreview,
+  mapBookingServiceTypeToRequestedService,
+  normalizeRequestedServices,
+} from "./bookingMultiService";
 
 // ─── Booking-specific types ────────────────────────────────────────────────
 
@@ -55,6 +62,7 @@ type BookingRecord = {
   year: string;
   serviceType: BookingServiceType;
   serviceDetail: BookingServiceDetail;
+  requestedServices?: string[];
   concern: string;
   notes: string;
   status: BookingStatus;
@@ -79,6 +87,7 @@ type BookingForm = {
   year: string;
   serviceType: BookingServiceType;
   serviceDetail: BookingServiceDetail;
+  requestedServices: string[];
   concern: string;
   notes: string;
   status: BookingStatus;
@@ -317,6 +326,7 @@ function getDefaultBookingForm(currentUserName: string): BookingForm {
   const yyyy = today.getFullYear();
   const mm = String(today.getMonth() + 1).padStart(2, "0");
   const dd = String(today.getDate()).padStart(2, "0");
+  const defaultRequestedService = mapBookingServiceTypeToRequestedService("Preventive Maintenance");
   return {
     requestedDate: `${yyyy}-${mm}-${dd}`,
     requestedTime: "09:00",
@@ -332,6 +342,7 @@ function getDefaultBookingForm(currentUserName: string): BookingForm {
     year: "",
     serviceType: "Preventive Maintenance",
     serviceDetail: "5,000 km maintenance",
+    requestedServices: [defaultRequestedService],
     concern: "",
     notes: "",
     status: "New",
@@ -436,6 +447,7 @@ function BookingsPage({
               row.conductionNumber,
               row.make,
               row.model,
+              row.requestedServices?.join(" "),
               row.serviceType,
               row.serviceDetail,
               row.concern,
@@ -457,7 +469,19 @@ function BookingsPage({
 
   const handleServiceTypeChange = (value: BookingServiceType) => {
     const nextDetail = getBookingServiceDetailOptions(value)[0] ?? "Other / Describe in notes";
-    setForm((prev) => ({ ...prev, serviceType: value, serviceDetail: nextDetail as BookingServiceDetail }));
+    setForm((prev) => {
+      const currentDefaultService = mapBookingServiceTypeToRequestedService(prev.serviceType);
+      const nextRequestedService = mapBookingServiceTypeToRequestedService(value);
+      const keepDefaultSelection =
+        prev.requestedServices.length === 0 ||
+        (prev.requestedServices.length === 1 && prev.requestedServices[0] === currentDefaultService);
+      return {
+        ...prev,
+        serviceType: value,
+        serviceDetail: nextDetail as BookingServiceDetail,
+        requestedServices: keepDefaultSelection ? [nextRequestedService] : prev.requestedServices,
+      };
+    });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -467,6 +491,7 @@ function BookingsPage({
     const concern = form.concern.trim();
     const plateNumber = form.plateNumber.trim().toUpperCase();
     const conductionNumber = form.conductionNumber.trim().toUpperCase();
+    const requestedServices = normalizeRequestedServices(form.requestedServices);
 
     if (!customerName && !companyName) {
       setError("Customer or company name is required.");
@@ -500,6 +525,7 @@ function BookingsPage({
       year: form.year.trim(),
       serviceType: form.serviceType,
       serviceDetail: form.serviceDetail,
+      requestedServices: requestedServices.length ? requestedServices : [mapBookingServiceTypeToRequestedService(form.serviceType)],
       concern,
       notes: form.notes.trim(),
       status: form.status,
@@ -544,7 +570,7 @@ function BookingsPage({
       odometerKm: "",
       fuelLevel: "",
       assignedAdvisor: currentUser.fullName,
-      concern: `${booking.serviceType} — ${booking.serviceDetail}: ${booking.concern}`,
+      concern: buildBookingIntakeConcern(booking),
       notes: booking.notes,
       status: "Waiting Inspection",
       encodedBy: currentUser.fullName,
@@ -679,6 +705,12 @@ function BookingsPage({
                 </div>
               </div>
 
+              <BookingServiceSelection
+                value={form.requestedServices}
+                onChange={(next) => setForm((prev) => ({ ...prev, requestedServices: next }))}
+                dataTestIdPrefix="staff-booking"
+              />
+
               <div style={styles.formGroup}>
                 <label style={styles.label}>Concern</label>
                 <textarea style={styles.textarea} value={form.concern} onChange={(e) => setForm((prev) => ({ ...prev, concern: e.target.value }))} />
@@ -723,7 +755,7 @@ function BookingsPage({
                     <div key={row.id} style={styles.calendarAppointment} data-testid={`booking-calendar-item-${row.id}`}>
                       <div>
                         <strong>{row.requestedTime} / {row.customerName || row.companyName || "Customer"}</strong>
-                        <div style={styles.mobileDataSecondary}>{row.serviceType} / {row.serviceDetail}</div>
+                        <div style={styles.mobileDataSecondary}>{getBookingServicesPreview(row)}</div>
                         <div style={styles.mobileDataSecondary}>{[row.year, row.make, row.model].filter(Boolean).join(" ")} / {row.plateNumber || row.conductionNumber || "-"}</div>
                       </div>
                       <span style={getBookingStatusStyle(row.status)}>{row.status}</span>
@@ -756,7 +788,7 @@ function BookingsPage({
                     <div style={styles.mobileDataSecondary}>{row.plateNumber || row.conductionNumber || "-"}</div>
                     <div style={styles.mobileDataSecondary}>{[row.make, row.model, row.year].filter(Boolean).join(" ")}</div>
                     <div style={styles.mobileMetaRow}><span>Requested</span><strong>{row.requestedDate} {row.requestedTime}</strong></div>
-                    <div style={styles.mobileMetaRow}><span>Service</span><strong>{row.serviceType} • {row.serviceDetail}</strong></div>
+                    <div style={styles.mobileDataSecondary}>{getBookingServicesPreview(row)}</div>
                     <div style={styles.formHint}>{row.concern}</div>
                     <div style={styles.inlineActions}>
                       <button type="button" style={styles.smallButtonMuted} onClick={() => updateBookingStatus(row.id, "Confirmed")}>Confirm</button>

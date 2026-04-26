@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import type { PartsRequestRecord, SessionUser } from "../shared/types";
+import type { PartsRequestRecord, SessionUser, AuditLogRecord } from "../shared/types";
+import { BackToListButton } from "../shared/BackToListButton";
 import {
   readInventoryItems,
   readInventoryMovements,
@@ -9,14 +10,24 @@ import {
   type InventoryItemRecord,
   type InventoryMovementRecord,
 } from "./inventoryStorage";
+import { normalizePurchaseOrderRecord } from "../dataQuality/legacyPurchaseOrderMigration";
 
 type Props = {
   currentUser: SessionUser;
   partsRequests: PartsRequestRecord[];
   isCompactLayout: boolean;
+  onLogAudit?: (entry: Omit<AuditLogRecord, "id" | "timestamp">) => void;
 };
 
 type PurchaseOrderStatus = "Draft" | "Sent" | "Ordered" | "Partially Received" | "Received" | "Cancelled";
+
+type PurchaseOrderReceivingEvent = {
+  id: string;
+  receivedAt: string;
+  receivedBy: string;
+  quantity: number;
+  note: string;
+};
 
 type PurchaseOrderRecord = {
   id: string;
@@ -29,6 +40,9 @@ type PurchaseOrderRecord = {
   itemName: string;
   partNumber: string;
   quantity: number;
+  orderedQuantity?: number;
+  receivedQuantity?: number;
+  receivingEvents?: PurchaseOrderReceivingEvent[];
   cost: number;
   expectedDelivery: string;
   createdAt: string;
@@ -67,7 +81,7 @@ function nextPoNumber() {
   return `PO-${todayStamp()}-${String(next).padStart(3, "0")}`;
 }
 
-function numberValue(value?: string) {
+function numberValue(value?: string | number) {
   const parsed = Number(String(value ?? "0").replace(/[^0-9.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
 }
@@ -80,11 +94,15 @@ function canViewCost(role: SessionUser["role"]) {
   return role === "Admin";
 }
 
+function canOverrideReceiving(role: SessionUser["role"]) {
+  return role === "Admin";
+}
+
 function selectedBidFor(request: PartsRequestRecord) {
   return request.bids.find((bid) => bid.id === request.selectedBidId) ?? request.bids[0] ?? null;
 }
 
-function upsertInventoryFromPo(po: PurchaseOrderRecord, userName: string) {
+function upsertInventoryFromPo(po: PurchaseOrderRecord, userName: string, receiveQty: number) {
   const items = readInventoryItems();
   const movements = readInventoryMovements();
   const now = new Date().toISOString();
@@ -92,7 +110,7 @@ function upsertInventoryFromPo(po: PurchaseOrderRecord, userName: string) {
   let nextItem: InventoryItemRecord;
   let nextItems: InventoryItemRecord[];
   if (existing) {
-    nextItem = { ...existing, quantityOnHand: existing.quantityOnHand + po.quantity, unitCost: po.cost || existing.unitCost, supplier: po.supplier || existing.supplier, updatedAt: now };
+    nextItem = { ...existing, quantityOnHand: existing.quantityOnHand + receiveQty, unitCost: po.cost || existing.unitCost, supplier: po.supplier || existing.supplier, updatedAt: now };
     nextItems = items.map((item) => item.id === existing.id ? nextItem : item);
   } else {
     nextItem = {
@@ -101,7 +119,7 @@ function upsertInventoryFromPo(po: PurchaseOrderRecord, userName: string) {
       sku: po.partNumber,
       category: "Parts",
       brand: "",
-      quantityOnHand: po.quantity,
+      quantityOnHand: receiveQty,
       reorderLevel: 1,
       unitCost: po.cost,
       sellingPrice: 0,
@@ -117,21 +135,38 @@ function upsertInventoryFromPo(po: PurchaseOrderRecord, userName: string) {
     itemId: nextItem.id,
     itemName: nextItem.itemName,
     movementType: "Received From PO",
-    quantityChange: po.quantity,
+    quantityChange: receiveQty,
     quantityAfter: nextItem.quantityOnHand,
     sourceLabel: po.poNumber,
     note: `PO received from ${po.supplier}`,
     createdAt: now,
     createdBy: userName,
+    adjustmentStatus: "Applied",
+    adjustmentReason: "New Stock",
+    appliedAt: now,
+    relatedSource: po.poNumber,
   };
   writeInventoryItems(nextItems);
   writeInventoryMovements([movement, ...movements]);
+  return { nextItem, movement };
 }
 
-export function PurchaseOrderLitePanel({ currentUser, partsRequests, isCompactLayout }: Props) {
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderRecord[]>(() => readLocal<PurchaseOrderRecord[]>(PO_STORAGE_KEY, []));
+function normalizePoRecord(po: PurchaseOrderRecord): PurchaseOrderRecord {
+  return {
+    ...po,
+    orderedQuantity: po.orderedQuantity ?? po.quantity,
+    receivedQuantity: po.receivedQuantity ?? 0,
+    receivingEvents: po.receivingEvents ?? [],
+  };
+}
+
+export function PurchaseOrderLitePanel({ currentUser, partsRequests, isCompactLayout, onLogAudit }: Props) {
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderRecord[]>(() => readLocal<PurchaseOrderRecord[]>(PO_STORAGE_KEY, []).map(normalizePurchaseOrderRecord).map(normalizePoRecord));
   const [selectedRequestId, setSelectedRequestId] = useState("");
+  const [selectedPoId, setSelectedPoId] = useState("");
   const [expectedDelivery, setExpectedDelivery] = useState("");
+  const [receiveQty, setReceiveQty] = useState("1");
+  const [receiveNote, setReceiveNote] = useState("");
   const [message, setMessage] = useState("");
   const showCost = canViewCost(currentUser.role);
 
@@ -142,10 +177,11 @@ export function PurchaseOrderLitePanel({ currentUser, partsRequests, isCompactLa
   const poReadyRequests = partsRequests.filter((request) => request.bids.length > 0);
   const selectedRequest = poReadyRequests.find((request) => request.id === selectedRequestId) ?? poReadyRequests[0] ?? null;
   const selectedBid = selectedRequest ? selectedBidFor(selectedRequest) : null;
+  const selectedPo = purchaseOrders.find((po) => po.id === selectedPoId) ?? null;
 
   const createPo = () => {
     if (!selectedRequest || !selectedBid) return;
-    const po: PurchaseOrderRecord = {
+    const po: PurchaseOrderRecord = normalizePoRecord({
       id: uid("po"),
       poNumber: nextPoNumber(),
       status: "Draft",
@@ -156,27 +192,118 @@ export function PurchaseOrderLitePanel({ currentUser, partsRequests, isCompactLa
       itemName: selectedRequest.partName,
       partNumber: selectedRequest.partNumber,
       quantity: numberValue(selectedBid.quantity || selectedRequest.quantity || "1") || 1,
+      orderedQuantity: numberValue(selectedBid.quantity || selectedRequest.quantity || "1") || 1,
+      receivedQuantity: 0,
+      receivingEvents: [],
       cost: numberValue(selectedBid.unitCost),
       expectedDelivery,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    };
+    });
     setPurchaseOrders((current) => [po, ...current]);
+    onLogAudit?.({
+      module: "PurchaseOrders",
+      action: "po_created",
+      entityId: po.id,
+      entityLabel: po.poNumber,
+      userId: currentUser.id,
+      userName: currentUser.fullName,
+      detail: `Created PO ${po.poNumber} for ${po.itemName}`,
+    });
     setMessage("Purchase order created.");
   };
 
   const updateStatus = (poId: string, status: PurchaseOrderStatus) => {
     setPurchaseOrders((current) => current.map((po) => po.id === poId ? { ...po, status, updatedAt: new Date().toISOString() } : po));
+    const currentPo = purchaseOrders.find((po) => po.id === poId);
+    if (currentPo) {
+      onLogAudit?.({
+        module: "PurchaseOrders",
+        action: "po_status_changed",
+        entityId: currentPo.id,
+        entityLabel: currentPo.poNumber,
+        userId: currentUser.id,
+        userName: currentUser.fullName,
+        detail: `PO ${currentPo.poNumber} status changed to ${status}`,
+        before: currentPo.status,
+        after: status,
+      });
+    }
     setMessage("PO status updated.");
   };
 
-  const receivePo = (po: PurchaseOrderRecord) => {
-    upsertInventoryFromPo(po, currentUser.fullName);
-    setPurchaseOrders((current) => current.map((row) => row.id === po.id ? { ...row, status: "Received", updatedAt: new Date().toISOString() } : row));
-    setMessage("PO received into inventory.");
+  const receivePo = (po: PurchaseOrderRecord, qty = numberValue(receiveQty)) => {
+    if (qty <= 0) {
+      setMessage("Enter a valid receive quantity.");
+      return;
+    }
+    const ordered = po.orderedQuantity ?? po.quantity;
+    const receivedSoFar = po.receivedQuantity ?? 0;
+    const remaining = Math.max(ordered - receivedSoFar, 0);
+    if (remaining <= 0) {
+      setMessage("This PO is already fully received.");
+      return;
+    }
+    if (qty > remaining && !canOverrideReceiving(currentUser.role)) {
+      setMessage("Cannot receive more than ordered. Admin override required.");
+      return;
+    }
+    let overrideNote = receiveNote.trim();
+    if (qty > remaining && canOverrideReceiving(currentUser.role) && !overrideNote) {
+      overrideNote = window.prompt("Override reason for excess receiving:", "") || "";
+      if (!overrideNote.trim()) {
+        setMessage("Override reason required.");
+        return;
+      }
+    }
+    const finalQty = qty;
+    const { nextItem } = upsertInventoryFromPo(po, currentUser.fullName, finalQty);
+    const receivedTotal = receivedSoFar + finalQty;
+    const nextStatus: PurchaseOrderStatus = receivedTotal >= ordered ? "Received" : "Partially Received";
+    const event = {
+      id: uid("poevt"),
+      receivedAt: new Date().toISOString(),
+      receivedBy: currentUser.fullName,
+      quantity: finalQty,
+      note: overrideNote || receiveNote.trim() || `Received ${finalQty} from PO`,
+    };
+    setPurchaseOrders((current) =>
+      current.map((row) =>
+        row.id === po.id
+          ? {
+              ...row,
+              status: nextStatus,
+              receivedQuantity: receivedTotal,
+              receivingEvents: [...(row.receivingEvents ?? []), event],
+              updatedAt: new Date().toISOString(),
+            }
+          : row
+      )
+    );
+    onLogAudit?.({
+      module: "PurchaseOrders",
+      action: "po_received",
+      entityId: po.id,
+      entityLabel: po.poNumber,
+      userId: currentUser.id,
+      userName: currentUser.fullName,
+      detail: `PO ${po.poNumber} received ${finalQty} into inventory`,
+      before: po.status,
+      after: nextStatus,
+    });
+    setMessage(`${finalQty} received into inventory.`);
+    setReceiveQty("1");
+    setReceiveNote("");
+    if (nextStatus === "Received" && nextItem) {
+      // keep visible feedback aligned with receive action
+    }
   };
 
   const totals = useMemo(() => purchaseOrders.reduce((sum, po) => sum + po.cost * po.quantity, 0), [purchaseOrders]);
+
+  const selectedOrdered = selectedPo?.orderedQuantity ?? selectedPo?.quantity ?? 0;
+  const selectedReceived = selectedPo?.receivedQuantity ?? 0;
+  const selectedRemaining = Math.max(selectedOrdered - selectedReceived, 0);
 
   return (
     <section style={styles.panel} data-testid="purchase-order-lite-panel">
@@ -203,25 +330,68 @@ export function PurchaseOrderLitePanel({ currentUser, partsRequests, isCompactLa
       {showCost ? <div style={styles.total}>Open PO value: {money(totals)}</div> : <div style={styles.total}>Internal cost hidden for this role.</div>}
 
       <div style={styles.list}>
-        {purchaseOrders.map((po) => (
-          <article key={po.id} style={styles.card} data-testid={`po-row-${po.id}`}>
-            <div style={styles.cardHeader}>
-              <strong>{po.poNumber}</strong>
-              <span style={po.status === "Received" ? styles.received : styles.status}>{po.status}</span>
-            </div>
-            <div style={styles.meta}>{po.supplier} / {po.itemName} / Qty {po.quantity}</div>
-            <div style={styles.meta}>{po.roNumber} / {po.requestNumber} / Expected {po.expectedDelivery || "-"}</div>
-            {showCost ? <div style={styles.meta} data-testid={`po-cost-${po.id}`}>Cost {money(po.cost)} / Total {money(po.cost * po.quantity)}</div> : null}
-            <div style={styles.actions}>
-              {(["Sent", "Ordered", "Partially Received", "Cancelled"] as PurchaseOrderStatus[]).map((status) => (
-                <button key={status} type="button" style={styles.secondaryButton} onClick={() => updateStatus(po.id, status)}>{status}</button>
-              ))}
-              <button type="button" data-testid={`po-receive-${po.id}`} style={styles.button} onClick={() => receivePo(po)}>Receive to Inventory</button>
-            </div>
-          </article>
-        ))}
+        {purchaseOrders.map((po) => {
+          const ordered = po.orderedQuantity ?? po.quantity;
+          const received = po.receivedQuantity ?? 0;
+          const remaining = Math.max(ordered - received, 0);
+          return (
+            <article key={po.id} style={styles.cardButton} data-testid={`po-row-${po.id}`} onClick={() => setSelectedPoId(po.id)}>
+              <div style={styles.cardHeader}>
+                <strong>{po.poNumber}</strong>
+                <span style={po.status === "Received" ? styles.received : styles.status}>{po.status}</span>
+              </div>
+              <div style={styles.meta}>{po.supplier} / {po.itemName} / Qty {ordered}</div>
+              <div style={styles.meta}>{po.roNumber} / {po.requestNumber} / Expected {po.expectedDelivery || "-"}</div>
+              <div style={styles.meta}>Received {received} / Remaining {remaining}</div>
+              {showCost ? <div style={styles.meta} data-testid={`po-cost-${po.id}`}>Cost {money(po.cost)} / Total {money(po.cost * ordered)}</div> : null}
+              <div style={styles.actions}>
+                {(["Sent", "Ordered", "Cancelled"] as PurchaseOrderStatus[]).map((status) => (
+                  <button key={status} type="button" style={styles.secondaryButton} onClick={() => updateStatus(po.id, status)}>{status}</button>
+                ))}
+                <button type="button" data-testid={`po-receive-${po.id}`} style={styles.button} onClick={() => receivePo(po, ordered - received || ordered)} disabled={remaining <= 0}>Receive to Inventory</button>
+              </div>
+            </article>
+          );
+        })}
         {purchaseOrders.length === 0 ? <div style={styles.empty}>No purchase orders yet.</div> : null}
       </div>
+
+      {selectedPo ? (
+        <div style={styles.card} data-testid="po-detail-panel">
+          <div style={styles.cardHeader}>
+            <strong>PO Detail</strong>
+            <span style={selectedPo.status === "Received" ? styles.received : styles.status}>{selectedPo.status}</span>
+          </div>
+          <div style={styles.detailToolbar}>
+            <BackToListButton onClick={() => setSelectedPoId("")} testId="po-back-to-list" />
+          </div>
+          <div style={styles.meta}>{selectedPo.poNumber} / {selectedPo.supplier}</div>
+          <div style={styles.meta}>{selectedPo.itemName} / Qty {selectedOrdered} / {selectedPo.requestNumber}</div>
+          <div style={styles.meta}>{selectedPo.roNumber} / Expected {selectedPo.expectedDelivery || "-"}</div>
+          <div style={styles.meta}>Received {selectedReceived} / Remaining {selectedRemaining}</div>
+          {showCost ? <div style={styles.meta}>Cost {money(selectedPo.cost)} / Total {money(selectedPo.cost * selectedOrdered)}</div> : <div style={styles.meta}>Internal cost hidden for this role.</div>}
+          <div style={styles.receiveGrid}>
+            <input data-testid={`po-receive-qty-${selectedPo.id}`} style={styles.input} value={receiveQty} onChange={(event) => setReceiveQty(event.target.value)} placeholder="Receive quantity" />
+            <input data-testid={`po-receive-note-${selectedPo.id}`} style={styles.input} value={receiveNote} onChange={(event) => setReceiveNote(event.target.value)} placeholder="Receiving note / override reason" />
+            <button type="button" data-testid={`po-receive-detail-${selectedPo.id}`} style={styles.button} onClick={() => receivePo(selectedPo, numberValue(receiveQty))} disabled={selectedRemaining <= 0}>Receive</button>
+          </div>
+          <div style={styles.actions}>
+            {(["Sent", "Ordered", "Cancelled"] as PurchaseOrderStatus[]).map((status) => (
+              <button key={status} type="button" style={styles.secondaryButton} onClick={() => updateStatus(selectedPo.id, status)}>{status}</button>
+            ))}
+            <button type="button" style={styles.secondaryButton} onClick={() => setSelectedPoId("")}>Close Detail</button>
+          </div>
+          <div style={styles.eventList} data-testid={`po-receiving-history-${selectedPo.id}`}>
+            <strong>Receiving history</strong>
+            {(selectedPo.receivingEvents ?? []).length === 0 ? <div style={styles.meta}>No receiving events yet.</div> : null}
+            {(selectedPo.receivingEvents ?? []).map((event) => (
+              <div key={event.id} style={styles.eventRow}>
+                {event.receivedAt} · {event.receivedBy} · Qty {event.quantity} · {event.note}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -241,10 +411,17 @@ const styles: Record<string, React.CSSProperties> = {
   total: { color: "#475569", fontSize: 13, fontWeight: 800, marginBottom: 10 },
   list: { display: "grid", gap: 8 },
   card: { border: "1px solid #e2e8f0", borderRadius: 8, padding: 10, background: "#f8fafc" },
+  cardButton: { border: "1px solid #e2e8f0", borderRadius: 8, padding: 10, background: "#f8fafc", cursor: "pointer", textAlign: "left" as const },
   cardHeader: { display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
+  detailToolbar: { display: "flex", justifyContent: "flex-end" },
   meta: { color: "#64748b", fontSize: 12, marginTop: 4 },
   actions: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 },
   status: { borderRadius: 999, padding: "4px 8px", background: "#fef3c7", color: "#92400e", fontSize: 11, fontWeight: 800 },
   received: { borderRadius: 999, padding: "4px 8px", background: "#dcfce7", color: "#166534", fontSize: 11, fontWeight: 800 },
   empty: { border: "1px dashed #cbd5e1", borderRadius: 8, padding: 16, color: "#64748b", background: "#f8fafc" },
+  receiveGrid: { display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, marginTop: 10, alignItems: "center" },
+  eventList: { display: "grid", gap: 6, marginTop: 12, border: "1px solid #e2e8f0", borderRadius: 8, padding: 10, background: "#fff" },
+  eventRow: { color: "#475569", fontSize: 12, borderBottom: "1px solid #f1f5f9", paddingBottom: 4 },
 };
+
+export default PurchaseOrderLitePanel;

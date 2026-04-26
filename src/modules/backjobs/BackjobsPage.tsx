@@ -153,6 +153,7 @@ function BackjobPage({
   isCompactLayout: boolean;
 }) {
   const [selectedRoId, setSelectedRoId] = useState("");
+  const [selectedBackjobId, setSelectedBackjobId] = useState("");
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [complaint, setComplaint] = useState("");
@@ -223,6 +224,11 @@ function BackjobPage({
     );
   }, [backjobRecords, search]);
 
+  const selectedBackjob = useMemo(
+    () => visibleRecords.find((row) => row.id === selectedBackjobId) ?? null,
+    [selectedBackjobId, visibleRecords]
+  );
+
   const resetForm = () => {
     setSelectedRoId("");
     setComplaint("");
@@ -236,6 +242,10 @@ function BackjobPage({
     setSupportingTechnicianIds([]);
     setComebackInvoiceNumber("");
     setError("");
+  };
+
+  const openBackjobDetail = (id: string) => {
+    setSelectedBackjobId(id);
   };
 
   const saveBackjob = () => {
@@ -335,6 +345,33 @@ function BackjobPage({
         </div>
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(2, isCompactLayout) }}>
           <div style={styles.statCard}><div style={styles.statLabel}>Warranty</div><div style={styles.statValue}>{summary.warranty}</div><div style={styles.statNote}>Warranty-tagged comebacks</div></div>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card
+            title="Backjob Detail"
+            subtitle="Select a comeback record to review the complaint, findings, root cause, and resolution in one place"
+            right={selectedBackjob ? <span style={styles.statusInfo}>{selectedBackjob.status}</span> : <span style={styles.statusNeutral}>No selection</span>}
+          >
+            {selectedBackjob ? (
+              <div data-testid="backjob-detail-panel" style={styles.sectionCardMuted}>
+                <div style={styles.quickAccessList}>
+                  <div style={styles.quickAccessRow}><span>Backjob No.</span><strong>{selectedBackjob.backjobNumber}</strong></div>
+                  <div style={styles.quickAccessRow}><span>Linked RO</span><strong>{selectedBackjob.linkedRoNumber}</strong></div>
+                  <div style={styles.quickAccessRow}><span>Customer</span><strong>{selectedBackjob.customerLabel}</strong></div>
+                  <div style={styles.quickAccessRow}><span>Plate</span><strong>{selectedBackjob.plateNumber || "-"}</strong></div>
+                  <div style={styles.quickAccessRow}><span>Root Cause</span><strong>{selectedBackjob.rootCause || "-"}</strong></div>
+                  <div style={styles.quickAccessRow}><span>Responsibility</span><strong>{selectedBackjob.responsibility}</strong></div>
+                  <div style={styles.quickAccessRow}><span>Complaint</span><strong>{selectedBackjob.complaint || "-"}</strong></div>
+                  <div style={styles.quickAccessRow}><span>Findings</span><strong>{selectedBackjob.findings || "-"}</strong></div>
+                  <div style={styles.quickAccessRow}><span>Action Taken</span><strong>{selectedBackjob.actionTaken || "-"}</strong></div>
+                  <div style={styles.quickAccessRow}><span>Resolution Notes</span><strong>{selectedBackjob.resolutionNotes || "-"}</strong></div>
+                </div>
+              </div>
+            ) : (
+              <div style={styles.emptyState}>Select a backjob from the registry to open the detail view.</div>
+            )}
+          </Card>
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(5, isCompactLayout) }}>
@@ -461,7 +498,8 @@ function BackjobPage({
                     <div style={styles.concernCard}>{row.complaint}</div>
                     <div style={styles.formHint}>Root cause: {row.rootCause || "-"}</div>
                     <div style={styles.formHint}>Responsibility: {row.responsibility}</div>
-                    <div style={styles.mobileActionStack}>
+              <div style={styles.mobileActionStack}>
+                      <button type="button" style={styles.smallButtonMuted} onClick={() => openBackjobDetail(row.id)}>Open</button>
                       <button type="button" style={styles.smallButton} onClick={() => updateBackjobStatus(row.id, "In Progress")}>Set In Progress</button>
                       <button type="button" style={styles.smallButtonMuted} onClick={() => updateBackjobStatus(row.id, "Monitoring")}>Monitoring</button>
                       <button type="button" style={styles.smallButtonSuccess} onClick={() => updateBackjobStatus(row.id, "Closed")}>Close</button>
@@ -487,7 +525,7 @@ function BackjobPage({
                   </thead>
                   <tbody>
                     {visibleRecords.map((row) => (
-                      <tr key={row.id}>
+                      <tr key={row.id} data-testid={`backjob-queue-item-${row.id}`}>
                         <td style={styles.td}>
                           <div style={styles.tablePrimary}>{row.backjobNumber}</div>
                           <div style={styles.tableSecondary}>{formatDateTime(row.createdAt)}</div>
@@ -509,6 +547,7 @@ function BackjobPage({
                         <td style={styles.td}><span style={styles.statusInfo}>{row.status}</span></td>
                         <td style={styles.td}>
                           <div style={styles.inlineActionsColumn}>
+                            <button type="button" style={styles.smallButtonMuted} onClick={() => openBackjobDetail(row.id)}>Open</button>
                             <button type="button" style={styles.smallButton} onClick={() => updateBackjobStatus(row.id, "In Progress")}>In Progress</button>
                             <button type="button" style={styles.smallButtonMuted} onClick={() => updateBackjobStatus(row.id, "Monitoring")}>Monitoring</button>
                             <button type="button" style={styles.smallButtonSuccess} onClick={() => updateBackjobStatus(row.id, "Closed")}>Close</button>

@@ -28,8 +28,9 @@ async function openInspection(page: Page, username = "admin") {
   await signInStaff(page, username);
   await page.getByRole("button", { name: "IP Inspection", exact: true }).click();
   await page.getByPlaceholder(/search by plate/i).fill("NEX-2451");
-  await expect(page.getByRole("button", { name: /Edit Inspection/i }).first()).toBeVisible();
-  await page.getByRole("button", { name: /Edit Inspection/i }).first().click();
+  const inspectionOpenButton = page.getByRole("button", { name: /Open Inspection|Edit Inspection/i }).first();
+  await expect(inspectionOpenButton).toBeVisible();
+  await inspectionOpenButton.click();
   await expect(page.getByTestId("openai-ai-assist-panel")).toBeVisible();
 }
 
@@ -252,6 +253,7 @@ test.describe("OpenAI assist", () => {
     await expect(builder.getByTestId("ai-report-source-module")).toBeVisible();
     await expect(builder.getByTestId("ai-report-copy-button")).toBeVisible();
     await expect(builder.getByTestId("ai-report-use-button")).toBeVisible();
+    await expect(builder.getByTestId("ai-report-print-preview-button")).toBeVisible();
     await expect(builder.getByTestId("ai-report-reviewed-button")).toBeVisible();
 
     await builder.getByTestId("ai-report-report-type").selectOption({ label: "Maintenance Due Report" });
@@ -264,6 +266,12 @@ test.describe("OpenAI assist", () => {
     const draft = builder.getByTestId("ai-report-draft-textarea");
     await expect(draft).toHaveValue(/Summary|Findings \/ Work Done/i);
     await expect(builder.getByText(/Local AI \(Free\)|Cloud AI \(Paid fallback\)|Template \(No AI\)/i)).toBeVisible();
+    await builder.getByTestId("ai-report-print-preview-button").click();
+    const printView = builder.getByTestId("ai-report-print-view");
+    await expect(printView).toBeVisible();
+    await expect(printView).toContainText(/Print Summary Preview/i);
+    await expect(printView).toContainText(/Customer-facing summary only/i);
+    await expect(printView).not.toContainText(/supplier quotes|competitor bids/i);
 
     await draft.fill("Edited report draft");
     await expect(draft).toHaveValue("Edited report draft");

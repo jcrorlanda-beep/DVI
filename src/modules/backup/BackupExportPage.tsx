@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import type { SessionUser } from "../shared/types";
 
 export type BackupModuleKey = {
@@ -6,6 +6,15 @@ export type BackupModuleKey = {
   label: string;
   storageKey: string;
 };
+
+type BackupMetadata = {
+  exportedAt: string;
+  exportedBy: string;
+  version: string;
+  moduleCount: number;
+};
+
+const BACKUP_METADATA_KEY = "dvi_backup_metadata_v1";
 
 const styles: Record<string, React.CSSProperties> = {
   page: { padding: 16, maxWidth: 860, margin: "0 auto" },
@@ -26,6 +35,8 @@ const styles: Record<string, React.CSSProperties> = {
   moduleKey: { fontSize: 11, color: "#94a3b8", fontFamily: "monospace" },
   checkboxGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 6, marginBottom: 12 },
   previewBox: { background: "#0f172a", color: "#a3e635", borderRadius: 6, padding: 12, fontFamily: "monospace", fontSize: 11, overflowX: "auto" as const, maxHeight: 260, whiteSpace: "pre-wrap" as const, wordBreak: "break-all" as const },
+  hintList: { margin: "8px 0 0 18px", color: "#475569", fontSize: 13, lineHeight: 1.6 },
+  inlineNote: { marginTop: 8, fontSize: 13, color: "#475569" },
 };
 
 const ALL_MODULES: BackupModuleKey[] = [
@@ -69,6 +80,15 @@ function getByteSize(str: string): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+function readBackupMeta(): BackupMetadata | null {
+  try {
+    const raw = localStorage.getItem(BACKUP_METADATA_KEY);
+    return raw ? (JSON.parse(raw) as BackupMetadata) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function BackupExportPage({ currentUser }: { currentUser: SessionUser }) {
   const [selected, setSelected] = useState<Set<string>>(new Set(ALL_MODULES.map((m) => m.key)));
   const [preview, setPreview] = useState<string | null>(null);
@@ -77,6 +97,8 @@ export function BackupExportPage({ currentUser }: { currentUser: SessionUser }) 
   const [restoreSuccess, setRestoreSuccess] = useState("");
   const [restoreParsed, setRestoreParsed] = useState<Record<string, unknown> | null>(null);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
+  const [restoreConfirmText, setRestoreConfirmText] = useState("");
+  const [backupMeta, setBackupMeta] = useState<BackupMetadata | null>(() => readBackupMeta());
 
   function toggleModule(key: string) {
     setSelected((prev) => {
@@ -86,28 +108,46 @@ export function BackupExportPage({ currentUser }: { currentUser: SessionUser }) 
     });
   }
 
-  function buildExport(keys: string[]): Record<string, unknown> {
+  function saveBackupMeta(meta: BackupMetadata) {
+    try {
+      localStorage.setItem(BACKUP_METADATA_KEY, JSON.stringify(meta));
+      setBackupMeta(meta);
+    } catch {
+      // advisory only
+    }
+  }
+
+  function buildExport(keys: string[], persistMeta = false): Record<string, unknown> {
+    const exportedAt = new Date().toISOString();
     const data: Record<string, unknown> = {
-      exportedAt: new Date().toISOString(),
+      exportedAt,
       exportedBy: currentUser.fullName,
       version: "DVI-backup-v1",
+      moduleCount: keys.length,
     };
     for (const key of keys) {
       const mod = ALL_MODULES.find((m) => m.key === key);
       if (!mod) continue;
       data[mod.key] = readKey(mod.storageKey);
     }
+    if (persistMeta) {
+      saveBackupMeta({
+        exportedAt,
+        exportedBy: currentUser.fullName,
+        version: "DVI-backup-v1",
+        moduleCount: keys.length,
+      });
+    }
     return data;
   }
 
   function handlePreview() {
-    const data = buildExport(Array.from(selected));
-    const json = JSON.stringify(data, null, 2);
-    setPreview(json);
+    const data = buildExport(Array.from(selected), false);
+    setPreview(JSON.stringify(data, null, 2));
   }
 
   function handleExport() {
-    const data = buildExport(Array.from(selected));
+    const data = buildExport(Array.from(selected), true);
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -123,10 +163,14 @@ export function BackupExportPage({ currentUser }: { currentUser: SessionUser }) 
     setRestoreSuccess("");
     setRestoreParsed(null);
     setShowRestoreConfirm(false);
-    if (!restoreJson.trim()) { setRestoreError("Paste a backup JSON first."); return; }
+    setRestoreConfirmText("");
+    if (!restoreJson.trim()) {
+      setRestoreError("Paste a backup JSON first.");
+      return;
+    }
     try {
       const parsed = JSON.parse(restoreJson);
-      if (typeof parsed !== "object" || !parsed || !parsed.version) {
+      if (typeof parsed !== "object" || !parsed || !("version" in parsed)) {
         setRestoreError("Invalid backup file: missing version field.");
         return;
       }
@@ -138,6 +182,10 @@ export function BackupExportPage({ currentUser }: { currentUser: SessionUser }) 
 
   function handleRestoreConfirm() {
     if (!restoreParsed) return;
+    if (restoreConfirmText.trim().toUpperCase() !== "RESTORE") {
+      setRestoreError('Type RESTORE to confirm the restore.');
+      return;
+    }
     let restored = 0;
     for (const mod of ALL_MODULES) {
       if (mod.key in restoreParsed && restoreParsed[mod.key] !== null && restoreParsed[mod.key] !== undefined) {
@@ -153,9 +201,13 @@ export function BackupExportPage({ currentUser }: { currentUser: SessionUser }) 
     setShowRestoreConfirm(false);
     setRestoreParsed(null);
     setRestoreJson("");
+    setRestoreConfirmText("");
   }
 
-  const allSelected = selected.size === ALL_MODULES.length;
+  const previewModules = useMemo(
+    () => (restoreParsed ? ALL_MODULES.filter((m) => m.key in restoreParsed && restoreParsed[m.key] !== null) : []),
+    [restoreParsed]
+  );
 
   return (
     <div style={styles.page}>
@@ -167,6 +219,20 @@ export function BackupExportPage({ currentUser }: { currentUser: SessionUser }) 
       <div style={styles.card}>
         <div style={styles.cardTitle}>Export Data</div>
         <div style={styles.cardSubtitle}>Select the modules to include in the export file.</div>
+        <div style={styles.warningBox}>
+          Backup checklist:
+          <ul style={styles.hintList}>
+            <li>Export before browser reset.</li>
+            <li>Export before major updates.</li>
+            <li>Export at the end of each day.</li>
+            <li>Keep a copy outside the browser or computer.</li>
+          </ul>
+        </div>
+        <div style={styles.inlineNote} data-testid="backup-last-reminder">
+          {backupMeta
+            ? `Last backup: ${backupMeta.exportedAt.slice(0, 10)} by ${backupMeta.exportedBy} (${backupMeta.moduleCount} modules, ${backupMeta.version})`
+            : "No backup has been exported yet."}
+        </div>
 
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           <button style={styles.secondaryBtn} onClick={() => setSelected(new Set(ALL_MODULES.map((m) => m.key)))}>Select All</button>
@@ -178,7 +244,18 @@ export function BackupExportPage({ currentUser }: { currentUser: SessionUser }) 
             const raw = localStorage.getItem(mod.storageKey);
             const size = raw ? getByteSize(raw) : "empty";
             return (
-              <label key={mod.key} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "5px 8px", borderRadius: 4, background: selected.has(mod.key) ? "#eff6ff" : "transparent" }}>
+              <label
+                key={mod.key}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  cursor: "pointer",
+                  padding: "5px 8px",
+                  borderRadius: 4,
+                  background: selected.has(mod.key) ? "#eff6ff" : "transparent",
+                }}
+              >
                 <input type="checkbox" checked={selected.has(mod.key)} onChange={() => toggleModule(mod.key)} />
                 <span style={styles.moduleLabel}>{mod.label}</span>
                 <span style={styles.moduleKey}>{size}</span>
@@ -189,9 +266,11 @@ export function BackupExportPage({ currentUser }: { currentUser: SessionUser }) 
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const }}>
           <button style={styles.primaryBtn} onClick={handleExport} disabled={selected.size === 0}>
-            ↓ Download Backup ({selected.size} modules)
+            Download Backup ({selected.size} modules)
           </button>
-          <button style={styles.secondaryBtn} onClick={handlePreview} disabled={selected.size === 0}>Preview JSON</button>
+          <button style={styles.secondaryBtn} data-testid="backup-preview-button" onClick={handlePreview} disabled={selected.size === 0}>
+            Preview JSON
+          </button>
         </div>
 
         {preview && (
@@ -200,7 +279,11 @@ export function BackupExportPage({ currentUser }: { currentUser: SessionUser }) 
               <span style={{ fontSize: 12, color: "#64748b" }}>Preview ({getByteSize(preview)})</span>
               <button style={styles.secondaryBtn} onClick={() => setPreview(null)}>Close</button>
             </div>
-            <div style={styles.previewBox}>{preview.slice(0, 4000)}{preview.length > 4000 ? "\n… (truncated for preview)" : ""}</div>
+            <div style={styles.cardSubtitle}>Preview includes exportedAt, exportedBy, version, and moduleCount metadata.</div>
+            <div style={styles.previewBox}>
+              {preview.slice(0, 4000)}
+              {preview.length > 4000 ? "\n... (truncated for preview)" : ""}
+            </div>
           </div>
         )}
       </div>
@@ -208,39 +291,79 @@ export function BackupExportPage({ currentUser }: { currentUser: SessionUser }) 
       <div style={styles.card}>
         <div style={styles.cardTitle}>Restore from Backup</div>
         <div style={styles.warningBox}>
-          ⚠ Restoring will overwrite selected modules in localStorage. This action cannot be undone. Always export a fresh backup before restoring.
+          WARNING: Restoring will overwrite selected modules in localStorage. This action cannot be undone. Always export a fresh backup before restoring.
         </div>
 
         {restoreError && <div style={styles.errorBox}>{restoreError}</div>}
         {restoreSuccess && <div style={styles.successBox}>{restoreSuccess}</div>}
 
         <textarea
-          style={{ width: "100%", minHeight: 120, padding: 10, border: "1px solid #e2e8f0", borderRadius: 6, fontSize: 12, fontFamily: "monospace", resize: "vertical" as const, background: "#fff", color: "#0f172a", boxSizing: "border-box" as const }}
-          placeholder='Paste backup JSON here (from a previously downloaded .json file)…'
+          data-testid="backup-restore-json"
+          style={{
+            width: "100%",
+            minHeight: 120,
+            padding: 10,
+            border: "1px solid #e2e8f0",
+            borderRadius: 6,
+            fontSize: 12,
+            fontFamily: "monospace",
+            resize: "vertical" as const,
+            background: "#fff",
+            color: "#0f172a",
+            boxSizing: "border-box" as const,
+          }}
+          placeholder='Paste backup JSON here (from a previously downloaded .json file)...'
           value={restoreJson}
-          onChange={(e) => { setRestoreJson(e.target.value); setRestoreParsed(null); setShowRestoreConfirm(false); setRestoreError(""); setRestoreSuccess(""); }}
+          onChange={(e) => {
+            setRestoreJson(e.target.value);
+            setRestoreParsed(null);
+            setShowRestoreConfirm(false);
+            setRestoreConfirmText("");
+            setRestoreError("");
+            setRestoreSuccess("");
+          }}
         />
 
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-          <button style={styles.secondaryBtn} onClick={handleRestoreParse}>Validate & Preview</button>
+          <button style={styles.secondaryBtn} onClick={handleRestoreParse}>
+            Validate & Preview
+          </button>
           {restoreParsed && !showRestoreConfirm && (
-            <button style={styles.dangerBtn} onClick={() => setShowRestoreConfirm(true)}>Restore Now</button>
+            <button style={styles.dangerBtn} onClick={() => setShowRestoreConfirm(true)}>
+              Restore Now
+            </button>
           )}
         </div>
 
         {restoreParsed && (
-          <div style={{ marginTop: 10, fontSize: 13, color: "#475569" }}>
+          <div style={{ marginTop: 10, fontSize: 13, color: "#475569" }} data-testid="backup-restore-preview">
             <strong>Backup info:</strong> Exported by {String(restoreParsed.exportedBy ?? "unknown")} on {String(restoreParsed.exportedAt ?? "unknown").slice(0, 10)}
             <br />
-            Modules found: {ALL_MODULES.filter((m) => m.key in restoreParsed && restoreParsed[m.key] !== null).map((m) => m.label).join(", ")}
+            <strong>Module count:</strong> {String(restoreParsed.moduleCount ?? previewModules.length ?? "unknown")}
+            <br />
+            <strong>Modules found:</strong> {previewModules.map((m) => m.label).join(", ") || "None"}
           </div>
         )}
 
         {showRestoreConfirm && (
           <div style={{ ...styles.warningBox, marginTop: 10 }}>
             <strong>Confirm restore?</strong> This will overwrite existing data in the listed modules. Reload the page after restoring.
+            <div style={{ marginTop: 8 }}>
+              <label style={{ display: "block", fontSize: 12, color: "#475569", marginBottom: 4 }}>
+                Type RESTORE to continue
+              </label>
+              <input
+                data-testid="backup-restore-confirm-text"
+                value={restoreConfirmText}
+                onChange={(e) => setRestoreConfirmText(e.target.value)}
+                style={{ width: "100%", padding: "8px 10px", border: "1px solid #e2e8f0", borderRadius: 6, fontSize: 13 }}
+                placeholder="RESTORE"
+              />
+            </div>
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <button style={styles.dangerBtn} onClick={handleRestoreConfirm}>Yes, Restore</button>
+              <button style={styles.dangerBtn} data-testid="backup-restore-confirm-button" onClick={handleRestoreConfirm}>
+                Yes, Restore
+              </button>
               <button style={styles.secondaryBtn} onClick={() => setShowRestoreConfirm(false)}>Cancel</button>
             </div>
           </div>

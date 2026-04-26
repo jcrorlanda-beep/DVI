@@ -610,6 +610,7 @@ function ReleasePage({
                     <button
                       key={row.id}
                       type="button"
+                      data-testid={`release-queue-item-${row.id}`}
                       onClick={() => setSelectedRoId(row.id)}
                       style={{
                         ...styles.mobileCard,
@@ -640,6 +641,7 @@ function ReleasePage({
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: getResponsiveSpan(8, isCompactLayout) }}>
+          <div data-testid="release-detail-panel">
           <Card
             title="Release Form"
             subtitle="Final gate before vehicle handover"
@@ -975,6 +977,7 @@ function ReleasePage({
               </div>
             )}
           </Card>
+          </div>
 
           <div style={{ marginTop: 16 }}>
             <Card title="Recent Releases" subtitle="Latest release records">

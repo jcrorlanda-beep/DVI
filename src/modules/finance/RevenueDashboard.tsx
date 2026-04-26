@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from "react";
-import type { PartsRequestRecord, RepairOrderRecord, SessionUser, UserAccount } from "../shared/types";
+import type { ExpenseRecord, InvoiceRecord, PartsRequestRecord, PaymentRecord, RepairOrderRecord, SessionUser, UserAccount } from "../shared/types";
 import { formatCurrency } from "../shared/helpers";
+import { AccountingPrepPanel } from "./AccountingPrepPanel";
+import { ProfitReportPanel } from "./ProfitReportPanel";
 import { buildMarginViewModel } from "./marginHelpers";
 import { buildRevenueDashboardViewModel } from "./revenueHelpers";
 
@@ -9,6 +11,9 @@ type Props = {
   repairOrders: RepairOrderRecord[];
   users: UserAccount[];
   partsRequests: PartsRequestRecord[];
+  invoiceRecords: InvoiceRecord[];
+  paymentRecords: PaymentRecord[];
+  expenseRecords: ExpenseRecord[];
   isCompactLayout: boolean;
 };
 
@@ -39,7 +44,7 @@ function Rows({ rows }: { rows: Array<{ label: string; value: string; note?: str
   );
 }
 
-export function RevenueDashboard({ currentUser, repairOrders, users, partsRequests, isCompactLayout }: Props) {
+export function RevenueDashboard({ currentUser, repairOrders, users, partsRequests, invoiceRecords, paymentRecords, expenseRecords, isCompactLayout }: Props) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const revenue = useMemo(
@@ -111,6 +116,24 @@ export function RevenueDashboard({ currentUser, repairOrders, users, partsReques
           </>
         )}
       </div>
+
+      <AccountingPrepPanel
+        currentUser={currentUser}
+        repairOrders={repairOrders}
+        users={users}
+        partsRequests={partsRequests}
+        invoiceRecords={invoiceRecords}
+        paymentRecords={paymentRecords}
+        expenseRecords={expenseRecords}
+      />
+
+      <ProfitReportPanel
+        currentUser={currentUser}
+        repairOrders={repairOrders}
+        users={users}
+        from={from}
+        to={to}
+      />
     </section>
   );
 }

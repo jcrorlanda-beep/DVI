@@ -4,10 +4,12 @@ import type {
   RepairOrderRecord,
   InvoiceRecord,
   PaymentRecord,
+  PaymentMethod,
   ROPaymentStatus,
   AuditLogRecord,
 } from "../shared/types";
 import { formatCurrency, parseMoneyInput, formatDateTime } from "../shared/helpers";
+import { InvoiceReconciliationPanel } from "./InvoiceReconciliationPanel";
 
 export function computeROPaymentStatus(
   roId: string,
@@ -25,7 +27,7 @@ export function computeROPaymentStatus(
   const paid = roPayments.reduce((s, p) => s + parseMoneyInput(p.amount), 0);
   const balance = Math.max(0, invoiced - paid);
 
-  const waivedInvoice = roInvoices.find((inv) => (inv as { paymentStatus: string }).paymentStatus === "Waived");
+  const waivedInvoice = roInvoices.find((inv) => inv.paymentStatus === "Waived");
   if (waivedInvoice) return { status: "Waived", invoiced, paid, balance: 0 };
   if (paid <= 0) return { status: "Unpaid", invoiced, paid, balance };
   if (balance <= 0.005) return { status: "Paid", invoiced, paid, balance: 0 };
@@ -63,6 +65,18 @@ const styles: Record<string, React.CSSProperties> = {
   subCard: { background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: 12, marginTop: 8 },
 };
 
+const PAYMENT_METHODS: PaymentMethod[] = [
+  "Cash",
+  "GCash",
+  "Maya",
+  "Bank Transfer",
+  "Check",
+  "Card",
+  "Credit Card",
+  "Charge Account / Fleet",
+  "Other",
+];
+
 export function PaymentTrackingPage({
   currentUser,
   repairOrders,
@@ -82,7 +96,7 @@ export function PaymentTrackingPage({
   const [search, setSearch] = useState("");
   const [selectedRoId, setSelectedRoId] = useState<string | null>(null);
   const [showAddPayment, setShowAddPayment] = useState(false);
-  const [payForm, setPayForm] = useState({ amount: "", method: "Cash", referenceNumber: "", note: "" });
+  const [payForm, setPayForm] = useState<{ amount: string; method: PaymentMethod; referenceNumber: string; note: string }>({ amount: "", method: "Cash", referenceNumber: "", note: "" });
   const [payError, setPayError] = useState("");
 
   const rows = useMemo(() => {
@@ -130,7 +144,7 @@ export function PaymentTrackingPage({
       createdAt: now,
       receivedBy: currentUser.fullName,
       amount: String(amt),
-      method: payForm.method as PaymentRecord["method"],
+      method: payForm.method,
       referenceNumber: payForm.referenceNumber.trim(),
       notes: payForm.note.trim(),
     };
@@ -191,6 +205,7 @@ export function PaymentTrackingPage({
                 {filtered.map(({ ro, status, invoiced, paid, balance }) => (
                   <tr
                     key={ro.id}
+                    data-testid={`payment-row-${ro.id}`}
                     style={{ cursor: "pointer", background: selectedRoId === ro.id ? "#eff6ff" : "transparent" }}
                     onClick={() => { setSelectedRoId(selectedRoId === ro.id ? null : ro.id); setShowAddPayment(false); }}
                   >
@@ -211,7 +226,7 @@ export function PaymentTrackingPage({
         </div>
 
         {selectedRow && (
-          <div style={styles.card}>
+          <div style={styles.card} data-testid="payment-detail-panel">
             <div style={styles.cardTitle}>
               {selectedRow.ro.roNumber}
               <span style={{ ...STATUS_STYLES[selectedRow.status], marginLeft: 8 }}>{selectedRow.status}</span>
@@ -235,8 +250,8 @@ export function PaymentTrackingPage({
                 {payError && <div style={styles.errorBox}>{payError}</div>}
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   <input style={styles.input} type="number" min="0" step="0.01" placeholder="Amount (₱)" value={payForm.amount} onChange={(e) => setPayForm((f) => ({ ...f, amount: e.target.value }))} />
-                  <select style={styles.select} value={payForm.method} onChange={(e) => setPayForm((f) => ({ ...f, method: e.target.value }))}>
-                    {["Cash", "GCash", "Maya", "Bank Transfer", "Check", "Credit Card", "Other"].map((m) => <option key={m}>{m}</option>)}
+                  <select style={styles.select} value={payForm.method} onChange={(e) => setPayForm((f) => ({ ...f, method: e.target.value as PaymentMethod }))}>
+                    {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
                   </select>
                   <input style={styles.input} placeholder="Reference #" value={payForm.referenceNumber} onChange={(e) => setPayForm((f) => ({ ...f, referenceNumber: e.target.value }))} />
                   <input style={styles.input} placeholder="Note (optional)" value={payForm.note} onChange={(e) => setPayForm((f) => ({ ...f, note: e.target.value }))} />
@@ -267,6 +282,14 @@ export function PaymentTrackingPage({
           </div>
         )}
       </div>
+
+      <InvoiceReconciliationPanel
+        currentUser={currentUser}
+        repairOrders={repairOrders}
+        invoiceRecords={invoiceRecords}
+        paymentRecords={paymentRecords}
+        onLogAudit={onLogAudit}
+      />
     </div>
   );
 }

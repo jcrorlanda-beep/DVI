@@ -84,6 +84,8 @@ Environment variables are injected **at build time** by Vite using the `VITE_` p
 |----------|----------|-------------|
 | `VITE_OPENAI_API_KEY` | Optional | OpenAI API key for AI-assisted draft generation |
 | `VITE_OLLAMA_BASE_URL` | Optional | Ollama base URL (default: `http://localhost:11434`) |
+| `VITE_DVI_API_URL` | Optional | Future backend API URL for diagnostics and later integration testing |
+| `VITE_DVI_USE_BACKEND` | Optional | Future backend data flag. Defaults off; localStorage remains active |
 
 ### Setup
 
@@ -97,6 +99,19 @@ VITE_OLLAMA_BASE_URL=http://localhost:11434
 
 > ⚠ **API Key Safety:** The OpenAI key is embedded in the built JS bundle if set at build time.  
 > Do not deploy a build with a production API key to a public URL without additional access control.
+
+### Optional Backend Foundation
+
+The backend foundation is parallel and optional. It does not replace browser localStorage yet.
+
+```bash
+npm run server:typecheck
+npm run server:build
+npm run server:dev
+npm run server:smoke
+```
+
+Use `VITE_DVI_API_URL=http://localhost:4100` only for backend diagnostics or future integration testing. The frontend remains localStorage-first until a later migration phase explicitly changes the data source.
 
 ### Reading env vars in code
 

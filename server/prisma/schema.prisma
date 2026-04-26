@@ -1,0 +1,421 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  localId     String?          @unique
+  name        String           @unique
+  description String?
+  users       User[]
+  permissions RolePermission[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique
+  label       String
+  description String?
+  roles       RolePermission[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id         String               @id @default(cuid())
+  localId    String?              @unique
+  username   String               @unique
+  fullName   String
+  roleName   String?
+  roleId     String?
+  role       Role?                @relation(fields: [roleId], references: [id])
+  active     Boolean              @default(true)
+  auditLogs  AuditLog[]
+  documents  DocumentAttachment[] @relation("DocumentUploadedBy")
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+
+  @@map("users")
+}
+
+model Customer {
+  id           String               @id @default(cuid())
+  localId      String?              @unique
+  customerName String
+  companyName  String?
+  phone        String?
+  email        String?
+  accountType  String?
+  notes        String?
+  archivedAt   DateTime?
+  vehicles     Vehicle[]
+  intakes      Intake[]
+  repairOrders RepairOrder[]
+  documents    DocumentAttachment[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@index([customerName])
+  @@map("customers")
+}
+
+model Vehicle {
+  id               String               @id @default(cuid())
+  localId          String?              @unique
+  customerId       String?
+  customer         Customer?            @relation(fields: [customerId], references: [id])
+  plateNumber      String?
+  conductionNumber String?
+  make             String?
+  model            String?
+  year             String?
+  color            String?
+  mileage          Int?
+  notes            String?
+  archivedAt        DateTime?
+  intakes          Intake[]
+  inspections      Inspection[]
+  repairOrders     RepairOrder[]
+  documents        DocumentAttachment[]
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@index([plateNumber])
+  @@index([customerId])
+  @@map("vehicles")
+}
+
+model Intake {
+  id                String    @id @default(cuid())
+  localId           String?   @unique
+  intakeNumber      String?   @unique
+  customerId        String?
+  customer          Customer? @relation(fields: [customerId], references: [id])
+  vehicleId         String?
+  vehicle           Vehicle?  @relation(fields: [vehicleId], references: [id])
+  customerName      String?
+  plateNumber       String?
+  requestedServices Json?
+  concern           String?
+  status            String?
+  source            String?
+  openedAt          DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([intakeNumber])
+  @@index([plateNumber])
+  @@map("intakes")
+}
+
+model Inspection {
+  id               String        @id @default(cuid())
+  localId          String?       @unique
+  inspectionNumber String?       @unique
+  intakeId         String?
+  repairOrderId    String?
+  vehicleId        String?
+  vehicle          Vehicle?      @relation(fields: [vehicleId], references: [id])
+  repairOrder      RepairOrder?  @relation(fields: [repairOrderId], references: [id])
+  customerName     String?
+  plateNumber      String?
+  status           String?
+  findings         Json?
+  recommendations  Json?
+  evidenceItems    Json?
+  technicianName   String?
+  completedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([inspectionNumber])
+  @@index([repairOrderId])
+  @@index([plateNumber])
+  @@map("inspections")
+}
+
+model RepairOrder {
+  id                String               @id @default(cuid())
+  localId           String?              @unique
+  repairOrderNumber String?              @unique
+  customerId        String?
+  customer          Customer?            @relation(fields: [customerId], references: [id])
+  vehicleId         String?
+  vehicle           Vehicle?             @relation(fields: [vehicleId], references: [id])
+  customerName      String?
+  plateNumber       String?
+  status            String?
+  advisorName       String?
+  technicianName    String?
+  odometer          Int?
+  subtotal          Decimal?             @db.Decimal(12, 2)
+  total             Decimal?             @db.Decimal(12, 2)
+  openedAt          DateTime?
+  completedAt       DateTime?
+  workLines         WorkLine[]
+  inspections       Inspection[]
+  partsRequests     PartsRequest[]
+  purchaseOrders    PurchaseOrder[]
+  payments          Payment[]
+  documents         DocumentAttachment[]
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([repairOrderNumber])
+  @@index([plateNumber])
+  @@index([status])
+  @@map("repair_orders")
+}
+
+model WorkLine {
+  id            String      @id @default(cuid())
+  localId       String?     @unique
+  repairOrderId String
+  repairOrder   RepairOrder @relation(fields: [repairOrderId], references: [id], onDelete: Cascade)
+  serviceKey    String?
+  title         String
+  category      String?
+  status        String?
+  technicianName String?
+  approved      Boolean     @default(false)
+  completed     Boolean     @default(false)
+  quantity      Decimal?    @db.Decimal(12, 2)
+  unitPrice     Decimal?    @db.Decimal(12, 2)
+  unitCost      Decimal?    @db.Decimal(12, 2)
+  completedAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([repairOrderId])
+  @@index([serviceKey])
+  @@map("work_lines")
+}
+
+model PartsRequest {
+  id              String       @id @default(cuid())
+  localId         String?      @unique
+  requestNumber   String?      @unique
+  repairOrderId   String?
+  repairOrder     RepairOrder? @relation(fields: [repairOrderId], references: [id])
+  supplierId      String?
+  supplier        Supplier?    @relation(fields: [supplierId], references: [id])
+  partName        String
+  partNumber      String?
+  category        String?
+  urgency         String?
+  status          String?
+  selectedBidId   String?
+  plateNumber     String?
+  requestedBy     String?
+  bids            Json?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([requestNumber])
+  @@index([repairOrderId])
+  @@index([supplierId])
+  @@map("parts_requests")
+}
+
+model InventoryItem {
+  id             String   @id @default(cuid())
+  localId        String?  @unique
+  itemName       String
+  sku            String?
+  partNumber     String?
+  category       String?
+  brand          String?
+  quantityOnHand Int      @default(0)
+  reorderLevel   Int      @default(0)
+  unitCost       Decimal? @db.Decimal(12, 2)
+  sellingPrice   Decimal? @db.Decimal(12, 2)
+  supplierName   String?
+  active         Boolean  @default(true)
+  movements      InventoryMovement[]
+  movementLog    Json?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([sku])
+  @@index([partNumber])
+  @@map("inventory_items")
+}
+
+model InventoryMovement {
+  id              String         @id @default(cuid())
+  localId         String?        @unique
+  inventoryItemId String?
+  inventoryItem   InventoryItem? @relation(fields: [inventoryItemId], references: [id])
+  movementType    String
+  quantity        Int
+  reason          String?
+  sourceModule    String?
+  linkedEntityId  String?
+  note            String?
+  createdBy       String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([inventoryItemId])
+  @@index([movementType])
+  @@map("inventory_movements")
+}
+
+model PurchaseOrder {
+  id              String       @id @default(cuid())
+  localId         String?      @unique
+  poNumber        String?      @unique
+  supplierId      String?
+  supplier        Supplier?    @relation(fields: [supplierId], references: [id])
+  repairOrderId   String?
+  repairOrder     RepairOrder? @relation(fields: [repairOrderId], references: [id])
+  partsRequestId  String?
+  supplierName    String?
+  status          String?
+  expectedDelivery DateTime?
+  items           Json?
+  receivingEvents Json?
+  totalCost       Decimal?     @db.Decimal(12, 2)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([poNumber])
+  @@index([supplierId])
+  @@index([repairOrderId])
+  @@map("purchase_orders")
+}
+
+model Supplier {
+  id             String          @id @default(cuid())
+  localId        String?         @unique
+  supplierName   String
+  contactPerson  String?
+  phone          String?
+  email          String?
+  address        String?
+  brandsCarried  Json?
+  categories     Json?
+  active         Boolean         @default(true)
+  notes          String?
+  partsRequests  PartsRequest[]
+  purchaseOrders PurchaseOrder[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([supplierName])
+  @@map("suppliers")
+}
+
+model Payment {
+  id              String       @id @default(cuid())
+  localId         String?      @unique
+  paymentNumber   String?
+  repairOrderId   String?
+  repairOrder     RepairOrder? @relation(fields: [repairOrderId], references: [id])
+  customerName    String?
+  plateNumber     String?
+  method          String?
+  status          String?
+  amount          Decimal      @db.Decimal(12, 2)
+  paidAt          DateTime?
+  accountingStatus String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([repairOrderId])
+  @@index([status])
+  @@map("payments")
+}
+
+model Expense {
+  id               String   @id @default(cuid())
+  localId          String?  @unique
+  expenseNumber    String?
+  category         String?
+  vendorName       String?
+  description      String?
+  amount           Decimal  @db.Decimal(12, 2)
+  incurredAt       DateTime?
+  status           String?
+  accountingStatus String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([category])
+  @@index([incurredAt])
+  @@map("expenses")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  localId    String?  @unique
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  userName   String?
+  role       String?
+  action     String
+  module     String?
+  entityType String?
+  entityId   String?
+  details    Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([action])
+  @@index([module])
+  @@index([entityId])
+  @@map("audit_logs")
+}
+
+model DocumentAttachment {
+  id                String       @id @default(cuid())
+  localId           String?      @unique
+  fileName          String
+  fileType          String?
+  fileSize          Int?
+  storageKey        String?
+  dataUrlHash       String?
+  uploadedById      String?
+  uploadedBy        User?        @relation("DocumentUploadedBy", fields: [uploadedById], references: [id])
+  sourceModule      String?
+  linkedEntityId    String?
+  linkedEntityLabel String?
+  customerId        String?
+  customer          Customer?    @relation(fields: [customerId], references: [id])
+  vehicleId         String?
+  vehicle           Vehicle?     @relation(fields: [vehicleId], references: [id])
+  repairOrderId     String?
+  repairOrder       RepairOrder? @relation(fields: [repairOrderId], references: [id])
+  customerVisible   Boolean      @default(false)
+  note              String?
+  uploadedAt        DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([sourceModule])
+  @@index([linkedEntityId])
+  @@index([customerVisible])
+  @@map("document_attachments")
+}

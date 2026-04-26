@@ -41,6 +41,10 @@ export type RepairOrderRecord = {
   companyName: string;
   accountType: VehicleAccountType;
   accountLabel: string;
+  customerReference?: string;
+  roReference?: string;
+  accountingReference?: string;
+  accountingStatus?: AccountingPrepStatus;
   phone: string;
   email: string;
   plateNumber: string;
@@ -150,6 +154,11 @@ export type InvoiceRecord = {
   invoiceNumber: string;
   roId: string;
   roNumber: string;
+  customerReference?: string;
+  roReference?: string;
+  invoiceReference?: string;
+  accountingReference?: string;
+  accountingStatus?: AccountingPrepStatus;
   createdAt: string;
   updatedAt: string;
   createdBy: string;
@@ -170,6 +179,12 @@ export type PaymentRecord = {
   invoiceId: string;
   roId: string;
   roNumber: string;
+  customerReference?: string;
+  roReference?: string;
+  invoiceReference?: string;
+  paymentReference?: string;
+  accountingReference?: string;
+  accountingStatus?: AccountingPrepStatus;
   createdAt: string;
   receivedBy: string;
   amount: string;
@@ -274,6 +289,9 @@ export type ExpenseRecord = {
   amount: string;
   paymentMethod: ExpensePaymentMethod;
   referenceNumber: string;
+  expenseReference?: string;
+  accountingReference?: string;
+  accountingStatus?: AccountingPrepStatus;
   note: string;
   createdAt: string;
   createdBy: string;
@@ -309,6 +327,13 @@ export type AuditLogRecord = {
   before?: string;
   after?: string;
 };
+
+export type AccountingPrepStatus =
+  | "Not Ready"
+  | "Ready to Review"
+  | "Ready to Export"
+  | "Exported"
+  | "Needs Correction";
 
 export type RoleDefinition = {
   role: UserRole;
@@ -460,9 +485,9 @@ export type BackjobOutcome = "Customer Pay" | "Internal" | "Warranty" | "Goodwil
 
 export type InvoiceStatus = "Draft" | "Finalized" | "Voided";
 
-export type PaymentStatus = "Unpaid" | "Partial" | "Paid";
+export type PaymentStatus = "Unpaid" | "Partial" | "Paid" | "Waived";
 
-export type PaymentMethod = "Cash" | "GCash" | "Bank Transfer" | "Card" | "Charge Account / Fleet";
+export type PaymentMethod = "Cash" | "GCash" | "Maya" | "Bank Transfer" | "Check" | "Card" | "Credit Card" | "Charge Account / Fleet" | "Other";
 
 
 export type InspectionStatus = "In Progress" | "Completed";
@@ -736,6 +761,7 @@ export type PartsRequestStatus =
 export type PartsRequestUrgency = "Low" | "Medium" | "High";
 
 export type SupplierBidCondition = "Brand New" | "OEM" | "Replacement" | "Surplus";
+export type SupplierBidStatus = "Draft" | "Submitted" | "Revised" | "Withdrawn";
 export type PartsMediaOwner = "Workshop" | "Supplier" | "Return";
 export type PartsReturnResponseStatus = "Requested" | "Approved" | "Rejected" | "Replacement in Process" | "Refund in Process";
 
@@ -753,6 +779,7 @@ export type PartsMediaRecord = {
 export type SupplierBid = {
   id: string;
   supplierName: string;
+  status?: SupplierBidStatus;
   brand: string;
   quantity: string;
   unitCost: string;
@@ -768,6 +795,7 @@ export type SupplierBid = {
   trackingNumber: string;
   courierName: string;
   shippingNotes: string;
+  updatedAt?: string;
 };
 
 export type PartsReturnRecord = {
@@ -789,6 +817,9 @@ export type PartsRequestRecord = {
   requestNumber: string;
   roId: string;
   roNumber: string;
+  poReference?: string;
+  accountingReference?: string;
+  accountingStatus?: AccountingPrepStatus;
   workLineId?: string;
   createdAt: string;
   updatedAt: string;
@@ -804,6 +835,7 @@ export type PartsRequestRecord = {
   plateNumber: string;
   vehicleLabel: string;
   accountLabel: string;
+  supplierRecipients?: string[];
   updatedBy?: string;
   workshopPhotos: PartsMediaRecord[];
   bids: SupplierBid[];

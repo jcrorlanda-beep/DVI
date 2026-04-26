@@ -4,6 +4,16 @@ import { hasPermission } from "../shared/helpers";
 import { OPENAI_ASSIST_LOG_STORAGE_KEY, type OpenAiAssistProviderMode, type OpenAiAssistLogEntry } from "../ai/openaiAssist";
 import { DEFAULT_AI_MODULE_TOGGLES, getAiModuleLabel, readAiModuleToggles, saveAiModuleToggles, type AiModuleKey, type AiModuleToggleSettings } from "../ai/aiSafety";
 import { cleanupInvalidJsonStorage, validateStoredRecords, type DataQualitySummary } from "../dataQuality/dataQualityHelpers";
+import { CURRENT_DATA_MIGRATION_VERSION, getDataMigrationReminder, readDataMigrationVersion } from "../dataQuality/migrationHelpers";
+import { BACKEND_DATA_MODE_STORAGE_KEY, DVI_API_BASE_URL, backendEnabledByEnv, checkBackendHealth } from "../api/apiClient";
+import type { AiBackendMode, BackendDataMode, SmsBackendMode } from "../api/apiTypes";
+import {
+  canAccessAdvisorTools,
+  canAccessFinancialReports,
+  canAccessInventoryManagement,
+  canAccessSupplierManagement,
+  canAccessTechnicianOperations,
+} from "../shared/roleAccess";
 
 const ROLE_COLORS: Record<UserRole, { bg: string; text: string }> = {
   Admin: { bg: "#fee2e2", text: "#991b1b" },
@@ -15,6 +25,54 @@ const ROLE_COLORS: Record<UserRole, { bg: string; text: string }> = {
   Reception: { bg: "#fae8ff", text: "#86198f" },
   OJT: { bg: "#e5e7eb", text: "#374151" },
 };
+
+const SENSITIVE_ACCESS_MAP = [
+  {
+    module: "Audit Log",
+    permission: "audit.view",
+    access: (role: UserRole, defs: RoleDefinition[]) => hasPermission(role, defs, "audit.view"),
+  },
+  {
+    module: "Backup / Restore",
+    permission: "backup.view",
+    access: (role: UserRole, defs: RoleDefinition[]) => hasPermission(role, defs, "backup.view"),
+  },
+  {
+    module: "Margin / Profit",
+    permission: "finance.summary",
+    access: (role: UserRole) => canAccessFinancialReports(role),
+  },
+  {
+    module: "Inventory Cost",
+    permission: "inventory.manage",
+    access: (role: UserRole) => canAccessInventoryManagement(role),
+  },
+  {
+    module: "PO Cost",
+    permission: "inventory.manage",
+    access: (role: UserRole) => canAccessInventoryManagement(role),
+  },
+  {
+    module: "Supplier Bids",
+    permission: "supplier.manage",
+    access: (role: UserRole) => canAccessSupplierManagement(role),
+  },
+  {
+    module: "Settings",
+    permission: "roles.manage",
+    access: (role: UserRole, defs: RoleDefinition[]) => hasPermission(role, defs, "settings.view"),
+  },
+  {
+    module: "Advisor Tools",
+    permission: "advisor.tools",
+    access: (role: UserRole) => canAccessAdvisorTools(role),
+  },
+  {
+    module: "Technician Ops",
+    permission: "technician.ops",
+    access: (role: UserRole) => canAccessTechnicianOperations(role),
+  },
+];
 
 function RoleBadge({ role }: { role: UserRole }) {
   return (
@@ -95,6 +153,29 @@ function SettingsPage({
   });
   const [openAiAssistSettingsFeedback, setOpenAiAssistSettingsFeedback] = React.useState("");
   const [isSavingOpenAiAssistSettings, setIsSavingOpenAiAssistSettings] = React.useState(false);
+  const [aiBackendMode, setAiBackendMode] = React.useState<AiBackendMode>(() => {
+    if (typeof window === "undefined") return "Local/Frontend Hybrid";
+    return window.localStorage.getItem("dvi_ai_backend_mode_v1") === "Backend Proxy Future"
+      ? "Backend Proxy Future"
+      : "Local/Frontend Hybrid";
+  });
+  const [smsBackendMode, setSmsBackendMode] = React.useState<SmsBackendMode>(() => {
+    if (typeof window === "undefined") return "Frontend configured";
+    return window.localStorage.getItem("dvi_sms_backend_mode_v1") === "Backend Proxy Future"
+      ? "Backend Proxy Future"
+      : "Frontend configured";
+  });
+  const [backendDataMode, setBackendDataMode] = React.useState<BackendDataMode>(() => {
+    if (typeof window === "undefined") return "Off / LocalStorage";
+    return window.localStorage.getItem(BACKEND_DATA_MODE_STORAGE_KEY) === "Future Backend Enabled"
+      ? "Future Backend Enabled"
+      : "Off / LocalStorage";
+  });
+  const [aiBackendModeFeedback, setAiBackendModeFeedback] = React.useState("");
+  const [isSavingAiBackendMode, setIsSavingAiBackendMode] = React.useState(false);
+  const [backendHealthStatus, setBackendHealthStatus] = React.useState<"idle" | "checking" | "online" | "offline">("idle");
+  const [backendHealthMessage, setBackendHealthMessage] = React.useState("Not checked yet. Backend remains optional.");
+  const [backendDatabaseStatus, setBackendDatabaseStatus] = React.useState("Database status not checked.");
   const [openAiAssistLogs, setOpenAiAssistLogs] = React.useState<OpenAiAssistLogEntry[]>(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -124,6 +205,7 @@ function SettingsPage({
   const [dataQualitySummary, setDataQualitySummary] = React.useState<DataQualitySummary>(() => validateStoredRecords(dataQualityKeys));
   const [dataQualityFeedback, setDataQualityFeedback] = React.useState("");
   const openAiApiKeyConfigured = !!String(import.meta.env.VITE_OPENAI_API_KEY ?? "").trim();
+  const migrationVersion = React.useMemo(() => readDataMigrationVersion(), []);
 
   const updateRule = (ruleId: string, patch: Partial<MaintenanceIntervalRuleRecord>) => {
     setMaintenanceIntervalRules((prev) =>
@@ -202,6 +284,53 @@ function SettingsPage({
     }
   };
 
+  const onSaveAiBackendMode = () => {
+    if (isSavingAiBackendMode) return;
+    setIsSavingAiBackendMode(true);
+    try {
+      if (typeof window === "undefined") {
+        setAiBackendModeFeedback("AI proxy mode cannot be saved in this environment.");
+        return;
+      }
+      window.localStorage.setItem("dvi_ai_backend_mode_v1", aiBackendMode);
+      window.localStorage.setItem("dvi_sms_backend_mode_v1", smsBackendMode);
+      window.localStorage.setItem(BACKEND_DATA_MODE_STORAGE_KEY, backendDataMode);
+      setAiBackendModeFeedback(
+        aiBackendMode === "Backend Proxy Future" || smsBackendMode === "Backend Proxy Future" || backendDataMode === "Future Backend Enabled"
+          ? "Backend planning mode saved. LocalStorage remains the active source of truth."
+          : "Local/frontend hybrid AI mode saved."
+      );
+    } catch {
+      setAiBackendModeFeedback("AI proxy mode could not be saved in this browser.");
+    } finally {
+      setIsSavingAiBackendMode(false);
+    }
+  };
+
+  const onCheckBackendHealth = async () => {
+    if (backendHealthStatus === "checking") return;
+    setBackendHealthStatus("checking");
+    setBackendHealthMessage("Checking backend health...");
+    const result = await checkBackendHealth();
+    if (result.success) {
+      setBackendHealthStatus("online");
+      setBackendHealthMessage(
+        `${result.data.service ?? "Backend"} is ${result.data.status}. Mode: ${result.data.mode ?? "unknown"}. Database configured: ${
+          result.data.databaseConfigured ? "Yes" : "No"
+        }.`
+      );
+      setBackendDatabaseStatus(
+        `Database configured: ${result.data.databaseConfigured ? "Yes" : "No"}. Connected: ${
+          result.data.databaseConnected ? "Yes" : "No"
+        }. ${result.data.databaseMessage ?? ""}`.trim()
+      );
+      return;
+    }
+    setBackendHealthStatus("offline");
+    setBackendHealthMessage(`Backend offline or unavailable. LocalStorage mode is still active. ${result.error}`);
+    setBackendDatabaseStatus("Database status unavailable because backend health check failed.");
+  };
+
   const refreshOpenAiAssistLogs = () => {
     if (typeof window === "undefined") return;
     try {
@@ -268,6 +397,22 @@ function SettingsPage({
                 <strong>Role:</strong> <RoleBadge role={currentUser.role} />
               </div>
             </div>
+          </Card>
+        </div>
+      </div>
+
+      <div style={{ ...styles.grid, marginTop: 16 }}>
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Deployment Readiness" subtitle="Local-first production guidance">
+            <div style={styles.moduleText} data-testid="deployment-readiness-panel">
+              Current Mode: Local-first / single-browser data. Each browser or device keeps its own localStorage, so data does not sync automatically.
+            </div>
+            <ul style={styles.hintList}>
+              <li>For same-Wi-Fi deployment, the main PC can serve the app and tablets or phones can access it through the LAN IP.</li>
+              <li>Use one primary encoding device to avoid split data while backend sync is not available.</li>
+              <li>Export backups at the end of each day and before major updates or browser resets.</li>
+              <li>Future shared data will require a backend database, centralized users, shared files, and shared audit logs.</li>
+            </ul>
           </Card>
         </div>
       </div>
@@ -358,6 +503,7 @@ function SettingsPage({
                 Clean Invalid JSON Only
               </button>
             </div>
+            <div style={styles.formHint}>{getDataMigrationReminder()}</div>
             {dataQualityFeedback ? <div style={styles.formHint}>{dataQualityFeedback}</div> : null}
             <div style={styles.logList} data-testid="data-quality-panel">
               {dataQualitySummary.issues.length === 0 ? (
@@ -373,6 +519,22 @@ function SettingsPage({
                   </div>
                 ))
               )}
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Data Migration" subtitle="Safe, non-destructive normalization tracking">
+            <div style={styles.moduleText}>
+              The app applies safe localStorage normalizers for legacy bookings, repair orders, payments, audit logs, inventory, and purchase orders.
+            </div>
+            <div style={styles.moduleMetaRow}>
+              <span>Migration version:</span>
+              <strong>v{CURRENT_DATA_MIGRATION_VERSION}</strong>
+            </div>
+            <div style={styles.moduleMetaRow}>
+              <span>Stored version:</span>
+              <strong>v{migrationVersion || 0}</strong>
             </div>
           </Card>
         </div>
@@ -660,6 +822,135 @@ function SettingsPage({
 
       <div style={{ ...styles.grid, marginTop: 16 }}>
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Backend Proxy Planning" subtitle="Future-only routing flags for data, AI, and SMS requests">
+            <div style={styles.moduleText}>
+              The app still uses localStorage and the current frontend hybrid AI flow today. These flags only document future backend routing and do not switch live data sources.
+            </div>
+            <div style={styles.formStack}>
+              <div style={styles.formGrid3}>
+                <label style={styles.formGroup}>
+                  <span style={styles.label}>Backend Data Mode</span>
+                  <select
+                    data-testid="backend-data-mode"
+                    style={styles.select}
+                    value={backendDataMode}
+                    onChange={(e) => setBackendDataMode(e.target.value as BackendDataMode)}
+                  >
+                    <option value="Off / LocalStorage">Off / LocalStorage</option>
+                    <option value="Future Backend Enabled">Future Backend Enabled</option>
+                  </select>
+                </label>
+                <label style={styles.formGroup}>
+                  <span style={styles.label}>AI Mode</span>
+                  <select
+                    data-testid="ai-backend-mode"
+                    style={styles.select}
+                    value={aiBackendMode}
+                    onChange={(e) => setAiBackendMode(e.target.value as AiBackendMode)}
+                  >
+                    <option value="Local/Frontend Hybrid">Local/Frontend Hybrid</option>
+                    <option value="Backend Proxy Future">Backend Proxy Future</option>
+                  </select>
+                </label>
+                <div style={styles.formGroup}>
+                  <span style={styles.label}>API URL</span>
+                  <div style={styles.concernCard} data-testid="backend-api-url">
+                    {DVI_API_BASE_URL || "Not configured. Frontend stays localStorage-first."}
+                  </div>
+                </div>
+                <label style={styles.formGroup}>
+                  <span style={styles.label}>SMS Mode</span>
+                  <select
+                    data-testid="sms-backend-mode"
+                    style={styles.select}
+                    value={smsBackendMode}
+                    onChange={(e) => setSmsBackendMode(e.target.value as SmsBackendMode)}
+                  >
+                    <option value="Frontend configured">Frontend configured</option>
+                    <option value="Backend Proxy Future">Backend Proxy Future</option>
+                  </select>
+                </label>
+              </div>
+              <div style={styles.inlineActions}>
+                <button type="button" style={styles.smallPrimaryButton} data-testid="ai-backend-mode-save" onClick={onSaveAiBackendMode}>
+                  Save Backend Planning Mode
+                </button>
+              </div>
+              {aiBackendModeFeedback ? <div style={styles.concernCard}>{aiBackendModeFeedback}</div> : null}
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Backend Health + Diagnostics" subtitle="Optional readiness check; localStorage remains active">
+            <div style={styles.moduleText} data-testid="backend-diagnostics-panel">
+              Backend is optional in this build. Frontend is still using localStorage. A failed health check does not block the app or switch data sources.
+            </div>
+            <div style={styles.formGrid3}>
+              <div style={styles.concernCard}>
+                <strong>Mode:</strong> localStorage-first
+                <br />
+                <span>Backend data flag: {backendDataMode}</span>
+              </div>
+              <div style={styles.concernCard}>
+                <strong>API URL:</strong>
+                <br />
+                <span data-testid="backend-diagnostics-api-url">{DVI_API_BASE_URL || "Not configured"}</span>
+              </div>
+              <div style={styles.concernCard}>
+                <strong>Env backend flag:</strong>
+                <br />
+                <span>{backendEnabledByEnv ? "Enabled by VITE_DVI_USE_BACKEND" : "Off by default"}</span>
+              </div>
+            </div>
+            <div style={{ ...styles.inlineActions, marginTop: 12 }}>
+              <button
+                type="button"
+                style={styles.smallPrimaryButton}
+                data-testid="backend-health-check-button"
+                onClick={onCheckBackendHealth}
+                disabled={backendHealthStatus === "checking"}
+              >
+                {backendHealthStatus === "checking" ? "Checking..." : "Check Backend Health"}
+              </button>
+              <span
+                data-testid="backend-health-status"
+                style={
+                  backendHealthStatus === "online"
+                    ? styles.successPill
+                    : backendHealthStatus === "offline"
+                      ? styles.warningPill
+                      : styles.neutralPill
+                }
+              >
+                {backendHealthStatus === "online" ? "Online" : backendHealthStatus === "offline" ? "Offline / unavailable" : "Not checked"}
+              </span>
+            </div>
+            <div style={{ ...styles.concernCard, marginTop: 12 }} data-testid="backend-health-message">
+              {backendHealthMessage}
+            </div>
+            <div style={{ ...styles.concernCard, marginTop: 10 }} data-testid="backend-database-status">
+              {backendDatabaseStatus}
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Future Sync Status Planning" subtitle="Display-only labels for later backend sync">
+            <div style={styles.moduleText} data-testid="sync-status-planning-panel">
+              These statuses are planning labels only. No frontend records are syncing to the backend yet.
+            </div>
+            <div style={styles.inlineStatusRow}>
+              <span style={styles.neutralPill}>Local only</span>
+              <span style={styles.infoPill}>Pending sync</span>
+              <span style={styles.successPill}>Synced</span>
+              <span style={styles.warningPill}>Conflict</span>
+              <span style={styles.warningPill}>Needs review</span>
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
           <Card title="AI Safety Controls" subtitle="Module-level AI enable / disable switches">
             <div style={styles.moduleText}>
               AI remains advisor-clicked only. These switches only control whether each module can use the shared Hybrid AI system.
@@ -683,6 +974,43 @@ function SettingsPage({
               </button>
             </div>
             {aiSafetyFeedback ? <div style={styles.concernCard}>{aiSafetyFeedback}</div> : null}
+          </Card>
+        </div>
+      </div>
+
+      <div style={{ ...styles.grid, marginTop: 16 }}>
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Security Checklist + Role Audit" subtitle="Read-only reminders of current security boundaries">
+            <div style={styles.moduleText}>
+              This app is still frontend-first. Treat login, portal links, API keys, and supplier data as sensitive until backend auth is implemented.
+            </div>
+            <ul style={styles.hintList} data-testid="security-checklist-panel">
+              <li>Demo passwords must be changed before real deployment.</li>
+              <li>Frontend-only login is not production-grade security.</li>
+              <li>API keys must not be committed to git.</li>
+              <li>The OpenAI key in a frontend build is risky for public deployment.</li>
+              <li>Customer portal links should be treated as sensitive.</li>
+              <li>Supplier portal access is simulated until backend auth exists.</li>
+            </ul>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginTop: 12 }}>
+              {SENSITIVE_ACCESS_MAP.map((entry) => {
+                const adminAllowed = entry.access("Admin", roleDefinitions);
+                const advisorAllowed = entry.access("Service Advisor", roleDefinitions);
+                const officeAllowed = entry.access("Office Staff", roleDefinitions);
+                const techAllowed = entry.access("General Mechanic", roleDefinitions);
+                const adminOnly = adminAllowed && !advisorAllowed && !officeAllowed && !techAllowed;
+                return (
+                  <div key={entry.module} style={styles.concernCard} data-testid={`security-module-${entry.module.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
+                    <div style={styles.logHeader}>
+                      <strong>{entry.module}</strong>
+                      <span style={adminOnly ? styles.successPill : styles.warningPill}>{adminOnly ? "Admin only" : "Review access"}</span>
+                    </div>
+                    <div style={styles.logMeta}>Permission: {entry.permission}</div>
+                    <div style={styles.logMeta}>Admin: {adminAllowed ? "Yes" : "No"} | Advisor: {advisorAllowed ? "Yes" : "No"} | Office: {officeAllowed ? "Yes" : "No"} | Tech: {techAllowed ? "Yes" : "No"}</div>
+                  </div>
+                );
+              })}
+            </div>
           </Card>
         </div>
       </div>
@@ -883,6 +1211,13 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     color: "#64748b",
     lineHeight: 1.5,
+  },
+
+  hintList: {
+    margin: "8px 0 0 18px",
+    color: "#475569",
+    fontSize: 13,
+    lineHeight: 1.6,
   },
 
   roleBadge: {

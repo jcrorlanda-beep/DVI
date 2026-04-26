@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import type { SessionUser, RepairOrderRecord, ROStatus, WorkLineStatus } from "../shared/types";
+import type { SessionUser, RepairOrderRecord, ROStatus, WorkLineStatus, AuditLogRecord } from "../shared/types";
 import { formatCurrency, parseMoneyInput, getResponsiveSpan, formatDateTime } from "../shared/helpers";
 import { SupplierAnalytics } from "./SupplierAnalytics";
 import { SupplierDirectoryPanel } from "./SupplierDirectoryPanel";
 import { InventoryControlPanel } from "../inventory/InventoryControlPanel";
 import { PurchaseOrderLitePanel } from "../inventory/PurchaseOrderLitePanel";
+import { AccessLockedCard } from "../shared/AccessLockedCard";
+import { canAccessInventoryManagement, canAccessSupplierManagement } from "../shared/roleAccess";
 
 // --- local types ---
 
@@ -45,6 +47,7 @@ type PartsMediaRecord = {
 type SupplierBid = {
   id: string;
   supplierName: string;
+  status?: "Draft" | "Submitted" | "Revised" | "Withdrawn";
   brand: string;
   quantity: string;
   unitCost: string;
@@ -60,6 +63,7 @@ type SupplierBid = {
   trackingNumber: string;
   courierName: string;
   shippingNotes: string;
+  updatedAt?: string;
 };
 
 type PartsReturnRecord = {
@@ -96,6 +100,7 @@ type PartsRequestRecord = {
   plateNumber: string;
   vehicleLabel: string;
   accountLabel: string;
+  supplierRecipients?: string[];
   updatedBy?: string;
   workshopPhotos: PartsMediaRecord[];
   bids: SupplierBid[];
@@ -258,6 +263,7 @@ function PartsPage({
   partsRequests,
   setPartsRequests,
   isCompactLayout,
+  onLogAudit,
 }: {
   currentUser: SessionUser;
   repairOrders: RepairOrderRecord[];
@@ -265,6 +271,7 @@ function PartsPage({
   partsRequests: PartsRequestRecord[];
   setPartsRequests: React.Dispatch<React.SetStateAction<PartsRequestRecord[]>>;
   isCompactLayout: boolean;
+  onLogAudit?: (entry: Omit<AuditLogRecord, "id" | "timestamp">) => void;
 }) {
   const [search, setSearch] = useState("");
   const [selectedRequestId, setSelectedRequestId] = useState("");
@@ -563,36 +570,54 @@ function PartsPage({
     <div style={styles.pageContent}>
       <div style={styles.grid}>
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <InventoryControlPanel
-            currentUser={currentUser}
-            repairOrders={repairOrders}
-            partsRequests={partsRequests}
-            setPartsRequests={setPartsRequests}
-            isCompactLayout={isCompactLayout}
-          />
+          {canAccessInventoryManagement(currentUser.role) ? (
+            <InventoryControlPanel
+              currentUser={currentUser}
+              repairOrders={repairOrders}
+              partsRequests={partsRequests}
+              setPartsRequests={setPartsRequests}
+              isCompactLayout={isCompactLayout}
+              onLogAudit={onLogAudit}
+            />
+          ) : (
+            <AccessLockedCard title="Inventory Control" subtitle="Stock control, adjustments, and movement logs." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <PurchaseOrderLitePanel
-            currentUser={currentUser}
-            partsRequests={partsRequests}
-            isCompactLayout={isCompactLayout}
-          />
+          {canAccessInventoryManagement(currentUser.role) ? (
+            <PurchaseOrderLitePanel
+              currentUser={currentUser}
+              partsRequests={partsRequests}
+              isCompactLayout={isCompactLayout}
+              onLogAudit={onLogAudit}
+            />
+          ) : (
+            <AccessLockedCard title="Purchase Order Lite" subtitle="Lightweight PO creation and receiving." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <SupplierDirectoryPanel
-            partsRequests={partsRequests}
-            isCompactLayout={isCompactLayout}
-          />
+          {canAccessSupplierManagement(currentUser.role) ? (
+            <SupplierDirectoryPanel
+              partsRequests={partsRequests}
+              isCompactLayout={isCompactLayout}
+            />
+          ) : (
+            <AccessLockedCard title="Supplier Directory" subtitle="Internal supplier profiles and activity summaries." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
-          <SupplierAnalytics
-            partsRequests={partsRequests}
-            repairOrders={repairOrders}
-            isCompactLayout={isCompactLayout}
-          />
+          {canAccessSupplierManagement(currentUser.role) ? (
+            <SupplierAnalytics
+              partsRequests={partsRequests}
+              repairOrders={repairOrders}
+              isCompactLayout={isCompactLayout}
+            />
+          ) : (
+            <AccessLockedCard title="Supplier Analytics" subtitle="Management-facing bidding and supplier performance." />
+          )}
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
