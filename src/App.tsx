@@ -52,6 +52,7 @@ import { ExpensePage } from "./modules/finance/ExpensePage";
 import { PaymentTrackingPage } from "./modules/finance/PaymentTrackingPage";
 import { AuditLogPage } from "./modules/audit/AuditLogPage";
 import { BackupExportPage } from "./modules/backup/BackupExportPage";
+import { ExcelToolsPage } from "./modules/reports/ExcelToolsPage";
 import { AccessLockedCard } from "./modules/shared/AccessLockedCard";
 import { canAccessAdvisorTools, canAccessFinancialReports, canAccessManagementSummary, canAccessTechnicianOperations } from "./modules/shared/roleAccess";
 import { CURRENT_DATA_MIGRATION_VERSION, normalizeAuditLogRecord, normalizeBookingRecord, normalizePaymentRecord, normalizeRepairOrderRecord, saveDataMigrationVersion } from "./modules/dataQuality/migrationHelpers";
@@ -926,6 +927,7 @@ const ALL_PERMISSIONS: Permission[] = [
   "payments.view",
   "audit.view",
   "backup.view",
+  "export.view",
 ];
 
 const NAV_ITEMS: NavItem[] = [
@@ -957,6 +959,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: "payments", label: "Payments", icon: "PY", permission: "payments.view" },
   { key: "audit", label: "Audit Log", icon: "AL", permission: "audit.view" },
   { key: "backup", label: "Backup & Export", icon: "BK", permission: "backup.view" },
+  { key: "excelTools", label: "Excel Tools", icon: "XL", permission: "export.view" },
 ];
 
 const ROLE_COLORS: Record<UserRole, { bg: string; text: string }> = {
@@ -3212,6 +3215,7 @@ function getDefaultRoleDefinitions(): RoleDefinition[] {
         "backjobs.view",
         "history.view",
         "payments.view",
+        "export.view",
       ],
     },
     {
@@ -18010,6 +18014,13 @@ function AppInner() {
       case "backup":
         return (
           <BackupExportPage currentUser={currentUser} />
+        );
+      case "excelTools":
+        return (
+          <ExcelToolsPage
+            currentUser={currentUser}
+            onLogAudit={logAudit}
+          />
         );
       default:
         return (

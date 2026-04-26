@@ -65,6 +65,11 @@ const SENSITIVE_ACCESS_MAP = [
     access: (role: UserRole, defs: RoleDefinition[]) => hasPermission(role, defs, "backup.view"),
   },
   {
+    module: "Excel Export / Import",
+    permission: "export.view",
+    access: (role: UserRole, defs: RoleDefinition[]) => hasPermission(role, defs, "export.view"),
+  },
+  {
     module: "Margin / Profit",
     permission: "finance.summary",
     access: (role: UserRole) => canAccessFinancialReports(role),
@@ -598,6 +603,7 @@ function SettingsPage({
               <li>Use one primary encoding device to avoid split data while backend sync is not available.</li>
               <li>Export backups at the end of each day and before major updates or browser resets.</li>
               <li>Future shared data will require a backend database, centralized users, shared files, and shared audit logs.</li>
+              <li><strong>Excel Tools:</strong> Admins and Office Staff can export reports and import data from the Excel Tools page. Import is preview-first — no records are written until you confirm. Financial exports are restricted to authorized roles. Technician performance details are Admin-only.</li>
             </ul>
           </Card>
         </div>

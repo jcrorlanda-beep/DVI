@@ -234,7 +234,8 @@ export type Permission =
   | "expenses.view"
   | "payments.view"
   | "audit.view"
-  | "backup.view";
+  | "backup.view"
+  | "export.view";
 
 export type ViewKey =
   | "dashboard"
@@ -254,7 +255,8 @@ export type ViewKey =
   | "expenses"
   | "payments"
   | "audit"
-  | "backup";
+  | "backup"
+  | "excelTools";
 
 // ── Phase 53: Expense Tracking ────────────────────────────────────────────────
 export type ExpenseCategory =
@@ -312,6 +314,7 @@ export type AuditLogModule =
   | "AI"
   | "CustomerPortal"
   | "Expenses"
+  | "Excel"
   | "System";
 
 export type AuditLogRecord = {

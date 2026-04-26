@@ -24,3 +24,11 @@ export function canAccessManagementSummary(role: UserRole) {
   return role === "Admin";
 }
 
+export function canAccessExcelExport(role: UserRole) {
+  return role === "Admin" || role === "Office Staff" || role === "Service Advisor";
+}
+
+export function canAccessExcelImport(role: UserRole) {
+  return role === "Admin" || role === "Office Staff";
+}
+
