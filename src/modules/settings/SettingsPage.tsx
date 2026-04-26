@@ -1,5 +1,6 @@
 import React from "react";
 import type { SessionUser, UserRole, RoleDefinition, MaintenanceIntervalRuleRecord, ServicePricingCatalogRecord } from "../shared/types";
+import type { ThemeMode } from "../theme/themeHelpers";
 import { hasPermission } from "../shared/helpers";
 import { OPENAI_ASSIST_LOG_STORAGE_KEY, type OpenAiAssistProviderMode, type OpenAiAssistLogEntry } from "../ai/openaiAssist";
 import { DEFAULT_AI_MODULE_TOGGLES, getAiModuleLabel, readAiModuleToggles, saveAiModuleToggles, type AiModuleKey, type AiModuleToggleSettings } from "../ai/aiSafety";
@@ -201,6 +202,8 @@ function SettingsPage({
   onResetDefaults,
   onResetMaintenanceRules,
   onResetIntakes,
+  themeMode,
+  onToggleTheme,
 }: {
   currentUser: SessionUser;
   roleDefinitions: RoleDefinition[];
@@ -211,6 +214,8 @@ function SettingsPage({
   onResetDefaults: () => void;
   onResetMaintenanceRules: () => void;
   onResetIntakes: () => void;
+  themeMode: ThemeMode;
+  onToggleTheme: () => void;
 }) {
   const canManageRoles = hasPermission(currentUser.role, roleDefinitions, "roles.manage");
   const canManageMaintenanceRules = hasPermission(currentUser.role, roleDefinitions, "roles.manage");
@@ -1455,6 +1460,30 @@ function SettingsPage({
                 ))}
               </div>
             )}
+          </Card>
+        </div>
+      </div>
+
+      <div style={{ ...styles.grid, marginTop: 16 }}>
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Appearance" subtitle="UI theme preference — stored per browser">
+            <div style={styles.moduleText}>
+              Choose between Bright Mode (light) and Dark Mode (dark). Your preference is saved to this browser&apos;s localStorage.
+              This setting does not affect print layouts or customer-facing summaries, which always use a light theme.
+            </div>
+            <div style={styles.inlineActions}>
+              <button
+                type="button"
+                data-testid="settings-theme-toggle"
+                style={styles.primaryButton}
+                onClick={onToggleTheme}
+              >
+                {themeMode === "bright" ? "Switch to Dark Mode 🌙" : "Switch to Bright Mode ☀️"}
+              </button>
+              <span style={{ fontSize: 13, color: "var(--text-secondary, #64748b)" }}>
+                Current: <strong>{themeMode === "bright" ? "Bright Mode" : "Dark Mode"}</strong>
+              </span>
+            </div>
           </Card>
         </div>
       </div>

@@ -53,6 +53,7 @@ import { PaymentTrackingPage } from "./modules/finance/PaymentTrackingPage";
 import { AuditLogPage } from "./modules/audit/AuditLogPage";
 import { BackupExportPage } from "./modules/backup/BackupExportPage";
 import { ExcelToolsPage } from "./modules/reports/ExcelToolsPage";
+import { getThemeMode, setThemeMode, applyThemeToDocument, toggleThemeMode, type ThemeMode } from "./modules/theme/themeHelpers";
 import { AccessLockedCard } from "./modules/shared/AccessLockedCard";
 import { canAccessAdvisorTools, canAccessFinancialReports, canAccessManagementSummary, canAccessTechnicianOperations } from "./modules/shared/roleAccess";
 import { CURRENT_DATA_MIGRATION_VERSION, normalizeAuditLogRecord, normalizeBookingRecord, normalizePaymentRecord, normalizeRepairOrderRecord, saveDataMigrationVersion } from "./modules/dataQuality/migrationHelpers";
@@ -16151,9 +16152,14 @@ function AppInner() {
 
   const [loginError, setLoginError] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [themeMode, setThemeModeState] = useState<ThemeMode>(() => getThemeMode());
   const [isMobile, setIsMobile] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth < 960 : false
   );
+
+  useEffect(() => {
+    applyThemeToDocument(themeMode);
+  }, [themeMode]);
 
   useEffect(() => {
     writeLocalStorage(STORAGE_KEYS.rolePermissions, roleDefinitions);
@@ -17695,6 +17701,12 @@ function AppInner() {
     );
   };
 
+  const handleToggleTheme = () => {
+    const next = toggleThemeMode(themeMode);
+    setThemeModeState(next);
+    setThemeMode(next);
+  };
+
   const handleLogout = () => {
     setCurrentUser(null);
     setCurrentView("dashboard");
@@ -17859,6 +17871,8 @@ function AppInner() {
             onResetDefaults={resetRolePermissionsToDefault}
             onResetMaintenanceRules={resetMaintenanceIntervalRulesToDefault}
             onResetIntakes={resetIntakeRecords}
+            themeMode={themeMode}
+            onToggleTheme={handleToggleTheme}
           />
         );
       case "inspection":
@@ -18237,6 +18251,16 @@ function AppInner() {
             </div>
 
             <div style={styles.topBarRight}>
+              <button
+                type="button"
+                onClick={handleToggleTheme}
+                title={themeMode === "bright" ? "Switch to Dark Mode" : "Switch to Bright Mode"}
+                aria-label={themeMode === "bright" ? "Switch to Dark Mode" : "Switch to Bright Mode"}
+                data-testid="theme-toggle"
+                style={styles.themeToggleButton}
+              >
+                {themeMode === "bright" ? "🌙" : "☀️"}
+              </button>
               <RoleBadge role={currentUser.role} />
               <div style={styles.topBarName}>{currentUser.fullName}</div>
             </div>
@@ -18264,8 +18288,8 @@ const globalCss = `
     padding: 0;
     min-height: 100%;
     font-family: Inter, Arial, Helvetica, sans-serif;
-    background: #f8fafc;
-    color: #111827;
+    background: var(--app-bg, #f8fafc);
+    color: var(--text-primary, #111827);
   }
   button, input, select, textarea {
     font: inherit;
@@ -18287,13 +18311,13 @@ const globalCss = `
 const styles: Record<string, React.CSSProperties> = {
   appShell: {
     minHeight: "100vh",
-    background: "linear-gradient(180deg, #050b1d 0%, #08152f 34%, #101a2d 100%)",
+    background: "var(--app-bg)",
   },
 
   overlay: {
     position: "fixed",
     inset: 0,
-    background: "rgba(15, 23, 42, 0.45)",
+    background: "var(--overlay-bg)",
     zIndex: 30,
   },
 
@@ -18491,6 +18515,21 @@ const styles: Record<string, React.CSSProperties> = {
     flexShrink: 0,
   },
 
+  themeToggleButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    border: "1px solid rgba(255,255,255,0.22)",
+    background: "rgba(255,255,255,0.10)",
+    cursor: "pointer",
+    fontSize: 16,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    transition: "background 0.15s ease",
+  },
+
   pageTitle: {
     fontSize: 22,
     fontWeight: 800,
@@ -18529,8 +18568,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   card: {
-    background: "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(241,245,249,0.98) 100%)",
-    border: "1px solid rgba(29,78,216,0.16)",
+    background: "var(--card-bg)",
+    border: "1px solid var(--card-border)",
     borderRadius: 18,
     padding: 18,
     boxShadow: "0 8px 28px rgba(5, 11, 29, 0.12)",
@@ -18549,14 +18588,14 @@ const styles: Record<string, React.CSSProperties> = {
   cardTitle: {
     fontSize: 19,
     fontWeight: 800,
-    color: "#0f172a",
+    color: "var(--text-heading)",
     lineHeight: 1.3,
   },
 
   cardSubtitle: {
     marginTop: 4,
     fontSize: 13,
-    color: "#64748b",
+    color: "var(--text-secondary)",
     lineHeight: 1.5,
   },
 
@@ -18574,12 +18613,12 @@ const styles: Record<string, React.CSSProperties> = {
   heroText: {
     fontSize: 15,
     lineHeight: 1.7,
-    color: "#475569",
+    color: "var(--hero-text)",
   },
 
   statCard: {
-    background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
-    border: "1px solid rgba(148, 163, 184, 0.18)",
+    background: "var(--stat-card-bg)",
+    border: "1px solid var(--stat-card-border)",
     borderRadius: 18,
     padding: 18,
     boxShadow: "0 6px 18px rgba(15, 23, 42, 0.06)",
@@ -18589,14 +18628,14 @@ const styles: Record<string, React.CSSProperties> = {
   statLabel: {
     fontSize: 13,
     fontWeight: 700,
-    color: "#64748b",
+    color: "var(--text-secondary)",
     marginBottom: 8,
   },
 
   statValue: {
     fontSize: 28,
     fontWeight: 800,
-    color: "#111827",
+    color: "var(--text-primary)",
     lineHeight: 1.2,
     wordBreak: "break-word",
   },
@@ -18608,20 +18647,20 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   roleTile: {
-    border: "1px solid rgba(148, 163, 184, 0.18)",
+    border: "1px solid var(--border-subtle)",
     borderRadius: 16,
     padding: 14,
     display: "flex",
     flexDirection: "column",
     gap: 10,
-    background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
-    color: "#334155",
+    background: "var(--role-tile-bg)",
+    color: "var(--role-tile-color)",
     alignItems: "flex-start",
   },
 
   roleTileCount: {
     fontSize: 24,
-    color: "#0f172a",
+    color: "var(--text-heading)",
   },
 
   quickAccessList: {
@@ -18634,11 +18673,11 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
-    border: "1px solid rgba(148, 163, 184, 0.18)",
+    border: "1px solid var(--border-subtle)",
     borderRadius: 12,
     padding: "10px 12px",
-    background: "#f8fafc",
-    color: "#334155",
+    background: "var(--surface-1)",
+    color: "var(--text-body)",
     fontWeight: 600,
   },
 
@@ -18651,9 +18690,9 @@ const styles: Record<string, React.CSSProperties> = {
   tableWrap: {
     width: "100%",
     overflowX: "auto",
-    border: "1px solid rgba(148, 163, 184, 0.18)",
+    border: "1px solid var(--border-subtle)",
     borderRadius: 16,
-    background: "#ffffff",
+    background: "var(--surface-card)",
   },
 
   table: {
@@ -18664,9 +18703,9 @@ const styles: Record<string, React.CSSProperties> = {
   th: {
     textAlign: "left",
     padding: "13px 12px",
-    borderBottom: "1px solid rgba(226, 232, 240, 0.95)",
-    background: "#f8fafc",
-    color: "#475569",
+    borderBottom: "1px solid var(--table-border)",
+    background: "var(--table-header-bg)",
+    color: "var(--text-secondary)",
     fontSize: 12,
     fontWeight: 800,
     letterSpacing: 0.2,
@@ -18675,8 +18714,8 @@ const styles: Record<string, React.CSSProperties> = {
 
   td: {
     padding: "13px 12px",
-    borderBottom: "1px solid rgba(226, 232, 240, 0.9)",
-    color: "#111827",
+    borderBottom: "1px solid var(--table-border)",
+    color: "var(--text-primary)",
     fontSize: 13,
     verticalAlign: "top",
     lineHeight: 1.5,
@@ -18685,7 +18724,7 @@ const styles: Record<string, React.CSSProperties> = {
   moduleText: {
     fontSize: 15,
     lineHeight: 1.7,
-    color: "#475569",
+    color: "var(--text-secondary)",
     marginBottom: 14,
   },
 
@@ -18695,7 +18734,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 10,
     flexWrap: "wrap",
     marginTop: 8,
-    color: "#334155",
+    color: "var(--text-body)",
   },
 
   permissionWrap: {
@@ -18737,10 +18776,10 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   rolePermissionCard: {
-    border: "1px solid #e5e7eb",
+    border: "1px solid var(--border-strong)",
     borderRadius: 16,
     padding: 14,
-    background: "#f8fafc",
+    background: "var(--surface-1)",
   },
 
   rolePermissionHeader: {

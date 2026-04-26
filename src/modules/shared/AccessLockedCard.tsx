@@ -2,19 +2,19 @@ import React from "react";
 
 const styles: Record<string, React.CSSProperties> = {
   card: {
-    background: "#fff",
-    border: "1px solid #e2e8f0",
+    background: "var(--locked-card-bg, #fff)",
+    border: "1px solid var(--locked-card-border, #e2e8f0)",
     borderRadius: 8,
     padding: 16,
   },
   title: {
     fontSize: 15,
     fontWeight: 700,
-    color: "#0f172a",
+    color: "var(--locked-card-title, #0f172a)",
   },
   subtitle: {
     fontSize: 12,
-    color: "#64748b",
+    color: "var(--locked-card-subtitle, #64748b)",
     marginTop: 4,
   },
   badge: {

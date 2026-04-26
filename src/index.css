@@ -20,3 +20,190 @@ body {
 input, select, textarea, button {
   font-family: inherit;
 }
+
+/* ── Theme: Bright (default) ─────────────────────────────── */
+:root, [data-theme="bright"] {
+  --app-bg: linear-gradient(180deg, #f0f4f8 0%, #e8eef4 34%, #f1f5f9 100%);
+
+  --card-bg: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(241,245,249,0.98) 100%);
+  --card-border: rgba(29,78,216,0.16);
+
+  --stat-card-bg: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  --stat-card-border: rgba(148, 163, 184, 0.18);
+
+  --text-primary: #0f172a;
+  --text-heading: #0f172a;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --text-body: #334155;
+  --hero-text: #475569;
+
+  --surface-1: #f8fafc;
+  --surface-2: #f1f5f9;
+  --surface-3: #e2e8f0;
+  --surface-card: #ffffff;
+
+  --border-color: rgba(148, 163, 184, 0.28);
+  --border-subtle: rgba(148, 163, 184, 0.18);
+  --border-strong: #e2e8f0;
+
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --input-text: #0f172a;
+  --input-placeholder: #94a3b8;
+
+  --role-tile-bg: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  --role-tile-color: #334155;
+
+  --empty-bg: #f8fafc;
+  --empty-border: rgba(148, 163, 184, 0.55);
+  --empty-text: #475569;
+  --empty-hint: #94a3b8;
+
+  --detail-panel-bg: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(241,245,249,0.98) 100%);
+  --detail-panel-border: rgba(29,78,216,0.13);
+  --detail-panel-compact-bg: #ffffff;
+  --detail-panel-compact-border: rgba(148,163,184,0.22);
+
+  --modal-panel-bg: #ffffff;
+  --modal-panel-border: rgba(148,163,184,0.24);
+  --modal-title: #0f172a;
+  --modal-subtitle: #64748b;
+  --modal-close-bg: #ffffff;
+  --modal-close-color: #0f172a;
+  --modal-close-border: rgba(148,163,184,0.4);
+
+  --locked-card-bg: #ffffff;
+  --locked-card-border: #e2e8f0;
+  --locked-card-title: #0f172a;
+  --locked-card-subtitle: #64748b;
+
+  --table-header-bg: #f8fafc;
+  --table-row-hover: rgba(29,78,216,0.04);
+  --table-border: #e2e8f0;
+
+  --badge-default-bg: #e2e8f0;
+  --badge-default-text: #334155;
+  --overlay-bg: rgba(15, 23, 42, 0.45);
+
+  color-scheme: light;
+}
+
+/* ── Theme: Dark ─────────────────────────────────────────── */
+[data-theme="dark"] {
+  --app-bg: linear-gradient(180deg, #050b1d 0%, #08152f 34%, #101a2d 100%);
+
+  --card-bg: linear-gradient(180deg, rgba(15,23,42,0.98) 0%, rgba(30,41,59,0.98) 100%);
+  --card-border: rgba(99,102,241,0.18);
+
+  --stat-card-bg: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  --stat-card-border: rgba(99, 102, 241, 0.10);
+
+  --text-primary: #f1f5f9;
+  --text-heading: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-body: #cbd5e1;
+  --hero-text: #94a3b8;
+
+  --surface-1: #1e293b;
+  --surface-2: #0f172a;
+  --surface-3: #334155;
+  --surface-card: #1e293b;
+
+  --border-color: rgba(99, 102, 241, 0.18);
+  --border-subtle: rgba(99, 102, 241, 0.10);
+  --border-strong: #334155;
+
+  --input-bg: #1e293b;
+  --input-border: #334155;
+  --input-text: #f1f5f9;
+  --input-placeholder: #64748b;
+
+  --role-tile-bg: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  --role-tile-color: #cbd5e1;
+
+  --empty-bg: #1e293b;
+  --empty-border: rgba(99, 102, 241, 0.30);
+  --empty-text: #94a3b8;
+  --empty-hint: #64748b;
+
+  --detail-panel-bg: linear-gradient(180deg, rgba(15,23,42,0.98) 0%, rgba(30,41,59,0.98) 100%);
+  --detail-panel-border: rgba(99,102,241,0.13);
+  --detail-panel-compact-bg: #1e293b;
+  --detail-panel-compact-border: rgba(99,102,241,0.18);
+
+  --modal-panel-bg: #1e293b;
+  --modal-panel-border: rgba(99,102,241,0.24);
+  --modal-title: #f8fafc;
+  --modal-subtitle: #94a3b8;
+  --modal-close-bg: #334155;
+  --modal-close-color: #f1f5f9;
+  --modal-close-border: rgba(99,102,241,0.3);
+
+  --locked-card-bg: #1e293b;
+  --locked-card-border: #334155;
+  --locked-card-title: #f8fafc;
+  --locked-card-subtitle: #94a3b8;
+
+  --table-header-bg: #1e293b;
+  --table-row-hover: rgba(99,102,241,0.08);
+  --table-border: #334155;
+
+  --badge-default-bg: #334155;
+  --badge-default-text: #e2e8f0;
+  --overlay-bg: rgba(15, 23, 42, 0.65);
+
+  color-scheme: dark;
+}
+
+/* ── Theme-aware utility classes ─────────────────────────── */
+.dvi-surface {
+  background: var(--surface-1);
+  color: var(--text-primary);
+}
+
+.dvi-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 18px;
+  color: var(--text-primary);
+}
+
+.dvi-text-primary { color: var(--text-primary); }
+.dvi-text-secondary { color: var(--text-secondary); }
+.dvi-text-muted { color: var(--text-muted); }
+.dvi-border { border-color: var(--border-color) !important; }
+
+/* Theme-aware inputs (use on input, select, textarea elements) */
+.dvi-input {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--input-text);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.dvi-input::placeholder {
+  color: var(--input-placeholder);
+}
+
+/* Theme-aware table header row */
+.dvi-table-header {
+  background: var(--table-header-bg);
+  color: var(--text-secondary);
+}
+
+/* Print: always bright regardless of theme */
+@media print {
+  :root {
+    --app-bg: #ffffff;
+    --card-bg: #ffffff;
+    --text-primary: #0f172a;
+    --text-heading: #0f172a;
+    --text-secondary: #64748b;
+    --surface-1: #f8fafc;
+    --surface-card: #ffffff;
+  }
+}
