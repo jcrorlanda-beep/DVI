@@ -113,6 +113,26 @@ npm run server:smoke
 
 Use `VITE_DVI_API_URL=http://localhost:4100` only for backend diagnostics or future integration testing. The frontend remains localStorage-first until a later migration phase explicitly changes the data source.
 
+Current backend capabilities are still migration-prep oriented:
+
+- Health and diagnostics route.
+- Backend auth foundation with hashed passwords and hashed bearer-session storage when PostgreSQL and `AUTH_TOKEN_SECRET` are configured.
+- Repository-backed slices for core records, finance records, audit logs, and document metadata when PostgreSQL is available.
+- Read-only migration preview across major localStorage module groups.
+- Core shop-data migration preview for customers, vehicles, intakes, repair orders, and work lines.
+- Workflow migration preview for inspections, QC, release/handover, backjobs, and service history.
+- Business-module migration preview for parts requests, inventory, purchase orders, suppliers, payments, expenses, invoices, and document metadata.
+- Disabled import commit contract.
+- Lite AI/SMS proxy stubs with no live provider calls.
+
+Do not treat this backend as production-ready until production auth, CORS, rate limits, database migrations, file storage, backups, and import rollback are complete.
+
+For core migration testing, keep `MIGRATION_COMMIT_ENABLED` unset or `false` by default. Enable it only in a backed-up test environment after reviewing preview output. The frontend remains localStorage-first until an explicit cutover phase.
+
+Workflow migration is preview-only in this batch. Treat inspection media as metadata only; no real file storage is active yet.
+
+Business-module migration is also preview-only. Supplier bids remain privacy-scoped, document records remain metadata-only, and customer-visible documents should be manually reviewed before any future import commit.
+
 ### Reading env vars in code
 
 ```ts

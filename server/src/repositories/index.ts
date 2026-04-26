@@ -1,17 +1,18 @@
 export type { BaseRepository, RepositoryResult } from "./types.js";
 export { auditLogsRepository } from "./auditLogsRepository.js";
-export { customersRepository } from "./customersRepository.js";
-export {
-  documentsRepository,
-  expensesRepository,
-  inspectionsRepository,
-  intakesRepository,
-  inventoryMovementsRepository,
-  inventoryItemsRepository,
-  partsRequestsRepository,
-  paymentsRepository,
-  purchaseOrdersRepository,
-  suppliersRepository,
-} from "./genericRepository.js";
+export { backjobRecordsRepository, prepareBackjobRecordInputForPersistence } from "./backjobRecordsRepository.js";
+export { documentsRepository } from "./documentsRepository.js";
+export { customersRepository, findCustomerDuplicateCandidates, hasCustomerDuplicates } from "./customersRepository.js";
+export { expensesRepository, paymentsRepository } from "./paymentsExpensesRepository.js";
+export { buildInventoryMovementInput, inventoryItemsRepository, inventoryMovementsRepository } from "./inventoryRepository.js";
+export { invoicesRepository } from "./financeRepository.js";
+export { buildPurchaseOrderInput, purchaseOrdersRepository } from "./purchaseOrdersRepository.js";
+export { qcRecordsRepository, prepareQcRecordInputForPersistence } from "./qcRecordsRepository.js";
+export { releaseRecordsRepository, prepareReleaseRecordInputForPersistence } from "./releaseRecordsRepository.js";
+export { serviceHistoryRepository, prepareServiceHistoryInputForPersistence } from "./serviceHistoryRepository.js";
+export { suppliersRepository } from "./suppliersRepository.js";
+export { partsRequestsRepository } from "./partsRequestsRepository.js";
+export { inspectionsRepository, prepareInspectionInputForPersistence } from "./inspectionsRepository.js";
+export { intakesRepository, prepareIntakeInputForPersistence } from "./intakesRepository.js";
 export { repairOrdersRepository } from "./repairOrdersRepository.js";
-export { vehiclesRepository } from "./vehiclesRepository.js";
+export { vehiclesRepository, findVehicleDuplicateCandidates, hasVehicleDuplicates, prepareVehicleInputForPersistence } from "./vehiclesRepository.js";

@@ -15,8 +15,13 @@ test("settings shows the backend proxy planning flag for AI", async ({ page }) =
   await expect(page.getByTestId("backend-api-url")).toBeVisible();
   await expect(page.getByTestId("backend-diagnostics-panel")).toBeVisible();
   await expect(page.getByTestId("backend-diagnostics-api-url")).toBeVisible();
+  await expect(page.getByTestId("backend-localstorage-source-warning")).toContainText(/localStorage as the source of truth/i);
   await expect(page.getByTestId("backend-health-status")).toContainText(/not checked/i);
   await expect(page.getByTestId("backend-database-status")).toBeVisible();
+  await expect(page.getByTestId("backend-ai-proxy-status")).toContainText(/future-only|frontend hybrid AI/i);
+  await expect(page.getByTestId("backend-sms-proxy-status")).toContainText(/future-only|current SMS flow/i);
+  await expect(page.getByTestId("backend-migration-preview-status")).toContainText(/read-only/i);
+  await expect(page.getByTestId("backend-auth-status")).toContainText(/frontend login still uses localStorage/i);
   await expect(page.getByTestId("sync-status-planning-panel")).toBeVisible();
   await expect(page.getByTestId("ai-backend-mode")).toBeVisible();
   await expect(page.getByTestId("sms-backend-mode")).toBeVisible();

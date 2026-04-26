@@ -1,4 +1,4 @@
-import { customersRepository } from "../repositories/index.js";
+import { customersRepository, findCustomerDuplicateCandidates, hasCustomerDuplicates } from "../repositories/index.js";
 import { customerSchema, customerUpdateSchema } from "../validation/index.js";
 import { readQueryParams, validateBody, validateQuery } from "../middleware/validation.js";
 import { sendError, sendJson, sendUnavailable, sendValidationError } from "../response.js";
@@ -71,7 +71,22 @@ export const customerRoutes: ApiRoute[] = [
         return;
       }
 
-      const result = await customersRepository.create(context.body as Record<string, unknown>);
+      const body = context.body as Record<string, unknown>;
+      const duplicates = await findCustomerDuplicateCandidates(body);
+      if (!duplicates.success) {
+        sendUnavailable(res, duplicates.error);
+        return;
+      }
+      if (hasCustomerDuplicates(duplicates.data)) {
+        sendJson(res, 409, {
+          success: false,
+          error: "Potential duplicate customer detected. Review matches before creating a new backend record.",
+          meta: { generatedAt: new Date().toISOString(), source: "dvi-server", duplicates: duplicates.data } as any,
+        });
+        return;
+      }
+
+      const result = await customersRepository.create(body);
       if (!result.success) {
         sendError(res, 503, result.error);
         return;
@@ -98,7 +113,22 @@ export const customerRoutes: ApiRoute[] = [
         return;
       }
 
-      const result = await customersRepository.update(id, context.body as Record<string, unknown>);
+      const body = context.body as Record<string, unknown>;
+      const duplicates = await findCustomerDuplicateCandidates(body, id);
+      if (!duplicates.success) {
+        sendUnavailable(res, duplicates.error);
+        return;
+      }
+      if (hasCustomerDuplicates(duplicates.data)) {
+        sendJson(res, 409, {
+          success: false,
+          error: "Potential duplicate customer detected. Review matches before updating this backend record.",
+          meta: { generatedAt: new Date().toISOString(), source: "dvi-server", duplicates: duplicates.data } as any,
+        });
+        return;
+      }
+
+      const result = await customersRepository.update(id, body);
       if (!result.success) {
         sendError(res, 503, result.error);
         return;

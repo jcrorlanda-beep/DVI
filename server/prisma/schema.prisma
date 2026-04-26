@@ -46,17 +46,44 @@ model User {
   id         String               @id @default(cuid())
   localId    String?              @unique
   username   String               @unique
+  email      String?              @unique
   fullName   String
+  passwordHash String?
   roleName   String?
   roleId     String?
   role       Role?                @relation(fields: [roleId], references: [id])
+  status     String               @default("Active")
   active     Boolean              @default(true)
+  lastLoginAt DateTime?
+  failedLoginCount Int            @default(0)
+  sessions   AuthSession[]
   auditLogs  AuditLog[]
   documents  DocumentAttachment[] @relation("DocumentUploadedBy")
   createdAt  DateTime             @default(now())
   updatedAt  DateTime             @updatedAt
 
+  @@index([email])
+  @@index([status])
   @@map("users")
+}
+
+model AuthSession {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique
+  refreshHash  String?
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  userAgent    String?
+  ipAddress    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+  @@map("auth_sessions")
 }
 
 model Customer {
@@ -72,7 +99,9 @@ model Customer {
   vehicles     Vehicle[]
   intakes      Intake[]
   repairOrders RepairOrder[]
+  inspections   Inspection[]
   documents    DocumentAttachment[]
+  serviceHistory ServiceHistoryRecord[]
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
 
@@ -97,6 +126,7 @@ model Vehicle {
   intakes          Intake[]
   inspections      Inspection[]
   repairOrders     RepairOrder[]
+  serviceHistory   ServiceHistoryRecord[]
   documents        DocumentAttachment[]
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
@@ -116,16 +146,22 @@ model Intake {
   vehicle           Vehicle?  @relation(fields: [vehicleId], references: [id])
   customerName      String?
   plateNumber       String?
+  conductionNumber  String?
+  odometer          Int?
   requestedServices Json?
   concern           String?
   status            String?
   source            String?
   openedAt          DateTime?
+  repairOrders      RepairOrder[]
+  inspections       Inspection[]
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
   @@index([intakeNumber])
   @@index([plateNumber])
+  @@index([customerId])
+  @@index([vehicleId])
   @@map("intakes")
 }
 
@@ -134,23 +170,35 @@ model Inspection {
   localId          String?       @unique
   inspectionNumber String?       @unique
   intakeId         String?
+  intake           Intake?       @relation(fields: [intakeId], references: [id])
   repairOrderId    String?
+  customerId       String?
   vehicleId        String?
+  customer         Customer?     @relation(fields: [customerId], references: [id])
   vehicle          Vehicle?      @relation(fields: [vehicleId], references: [id])
   repairOrder      RepairOrder?  @relation(fields: [repairOrderId], references: [id])
   customerName     String?
   plateNumber      String?
+  conductionNumber String?
   status           String?
   findings         Json?
   recommendations  Json?
+  triggeredSections Json?
+  tireDetails      Json?
+  brakeDetails     Json?
+  underHoodDetails Json?
   evidenceItems    Json?
+  mediaMetadata    Json?
   technicianName   String?
   completedAt      DateTime?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
   @@index([inspectionNumber])
+  @@index([intakeId])
   @@index([repairOrderId])
+  @@index([customerId])
+  @@index([vehicleId])
   @@index([plateNumber])
   @@map("inspections")
 }
@@ -158,6 +206,8 @@ model Inspection {
 model RepairOrder {
   id                String               @id @default(cuid())
   localId           String?              @unique
+  intakeId          String?
+  intake            Intake?              @relation(fields: [intakeId], references: [id])
   repairOrderNumber String?              @unique
   customerId        String?
   customer          Customer?            @relation(fields: [customerId], references: [id])
@@ -175,17 +225,49 @@ model RepairOrder {
   completedAt       DateTime?
   workLines         WorkLine[]
   inspections       Inspection[]
+  qcRecords         QcRecord[]
+  releaseRecords    ReleaseRecord[]
+  originalBackjobs  BackjobRecord[]      @relation("OriginalRepairOrderBackjobs")
+  returnBackjobs    BackjobRecord[]      @relation("ReturnRepairOrderBackjobs")
+  serviceHistory    ServiceHistoryRecord[]
   partsRequests     PartsRequest[]
   purchaseOrders    PurchaseOrder[]
+  invoices          Invoice[]
   payments          Payment[]
   documents         DocumentAttachment[]
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 
   @@index([repairOrderNumber])
+  @@index([intakeId])
   @@index([plateNumber])
   @@index([status])
   @@map("repair_orders")
+}
+
+model Invoice {
+  id                String       @id @default(cuid())
+  localId           String?      @unique
+  invoiceNumber     String?      @unique
+  repairOrderId     String?
+  repairOrder       RepairOrder? @relation(fields: [repairOrderId], references: [id])
+  customerName      String?
+  plateNumber       String?
+  status            String?
+  subtotal          Decimal?     @db.Decimal(12, 2)
+  total             Decimal      @db.Decimal(12, 2)
+  balance           Decimal?     @db.Decimal(12, 2)
+  issuedAt          DateTime?
+  dueAt             DateTime?
+  accountingStatus  String?
+  payments          Payment[]
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([invoiceNumber])
+  @@index([repairOrderId])
+  @@index([status])
+  @@map("invoices")
 }
 
 model WorkLine {
@@ -212,6 +294,114 @@ model WorkLine {
   @@map("work_lines")
 }
 
+model QcRecord {
+  id                String       @id @default(cuid())
+  localId           String?      @unique
+  qcNumber          String?      @unique
+  repairOrderId     String?
+  repairOrder       RepairOrder? @relation(fields: [repairOrderId], references: [id])
+  repairOrderNumber String?
+  status            String?
+  result            String?
+  checklist         Json?
+  passFailNotes     String?
+  failedReasons     Json?
+  reQcNotes         String?
+  technicianMetadata Json?
+  checkedBy         String?
+  completedAt       DateTime?
+  releaseRecords    ReleaseRecord[]
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([qcNumber])
+  @@index([repairOrderId])
+  @@index([status])
+  @@map("qc_records")
+}
+
+model ReleaseRecord {
+  id                 String       @id @default(cuid())
+  localId            String?      @unique
+  releaseNumber      String?      @unique
+  repairOrderId      String?
+  repairOrder        RepairOrder? @relation(fields: [repairOrderId], references: [id])
+  qcRecordId         String?
+  qcRecord           QcRecord?    @relation(fields: [qcRecordId], references: [id])
+  repairOrderNumber  String?
+  status             String?
+  releaseChecklist   Json?
+  handoverNotes      String?
+  customerMessageSummary String?
+  documentLinks      Json?
+  releasedAt         DateTime?
+  releasedBy         String?
+  customerConfirmation Json?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@index([releaseNumber])
+  @@index([repairOrderId])
+  @@index([qcRecordId])
+  @@index([status])
+  @@map("release_records")
+}
+
+model BackjobRecord {
+  id                    String       @id @default(cuid())
+  localId               String?      @unique
+  backjobNumber         String?      @unique
+  originalRepairOrderId String?
+  originalRepairOrder   RepairOrder? @relation("OriginalRepairOrderBackjobs", fields: [originalRepairOrderId], references: [id])
+  returnRepairOrderId   String?
+  returnRepairOrder     RepairOrder? @relation("ReturnRepairOrderBackjobs", fields: [returnRepairOrderId], references: [id])
+  customerName          String?
+  plateNumber           String?
+  status                String?
+  findings              Json?
+  fixesPerformed        Json?
+  rootCauseCategory     String?
+  rootCause             Json?
+  costType              String?
+  technicianNotes       String?
+  customerExplanation   String?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  @@index([backjobNumber])
+  @@index([originalRepairOrderId])
+  @@index([returnRepairOrderId])
+  @@index([status])
+  @@map("backjob_records")
+}
+
+model ServiceHistoryRecord {
+  id                String       @id @default(cuid())
+  localId           String?      @unique
+  customerId        String?
+  customer          Customer?    @relation(fields: [customerId], references: [id])
+  vehicleId         String?
+  vehicle           Vehicle?     @relation(fields: [vehicleId], references: [id])
+  repairOrderId     String?
+  repairOrder       RepairOrder? @relation(fields: [repairOrderId], references: [id])
+  customerName      String?
+  plateNumber       String?
+  serviceTitle      String
+  category          String?
+  completedAt       DateTime?
+  odometer          Int?
+  sourceModule      String?
+  notes             String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([vehicleId])
+  @@index([customerId])
+  @@index([repairOrderId])
+  @@index([completedAt])
+  @@map("service_history_records")
+}
+
 model PartsRequest {
   id              String       @id @default(cuid())
   localId         String?      @unique
@@ -223,12 +413,14 @@ model PartsRequest {
   partName        String
   partNumber      String?
   category        String?
+  quantity        Int?
   urgency         String?
   status          String?
   selectedBidId   String?
   plateNumber     String?
   requestedBy     String?
   bids            Json?
+  notes           String?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
@@ -334,6 +526,8 @@ model Payment {
   paymentNumber   String?
   repairOrderId   String?
   repairOrder     RepairOrder? @relation(fields: [repairOrderId], references: [id])
+  invoiceId       String?
+  invoice         Invoice?     @relation(fields: [invoiceId], references: [id])
   customerName    String?
   plateNumber     String?
   method          String?
@@ -345,6 +539,7 @@ model Payment {
   updatedAt       DateTime     @updatedAt
 
   @@index([repairOrderId])
+  @@index([invoiceId])
   @@index([status])
   @@map("payments")
 }

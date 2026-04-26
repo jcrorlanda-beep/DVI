@@ -1,4 +1,5 @@
 import { createPrismaRepository } from "./baseRepository.js";
+import { dateToIso } from "./inputHelpers.js";
 
 export type AuditLogFilter = {
   module?: string;
@@ -59,8 +60,8 @@ export const auditLogsRepository = createPrismaRepository<AuditLogRecordDto, Rec
     entityType: typeof record.entityType === "string" ? record.entityType : null,
     entityId: typeof record.entityId === "string" ? record.entityId : null,
     details: record.details && typeof record.details === "object" ? (record.details as Record<string, unknown>) : null,
-    createdAt: typeof record.createdAt === "string" ? record.createdAt : undefined,
-    updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : undefined,
+    createdAt: dateToIso(record.createdAt) ?? undefined,
+    updatedAt: dateToIso(record.updatedAt) ?? undefined,
   }),
   createInput: (data) => ({
     ...data,

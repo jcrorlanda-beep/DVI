@@ -29,6 +29,28 @@ export type BackendMigrationExportBundle = {
   modules: BackendMigrationModuleExport[];
 };
 
+export type CustomerVehicleMigrationPreviewInput = {
+  customers: unknown;
+  vehicles: unknown;
+  modules: BackendMigrationModuleExport[];
+};
+
+export type WorkflowMigrationPreviewInput = {
+  intakes: unknown;
+  inspections: unknown;
+  repairOrders: unknown;
+  modules: BackendMigrationModuleExport[];
+};
+
+export type PartsInventoryMigrationPreviewInput = {
+  partsRequests: unknown;
+  inventoryItems: unknown;
+  inventoryMovements: unknown;
+  purchaseOrders: unknown;
+  suppliers: unknown;
+  modules: BackendMigrationModuleExport[];
+};
+
 export const BACKEND_MIGRATION_MODULES: BackendMigrationModuleMap[] = [
   { moduleKey: "users", label: "Users", storageKey: "dvi_phase1_users_v2", tableName: "users", migrationOrder: 1 },
   { moduleKey: "rolePermissions", label: "Role Permissions", storageKey: "dvi_phase1_role_permissions_v2", tableName: "role_permissions", migrationOrder: 1 },
@@ -61,6 +83,7 @@ export const BACKEND_MIGRATION_MODULES: BackendMigrationModuleMap[] = [
   { moduleKey: "releaseRecords", label: "Release Records", storageKey: "dvi_phase7_release_records_v1", tableName: "release_records", migrationOrder: 3 },
   { moduleKey: "partsRequests", label: "Parts Requests", storageKey: "dvi_phase8_parts_requests_v1", tableName: "parts_requests", migrationOrder: 4 },
   { moduleKey: "inventory", label: "Inventory", storageKey: "dvi_inventory_items_v1", tableName: "inventory_items", migrationOrder: 4 },
+  { moduleKey: "inventoryMovements", label: "Inventory Movements", storageKey: "dvi_inventory_movements_v1", tableName: "inventory_movements", migrationOrder: 4 },
   { moduleKey: "purchaseOrders", label: "Purchase Orders", storageKey: "dvi_purchase_orders_v1", tableName: "purchase_orders", migrationOrder: 4 },
   { moduleKey: "supplierDirectory", label: "Supplier Directory", storageKey: "dvi_supplier_directory_v1", tableName: "suppliers", migrationOrder: 4 },
   { moduleKey: "paymentRecords", label: "Payment Records", storageKey: "dvi_phase10_payment_records_v1", tableName: "payments", migrationOrder: 5 },
@@ -145,5 +168,42 @@ export function buildBackendMigrationExport(modules: BackendMigrationModuleMap[]
     },
     riskyFields: BACKEND_MIGRATION_RISKY_FIELDS,
     modules: readBackendMigrationStorageSnapshot(modules),
+  };
+}
+
+export function buildCustomerVehicleMigrationPreviewInput(): CustomerVehicleMigrationPreviewInput {
+  const modules = readBackendMigrationStorageSnapshot(
+    BACKEND_MIGRATION_MODULES.filter((module) => module.tableName === "customers" || module.tableName === "vehicles")
+  );
+  const customers = modules.find((module) => module.tableName === "customers")?.records ?? [];
+  const vehicles = modules.find((module) => module.tableName === "vehicles")?.records ?? [];
+  return { customers, vehicles, modules };
+}
+
+export function buildWorkflowMigrationPreviewInput(): WorkflowMigrationPreviewInput {
+  const modules = readBackendMigrationStorageSnapshot(
+    BACKEND_MIGRATION_MODULES.filter((module) => ["intakes", "inspections", "repair_orders"].includes(module.tableName))
+  );
+  return {
+    intakes: modules.find((module) => module.tableName === "intakes")?.records ?? [],
+    inspections: modules.find((module) => module.tableName === "inspections")?.records ?? [],
+    repairOrders: modules.find((module) => module.tableName === "repair_orders")?.records ?? [],
+    modules,
+  };
+}
+
+export function buildPartsInventoryMigrationPreviewInput(): PartsInventoryMigrationPreviewInput {
+  const modules = readBackendMigrationStorageSnapshot(
+    BACKEND_MIGRATION_MODULES.filter((module) =>
+      ["parts_requests", "inventory_items", "inventory_movements", "purchase_orders", "suppliers"].includes(module.tableName)
+    )
+  );
+  return {
+    partsRequests: modules.find((module) => module.tableName === "parts_requests")?.records ?? [],
+    inventoryItems: modules.find((module) => module.tableName === "inventory_items")?.records ?? [],
+    inventoryMovements: modules.find((module) => module.tableName === "inventory_movements")?.records ?? [],
+    purchaseOrders: modules.find((module) => module.tableName === "purchase_orders")?.records ?? [],
+    suppliers: modules.find((module) => module.tableName === "suppliers")?.records ?? [],
+    modules,
   };
 }

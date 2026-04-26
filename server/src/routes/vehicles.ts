@@ -1,4 +1,4 @@
-import { vehiclesRepository } from "../repositories/index.js";
+import { vehiclesRepository, findVehicleDuplicateCandidates, hasVehicleDuplicates, prepareVehicleInputForPersistence } from "../repositories/index.js";
 import { vehicleSchema, vehicleUpdateSchema } from "../validation/index.js";
 import { readQueryParams, validateBody, validateQuery } from "../middleware/validation.js";
 import { sendError, sendJson, sendUnavailable, sendValidationError } from "../response.js";
@@ -71,7 +71,22 @@ export const vehicleRoutes: ApiRoute[] = [
         return;
       }
 
-      const result = await vehiclesRepository.create(context.body as Record<string, unknown>);
+      const body = await prepareVehicleInputForPersistence(context.body as Record<string, unknown>);
+      const duplicates = await findVehicleDuplicateCandidates(body);
+      if (!duplicates.success) {
+        sendUnavailable(res, duplicates.error);
+        return;
+      }
+      if (hasVehicleDuplicates(duplicates.data)) {
+        sendJson(res, 409, {
+          success: false,
+          error: "Potential duplicate vehicle detected. Review plate, conduction number, or customer vehicle match before creating.",
+          meta: { generatedAt: new Date().toISOString(), source: "dvi-server", duplicates: duplicates.data } as any,
+        });
+        return;
+      }
+
+      const result = await vehiclesRepository.create(body);
       if (!result.success) {
         sendError(res, 503, result.error);
         return;
@@ -98,7 +113,22 @@ export const vehicleRoutes: ApiRoute[] = [
         return;
       }
 
-      const result = await vehiclesRepository.update(id, context.body as Record<string, unknown>);
+      const body = await prepareVehicleInputForPersistence(context.body as Record<string, unknown>);
+      const duplicates = await findVehicleDuplicateCandidates(body, id);
+      if (!duplicates.success) {
+        sendUnavailable(res, duplicates.error);
+        return;
+      }
+      if (hasVehicleDuplicates(duplicates.data)) {
+        sendJson(res, 409, {
+          success: false,
+          error: "Potential duplicate vehicle detected. Review plate, conduction number, or customer vehicle match before updating.",
+          meta: { generatedAt: new Date().toISOString(), source: "dvi-server", duplicates: duplicates.data } as any,
+        });
+        return;
+      }
+
+      const result = await vehiclesRepository.update(id, body);
       if (!result.success) {
         sendError(res, 503, result.error);
         return;

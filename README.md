@@ -188,6 +188,14 @@ Backend foundation files now live in `server/`. See:
 
 The frontend helper `src/modules/api/backendMigrationExport.ts` can prepare a localStorage export bundle for a future backend import, but it does not run migration or change data sources.
 
+Current backend status:
+
+- Optional and parallel; frontend localStorage remains active.
+- Prisma schema validates with Prisma 7 through `prisma.config.ts`.
+- Backend route smoke tests cover health, route registration, protected routes, and offline-safe DB route behavior.
+- Finance, document metadata, audit log, AI proxy-lite, SMS proxy-lite, and migration preview contracts are present.
+- Production auth, real file storage, live provider proxying, and destructive migration commit are not enabled.
+
 ## Roadmap notes
 
 - Later: Global UX Declutter Refactor. This is intentionally not implemented in the current operational feature batch.

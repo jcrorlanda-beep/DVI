@@ -1,4 +1,5 @@
 import { getPrismaClient } from "../src/db/prisma.js";
+import { hashPassword } from "../src/auth/password.js";
 
 const roles = [
   { name: "Admin", description: "Full system access" },
@@ -50,6 +51,34 @@ async function seedDemoCustomer(client: Record<string, any>) {
   }
 }
 
+async function seedDemoAdmin(client: Record<string, any>) {
+  const adminRole = await client.role?.findUnique?.({ where: { name: "Admin" } });
+  await client.user?.upsert?.({
+    where: { username: "admin" },
+    update: {
+      fullName: "Demo Admin",
+      email: "admin@example.local",
+      roleName: "Admin",
+      roleId: adminRole?.id,
+      status: "Active",
+      active: true,
+      failedLoginCount: 0,
+    },
+    create: {
+      localId: "seed_user_admin",
+      username: "admin",
+      email: "admin@example.local",
+      fullName: "Demo Admin",
+      passwordHash: await hashPassword("admin123"),
+      roleName: "Admin",
+      roleId: adminRole?.id,
+      status: "Active",
+      active: true,
+      failedLoginCount: 0,
+    },
+  });
+}
+
 async function main() {
   const client = await getPrismaClient();
   if (!client) {
@@ -58,6 +87,7 @@ async function main() {
   }
 
   await seedRolesAndPermissions(client as Record<string, any>);
+  await seedDemoAdmin(client as Record<string, any>);
   await seedDemoCustomer(client as Record<string, any>);
   console.log("DVI seed draft completed.");
 }

@@ -1,8 +1,9 @@
+import { protectRoutes } from "../middleware/auth.js";
 import { documentsRepository } from "../repositories/index.js";
 import { documentAttachmentSchema } from "../validation/index.js";
 import { createCrudRoutes } from "./crudRoute.js";
 
-export const documentRoutes = createCrudRoutes({
+export const documentRoutes = protectRoutes(createCrudRoutes({
   basePath: "/api/documents",
   resourceName: "Document metadata",
   entityKey: "document",
@@ -11,4 +12,4 @@ export const documentRoutes = createCrudRoutes({
   updateSchema: documentAttachmentSchema,
   allowedQuery: ["search", "sourceModule", "linkedEntityId", "customerVisible"],
   allowDelete: true,
-});
+}), "documents.manage");

@@ -886,6 +886,9 @@ function SettingsPage({
             <div style={styles.moduleText} data-testid="backend-diagnostics-panel">
               Backend is optional in this build. Frontend is still using localStorage. A failed health check does not block the app or switch data sources.
             </div>
+            <div style={{ ...styles.concernCard, marginBottom: 12 }} data-testid="backend-localstorage-source-warning">
+              Frontend is still using localStorage as the source of truth. Backend diagnostics do not migrate, sync, or overwrite browser data.
+            </div>
             <div style={styles.formGrid3}>
               <div style={styles.concernCard}>
                 <strong>Mode:</strong> localStorage-first
@@ -901,6 +904,26 @@ function SettingsPage({
                 <strong>Env backend flag:</strong>
                 <br />
                 <span>{backendEnabledByEnv ? "Enabled by VITE_DVI_USE_BACKEND" : "Off by default"}</span>
+              </div>
+              <div style={styles.concernCard} data-testid="backend-ai-proxy-status">
+                <strong>AI proxy:</strong>
+                <br />
+                <span>{aiBackendMode === "Backend Proxy Future" ? "Future flag saved locally; frontend hybrid AI remains active" : "Future-only; not routing AI through backend"}</span>
+              </div>
+              <div style={styles.concernCard} data-testid="backend-sms-proxy-status">
+                <strong>SMS proxy:</strong>
+                <br />
+                <span>{smsBackendMode === "Backend Proxy Future" ? "Future flag saved locally; current SMS flow remains active" : "Future-only; frontend SMS settings remain active"}</span>
+              </div>
+              <div style={styles.concernCard} data-testid="backend-migration-preview-status">
+                <strong>Migration preview:</strong>
+                <br />
+                <span>Backend preview contract is optional and read-only. Import commit remains disabled by default.</span>
+              </div>
+              <div style={styles.concernCard} data-testid="backend-auth-status">
+                <strong>Backend auth:</strong>
+                <br />
+                <span>Foundation ready for backend sessions. Frontend login still uses localStorage until a future cutover phase.</span>
               </div>
             </div>
             <div style={{ ...styles.inlineActions, marginTop: 12 }}>

@@ -70,6 +70,225 @@ The intended flow is:
 
 The current commit route does not write data.
 
+### Customer / Vehicle Preview
+
+`POST /api/migration/import-preview` now includes a customer/vehicle preview summary when the request contains direct `customers` and `vehicles` arrays or matching module records.
+
+The preview reports:
+
+- total customers
+- total vehicles
+- duplicate customer name/phone warnings
+- duplicate plate warnings
+- vehicles missing both plate and conduction number
+- records ready
+- records needing review
+
+The preview is intentionally read-only. It does not write to PostgreSQL, does not delete localStorage data, and does not overwrite existing backend records.
+
+### Intake / Inspection / Repair Order Preview
+
+`POST /api/migration/import-preview` also includes a workflow preview summary when the request contains direct `intakes`, `inspections`, `repairOrders`, or matching module records.
+
+The preview reports:
+
+- total intakes
+- total inspections
+- total repair orders
+- total work lines detected inside repair orders
+- approval metadata detected inside work lines
+- missing customer or vehicle links
+- duplicate RO numbers
+- invalid or unrecognized statuses
+- records ready
+- records needing review
+
+This is preview-only. It does not write intake, inspection, repair order, work line, or approval records to PostgreSQL.
+
+### Parts / Inventory / PO / Supplier Preview
+
+`POST /api/migration/import-preview` also includes a parts and inventory preview summary when the request contains direct records or matching module exports for parts requests, inventory items, inventory movements, purchase orders, and suppliers.
+
+The preview reports:
+
+- total parts requests
+- total inventory items
+- total inventory movements
+- total purchase orders
+- total suppliers
+- missing linked RO warnings
+- duplicate SKU or part-number warnings
+- negative stock warnings
+- missing supplier warnings
+- invalid PO statuses
+- records ready
+- records needing review
+
+This is preview-only. It does not write parts, inventory, purchase order, supplier, or bid data to PostgreSQL.
+
+### Business Modules Preview
+
+`POST /api/migration/business/import-preview` provides a focused preview for business-operation modules:
+
+- parts requests
+- supplier bids embedded in parts requests
+- inventory items
+- inventory movements
+- purchase orders
+- PO receiving events
+- suppliers
+- invoices
+- payments
+- expenses
+- document metadata
+
+The preview reports:
+
+- total records by type
+- records ready
+- records needing review
+- missing RO, vehicle, and supplier links
+- duplicate SKUs / part numbers
+- duplicate PO numbers
+- duplicate supplier names
+- invalid payment and expense amounts
+- invalid document metadata
+- negative stock warnings
+- customer-visible document warnings
+
+This preview is read-only. It does not write to PostgreSQL, does not update stock, does not overwrite backend data, and does not delete localStorage.
+
+### Full Migration Preview
+
+`POST /api/migration/import-preview` now also returns a `fullPreview` object that aggregates all major localStorage module groups:
+
+- customers
+- vehicles
+- intakes
+- inspections
+- repair orders
+- work lines
+- approvals
+- parts requests
+- supplier bids
+- inventory
+- inventory movements
+- purchase orders
+- suppliers
+- invoices
+- payments
+- expenses
+- audit logs
+- documents
+
+The full preview reports:
+
+- total records
+- valid records
+- duplicate warnings
+- missing link warnings
+- invalid status warnings
+- records ready
+- records needing review
+
+Import commit remains disabled by default. `MIGRATION_COMMIT_ENABLED=true` only unlocks the contract response for future work; it does not currently perform destructive writes.
+
+### Core Shop Data Preview / Commit Contract
+
+The first real backend migration slice focuses only on core shop records:
+
+- customers
+- vehicles
+- intakes
+- repair orders
+- work lines
+
+Routes:
+
+- `POST /api/migration/core/import-preview`
+- `POST /api/migration/core/import-commit`
+
+The core preview reports:
+
+- total records by type
+- records ready
+- records needing review
+- duplicate customers
+- duplicate plates
+- missing customer links
+- missing vehicle links
+- invalid statuses
+- duplicate intake numbers
+- duplicate RO numbers
+
+The core commit route is protected by the backend `backup.restore` permission and is disabled unless `MIGRATION_COMMIT_ENABLED=true`.
+
+Even when the flag is enabled, the current route requires dry-run review and blocks commits when preview warnings exist. It does not overwrite existing backend data and does not delete localStorage. Record creation remains intentionally disabled until an operator-tested migration writer is added.
+
+Recommended operator flow:
+
+1. Export a full frontend backup.
+2. Run `/api/migration/core/import-preview`.
+3. Resolve duplicates and missing links.
+4. Store the preview output with the backup.
+5. Only then enable `MIGRATION_COMMIT_ENABLED=true` in a controlled backend environment.
+6. Keep localStorage as source of truth until a later frontend cutover phase.
+
+### Workflow Migration Preview
+
+The next workflow migration slice prepares backend persistence and preview coverage for:
+
+- inspections
+- QC records
+- release / handover records
+- backjob / recheck records
+- service history records
+
+Routes:
+
+- `GET /api/inspections`
+- `GET /api/qc-records`
+- `GET /api/release-records`
+- `GET /api/backjob-records`
+- `GET /api/service-history`
+- `POST /api/migration/workflow/import-preview`
+
+The workflow preview reports:
+
+- total records by type
+- records ready
+- records needing review
+- missing RO links
+- missing vehicle links
+- missing customer links
+- invalid statuses
+- duplicate inspection / QC / release / backjob numbers
+- invalid service history dates
+- invalid odometer values
+
+Known workflow data risks:
+
+- Missing RO links can prevent QC, release, and backjob records from attaching cleanly.
+- Inspection media remains metadata-only until real file storage is implemented.
+- Legacy localStorage records may use older field names or nested structures.
+- Status names may not match backend reporting expectations yet.
+- Service history writeback can create duplicates if old local records were written more than once.
+
+This preview is read-only. It does not write PostgreSQL records, delete localStorage, or switch frontend data sources.
+
+### Business Module Persistence Status
+
+The backend now has repository-backed persistence preparation for business modules when PostgreSQL is available:
+
+- parts requests with RO, vehicle/plate, and supplier fallback linkage
+- inventory items and explicit inventory movement logging
+- purchase orders with supplier, RO, parts-request linkage and visible receiving events
+- suppliers with management-only CRUD and supplier-bid privacy helpers
+- invoices, payments, and expenses with finance-safe filters and link fallback
+- document metadata with internal-only default and customer-visible review warnings
+
+The frontend still uses localStorage for these modules. Backend routes are for controlled migration/testing only until a later cutover phase.
+
 ## Backend Optional Status
 
 The backend can be built, typechecked, and smoke-tested without switching the frontend away from localStorage. Settings may show backend diagnostics, but that panel is informational only.
@@ -102,3 +321,4 @@ The future import flow should remain preview-first and non-destructive until use
 - Import one module group at a time.
 - Verify counts and sample records before enabling backend reads.
 - Do not remove frontend/local-first behavior until the backend is proven.
+- Keep import batch IDs, `localId` to `remoteId` mapping, `importedAt`, and `importedBy` metadata before any future commit implementation.

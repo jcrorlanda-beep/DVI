@@ -1,4 +1,6 @@
 import { auditLogsRepository, type AuditLogFilter } from "../repositories/auditLogsRepository.js";
+import { redactAuditPayload } from "../audit/redaction.js";
+import { protectRoutes } from "../middleware/auth.js";
 import { sendError, sendJson, sendValidationError } from "../response.js";
 import type { ApiRoute } from "./types.js";
 
@@ -17,7 +19,7 @@ function isAuditLogPayload(value: unknown): value is { action: string } {
   return Boolean(value) && typeof value === "object" && typeof (value as Record<string, unknown>).action === "string";
 }
 
-export const auditLogRoutes: ApiRoute[] = [
+const routes: ApiRoute[] = [
   {
     method: "GET",
     pattern: /^\/api\/audit-logs$/,
@@ -49,6 +51,31 @@ export const auditLogRoutes: ApiRoute[] = [
     },
   },
   {
+    method: "GET",
+    pattern: /^\/api\/audit-logs\/(?<id>[^/]+)$/,
+    description: "Future centralized audit log detail route",
+    handler: async (_req, res, context) => {
+      const result = await auditLogsRepository.getById(context.params.id);
+      if (!result.success) {
+        sendError(res, 503, result.error);
+        return;
+      }
+      if (!result.data) {
+        sendError(res, 404, `Audit log ${context.params.id} was not found.`);
+        return;
+      }
+
+      sendJson(res, 200, {
+        success: true,
+        data: {
+          auditLog: result.data,
+          source: "prisma-repository",
+        },
+        meta: { generatedAt: new Date().toISOString(), source: "dvi-server" },
+      });
+    },
+  },
+  {
     method: "POST",
     pattern: /^\/api\/audit-logs$/,
     description: "Future centralized audit log create route",
@@ -64,7 +91,7 @@ export const auditLogRoutes: ApiRoute[] = [
         return;
       }
 
-      const result = await auditLogsRepository.create(context.body as Record<string, unknown>);
+      const result = await auditLogsRepository.create(redactAuditPayload(context.body as Record<string, unknown>));
       if (!result.success) {
         sendError(res, 503, result.error);
         return;
@@ -81,3 +108,5 @@ export const auditLogRoutes: ApiRoute[] = [
     },
   },
 ];
+
+export const auditLogRoutes = protectRoutes(routes, "audit.view");
