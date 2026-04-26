@@ -11,7 +11,7 @@ async function loadDemo(page: Page) {
 test("release queue renders and opening a job shows release detail actions", async ({ page }) => {
   await loadDemo(page);
 
-  await page.getByRole("button", { name: "Release", exact: true }).click();
+  await page.getByRole("button", { name: /^RL Release$/ }).click();
   await expect(page.getByText("Release Queue")).toBeVisible();
 
   const queueItems = page.locator('[data-testid^="release-queue-item-"]');

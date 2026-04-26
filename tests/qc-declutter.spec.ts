@@ -11,8 +11,8 @@ async function loadDemo(page: Page) {
 test("qc queue renders and selecting an item opens the detail panel", async ({ page }) => {
   await loadDemo(page);
 
-  await page.getByRole("button", { name: "Quality Control", exact: true }).click();
-  await expect(page.getByText("QC Queue")).toBeVisible();
+  await page.getByRole("button", { name: /Quality Control/ }).first().click();
+  await expect(page.getByText("QC Queue", { exact: true }).first()).toBeVisible();
 
   const queueItems = page.locator('[data-testid^="qc-queue-item-"]');
   await expect(queueItems.first()).toBeVisible();

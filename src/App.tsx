@@ -13316,6 +13316,7 @@ function RepairOrdersPage({
                   <button
                     key={row.id}
                     type="button"
+                    data-testid={`repair-order-list-item-${row.id}`}
                     onClick={() => setSelectedRoId(row.id)}
                     style={{
                       ...styles.mobileDataCardButton,
@@ -13355,7 +13356,7 @@ function RepairOrdersPage({
             )}
 
             {selectedRO ? (
-              <div style={styles.detailPanel}>
+              <div style={styles.detailPanel} data-testid="repair-order-detail-panel">
                 <div style={styles.cardHeader}>
                   <div>
                     <div style={styles.cardTitle}>{selectedRO.roNumber}</div>
@@ -16765,7 +16766,7 @@ function AppInner() {
         odometerKm: "5005",
         customerConcern: "General periodic maintenance check.",
         advisorName: advisorUser.fullName,
-        status: "Waiting Approval",
+        status: "Quality Check",
         primaryTechnicianId: chiefUser.id,
         supportTechnicianIds: [mechanicUser.id],
         workLines: [],

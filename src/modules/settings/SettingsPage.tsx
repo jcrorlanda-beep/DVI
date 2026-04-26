@@ -6,6 +6,33 @@ import { DEFAULT_AI_MODULE_TOGGLES, getAiModuleLabel, readAiModuleToggles, saveA
 import { cleanupInvalidJsonStorage, validateStoredRecords, type DataQualitySummary } from "../dataQuality/dataQualityHelpers";
 import { CURRENT_DATA_MIGRATION_VERSION, getDataMigrationReminder, readDataMigrationVersion } from "../dataQuality/migrationHelpers";
 import { BACKEND_DATA_MODE_STORAGE_KEY, DVI_API_BASE_URL, backendEnabledByEnv, checkBackendHealth } from "../api/apiClient";
+import {
+  APP_DATA_MODE_STORAGE_KEY,
+  getCurrentDataMode,
+  getDataModeLabel,
+  isBackendReadEnabled,
+  isBackendWriteEnabled,
+  type AppDataMode,
+} from "../api/backendDataMode";
+import { evaluateBackendReadiness, type BackendReadinessResult } from "../api/backendReadinessGuard";
+import type { BackendHealthResponse } from "../api/apiTypes";
+import {
+  buildPilotComparison,
+  fetchBackendListCount,
+  getRoPilotWarnings,
+  readLocalArrayCount,
+  readLocalRepairOrders,
+  readLocalVehicleCount,
+  shouldRunReadOnlyPilot,
+  type BackendPilotComparison,
+} from "../api/backendReadOnlyPilot";
+import {
+  detectDuplicateCustomers,
+  detectDuplicatePlates,
+  detectRoNumberConflicts,
+  detectUpdatedAfterImport,
+  summarizeConflicts,
+} from "../api/syncConflictHelpers";
 import type { AiBackendMode, BackendDataMode, SmsBackendMode } from "../api/apiTypes";
 import {
   canAccessAdvisorTools,
@@ -73,6 +100,52 @@ const SENSITIVE_ACCESS_MAP = [
     access: (role: UserRole) => canAccessTechnicianOperations(role),
   },
 ];
+
+const CUTOVER_CHECKLIST_STORAGE_KEY = "dvi_backend_cutover_checklist_v1";
+
+const CUTOVER_CHECKLIST_ITEMS = [
+  { key: "localBackup", label: "Local backup completed" },
+  { key: "databaseBackup", label: "Database backup configured" },
+  { key: "fileStorageBackup", label: "File storage backup configured" },
+  { key: "migrationPreview", label: "Migration preview completed" },
+  { key: "duplicateCustomers", label: "Duplicate customers reviewed" },
+  { key: "duplicatePlates", label: "Duplicate plates reviewed" },
+  { key: "roNumbers", label: "RO numbers verified" },
+  { key: "userRoles", label: "User roles reviewed" },
+  { key: "backendAuth", label: "Backend auth tested" },
+  { key: "backendHealth", label: "Backend health tested" },
+  { key: "customerPortal", label: "Customer portal safety checked" },
+  { key: "supplierPrivacy", label: "Supplier privacy checked" },
+  { key: "aiSmsProxy", label: "AI/SMS proxy settings checked" },
+  { key: "rollbackPlan", label: "Rollback plan documented" },
+] as const;
+
+type CutoverChecklistKey = (typeof CUTOVER_CHECKLIST_ITEMS)[number]["key"];
+type CutoverChecklistState = Record<CutoverChecklistKey, boolean>;
+
+function createEmptyCutoverChecklist(): CutoverChecklistState {
+  return CUTOVER_CHECKLIST_ITEMS.reduce((state, item) => ({ ...state, [item.key]: false }), {} as CutoverChecklistState);
+}
+
+function readCutoverChecklist(): CutoverChecklistState {
+  const fallback = createEmptyCutoverChecklist();
+  if (typeof window === "undefined") return fallback;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(CUTOVER_CHECKLIST_STORAGE_KEY) ?? "{}") as Partial<CutoverChecklistState>;
+    return CUTOVER_CHECKLIST_ITEMS.reduce(
+      (state, item) => ({ ...state, [item.key]: Boolean(parsed[item.key]) }),
+      fallback
+    );
+  } catch {
+    return fallback;
+  }
+}
+
+function getCutoverChecklistStatus(checklist: CutoverChecklistState, readiness: BackendReadinessResult): "incomplete" | "ready for pilot" | "blocked" {
+  const complete = CUTOVER_CHECKLIST_ITEMS.every((item) => checklist[item.key]);
+  if (!complete) return "incomplete";
+  return readiness.status === "blocked" ? "blocked" : "ready for pilot";
+}
 
 function RoleBadge({ role }: { role: UserRole }) {
   return (
@@ -171,6 +244,7 @@ function SettingsPage({
       ? "Future Backend Enabled"
       : "Off / LocalStorage";
   });
+  const [appDataMode, setAppDataMode] = React.useState<AppDataMode>(() => getCurrentDataMode());
   const [aiBackendModeFeedback, setAiBackendModeFeedback] = React.useState("");
   const [isSavingAiBackendMode, setIsSavingAiBackendMode] = React.useState(false);
   const [backendHealthStatus, setBackendHealthStatus] = React.useState<"idle" | "checking" | "online" | "offline">("idle");
@@ -179,6 +253,12 @@ function SettingsPage({
   const [backendProductionReadiness, setBackendProductionReadiness] = React.useState("Production readiness not checked.");
   const [backendProxyReadiness, setBackendProxyReadiness] = React.useState("AI/SMS proxy readiness not checked.");
   const [backendFileStorageStatus, setBackendFileStorageStatus] = React.useState("File storage status not checked.");
+  const [backendHealthPayload, setBackendHealthPayload] = React.useState<BackendHealthResponse | null>(null);
+  const [customerPilot, setCustomerPilot] = React.useState<BackendPilotComparison>(() => buildPilotComparison(0, null));
+  const [vehiclePilot, setVehiclePilot] = React.useState<BackendPilotComparison>(() => buildPilotComparison(0, null));
+  const [repairOrderPilot, setRepairOrderPilot] = React.useState<BackendPilotComparison>(() => buildPilotComparison(0, null));
+  const [pilotFeedback, setPilotFeedback] = React.useState("Read-only pilot has not run.");
+  const [cutoverChecklist, setCutoverChecklist] = React.useState<CutoverChecklistState>(() => readCutoverChecklist());
   const [openAiAssistLogs, setOpenAiAssistLogs] = React.useState<OpenAiAssistLogEntry[]>(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -298,8 +378,9 @@ function SettingsPage({
       window.localStorage.setItem("dvi_ai_backend_mode_v1", aiBackendMode);
       window.localStorage.setItem("dvi_sms_backend_mode_v1", smsBackendMode);
       window.localStorage.setItem(BACKEND_DATA_MODE_STORAGE_KEY, backendDataMode);
+      window.localStorage.setItem(APP_DATA_MODE_STORAGE_KEY, appDataMode);
       setAiBackendModeFeedback(
-        aiBackendMode === "Backend Proxy Future" || smsBackendMode === "Backend Proxy Future" || backendDataMode === "Future Backend Enabled"
+        aiBackendMode === "Backend Proxy Future" || smsBackendMode === "Backend Proxy Future" || backendDataMode === "Future Backend Enabled" || appDataMode !== "localStorage"
           ? "Backend planning mode saved. LocalStorage remains the active source of truth."
           : "Local/frontend hybrid AI mode saved."
       );
@@ -316,6 +397,7 @@ function SettingsPage({
     setBackendHealthMessage("Checking backend health...");
     const result = await checkBackendHealth();
     if (result.success) {
+      setBackendHealthPayload(result.data);
       setBackendHealthStatus("online");
       setBackendHealthMessage(
         `${result.data.service ?? "Backend"} is ${result.data.status}. Mode: ${result.data.mode ?? "unknown"}. Database configured: ${
@@ -344,12 +426,95 @@ function SettingsPage({
       );
       return;
     }
+    setBackendHealthPayload(null);
     setBackendHealthStatus("offline");
     setBackendHealthMessage(`Backend offline or unavailable. LocalStorage mode is still active. ${result.error}`);
     setBackendDatabaseStatus("Database status unavailable because backend health check failed.");
     setBackendProductionReadiness("Production readiness unavailable because backend health check failed.");
     setBackendProxyReadiness("AI/SMS proxy readiness unavailable because backend health check failed.");
     setBackendFileStorageStatus("File storage status unavailable because backend health check failed.");
+  };
+
+  const backendReadiness: BackendReadinessResult = React.useMemo(
+    () =>
+      evaluateBackendReadiness({
+        dataMode: appDataMode,
+        health: backendHealthPayload,
+        healthOnline: backendHealthStatus === "online",
+        migrationPreviewCompleted: false,
+        migrationCommitEnabled: false,
+        fileStoragePlanned: appDataMode !== "localStorage",
+        aiProxyRelevant: aiBackendMode === "Backend Proxy Future",
+        smsProxyRelevant: smsBackendMode === "Backend Proxy Future",
+      }),
+    [aiBackendMode, appDataMode, backendHealthPayload, backendHealthStatus, smsBackendMode]
+  );
+  const cutoverChecklistStatus = React.useMemo(
+    () => getCutoverChecklistStatus(cutoverChecklist, backendReadiness),
+    [backendReadiness, cutoverChecklist]
+  );
+  const checkedCutoverItems = React.useMemo(
+    () => CUTOVER_CHECKLIST_ITEMS.filter((item) => cutoverChecklist[item.key]).length,
+    [cutoverChecklist]
+  );
+  const syncConflictSummary = React.useMemo(() => {
+    const customers = (() => {
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem("dvi_phase15a_customer_accounts_v1") ?? "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    })();
+    const repairOrders = readLocalRepairOrders();
+    const conflicts = [
+      ...detectDuplicateCustomers(customers),
+      ...detectDuplicatePlates([...customers, ...repairOrders]),
+      ...detectRoNumberConflicts(repairOrders),
+      ...detectUpdatedAfterImport([...customers, ...repairOrders]),
+    ];
+    return summarizeConflicts(conflicts);
+  }, []);
+
+  const onToggleCutoverChecklistItem = (key: CutoverChecklistKey, checked: boolean) => {
+    setCutoverChecklist((previous) => {
+      const next = { ...previous, [key]: checked };
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(CUTOVER_CHECKLIST_STORAGE_KEY, JSON.stringify(next));
+      }
+      return next;
+    });
+  };
+
+  const runCustomerVehiclePilot = async () => {
+    const localCustomers = readLocalArrayCount("dvi_phase15a_customer_accounts_v1");
+    const localVehicles = readLocalVehicleCount();
+    if (!shouldRunReadOnlyPilot(appDataMode)) {
+      setCustomerPilot({ status: "skipped", localCount: localCustomers, backendCount: null, warnings: ["Backend read mode is off."] });
+      setVehiclePilot({ status: "skipped", localCount: localVehicles, backendCount: null, warnings: ["Backend read mode is off."] });
+      setPilotFeedback("Backend read-only pilot skipped because data mode is localStorage.");
+      return;
+    }
+    const [customers, vehicles] = await Promise.all([fetchBackendListCount("/api/customers"), fetchBackendListCount("/api/vehicles")]);
+    setCustomerPilot(buildPilotComparison(localCustomers, customers.count, customers.warning));
+    setVehiclePilot(buildPilotComparison(localVehicles, vehicles.count, vehicles.warning));
+    setPilotFeedback("Backend customer/vehicle read-only comparison finished. No records were merged or overwritten.");
+  };
+
+  const runRepairOrderPilot = async () => {
+    const localRepairOrders = readLocalRepairOrders();
+    if (!shouldRunReadOnlyPilot(appDataMode)) {
+      setRepairOrderPilot({ status: "skipped", localCount: localRepairOrders.length, backendCount: null, warnings: ["Backend read mode is off."] });
+      setPilotFeedback("Backend RO read-only pilot skipped because data mode is localStorage.");
+      return;
+    }
+    const backendRepairOrders = await fetchBackendListCount("/api/repair-orders");
+    const comparison = buildPilotComparison(localRepairOrders.length, backendRepairOrders.count, backendRepairOrders.warning);
+    setRepairOrderPilot({
+      ...comparison,
+      warnings: [...comparison.warnings, ...getRoPilotWarnings(localRepairOrders)],
+    });
+    setPilotFeedback("Backend RO read-only comparison finished. No workflow records were merged or overwritten.");
   };
 
   const refreshOpenAiAssistLogs = () => {
@@ -862,6 +1027,20 @@ function SettingsPage({
                   </select>
                 </label>
                 <label style={styles.formGroup}>
+                  <span style={styles.label}>App Data Mode</span>
+                  <select
+                    data-testid="app-data-mode"
+                    style={styles.select}
+                    value={appDataMode}
+                    onChange={(e) => setAppDataMode(e.target.value as AppDataMode)}
+                  >
+                    <option value="localStorage">localStorage</option>
+                    <option value="backendReadOnly">backendReadOnly</option>
+                    <option value="backendWritePilot">backendWritePilot (locked)</option>
+                    <option value="backendFull">backendFull (locked)</option>
+                  </select>
+                </label>
+                <label style={styles.formGroup}>
                   <span style={styles.label}>AI Mode</span>
                   <select
                     data-testid="ai-backend-mode"
@@ -915,6 +1094,8 @@ function SettingsPage({
                 <strong>Mode:</strong> localStorage-first
                 <br />
                 <span>Backend data flag: {backendDataMode}</span>
+                <br />
+                <span data-testid="current-app-data-mode">Current Data Mode: {getDataModeLabel(appDataMode)}</span>
               </div>
               <div style={styles.concernCard}>
                 <strong>API URL:</strong>
@@ -951,6 +1132,45 @@ function SettingsPage({
                 <br />
                 <span>Foundation ready for backend sessions. Frontend login still uses localStorage until a future cutover phase.</span>
               </div>
+              <div style={styles.concernCard} data-testid="backend-read-write-mode-status">
+                <strong>Backend read/write guard:</strong>
+                <br />
+                <span>Read Mode: {isBackendReadEnabled(appDataMode) ? "Available for diagnostics only" : "Off"}</span>
+                <br />
+                <span>Write Mode: {isBackendWriteEnabled(appDataMode) ? "Requested but locked" : "Off / Locked"}</span>
+              </div>
+              <div style={styles.concernCard} data-testid="backend-readiness-guard-card">
+                <strong>Backend readiness guard:</strong>
+                <br />
+                <span>Status: {backendReadiness.status}</span>
+                <ul style={styles.hintList}>
+                  {backendReadiness.reasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+              <div style={styles.concernCard} data-testid="customer-vehicle-readonly-pilot">
+                <strong>Customer / Vehicle read-only pilot:</strong>
+                <br />
+                <span>Customers: local {customerPilot.localCount}, backend {customerPilot.backendCount ?? "not checked"}</span>
+                <br />
+                <span>Vehicles: local {vehiclePilot.localCount}, backend {vehiclePilot.backendCount ?? "not checked"}</span>
+                <ul style={styles.hintList}>
+                  {[...customerPilot.warnings, ...vehiclePilot.warnings].map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+              <div style={styles.concernCard} data-testid="repair-order-readonly-pilot">
+                <strong>Repair Order read-only pilot:</strong>
+                <br />
+                <span>ROs: local {repairOrderPilot.localCount}, backend {repairOrderPilot.backendCount ?? "not checked"}</span>
+                <ul style={styles.hintList}>
+                  {repairOrderPilot.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
             </div>
             <div style={{ ...styles.inlineActions, marginTop: 12 }}>
               <button
@@ -974,6 +1194,15 @@ function SettingsPage({
               >
               {backendHealthStatus === "online" ? "Online" : backendHealthStatus === "offline" ? "Offline / unavailable" : "Not checked"}
               </span>
+              <button type="button" style={styles.smallButtonMuted} data-testid="backend-customer-vehicle-pilot-button" onClick={() => void runCustomerVehiclePilot()}>
+                Compare Customers / Vehicles
+              </button>
+              <button type="button" style={styles.smallButtonMuted} data-testid="backend-ro-pilot-button" onClick={() => void runRepairOrderPilot()}>
+                Compare Repair Orders
+              </button>
+            </div>
+            <div style={{ ...styles.concernCard, marginTop: 10 }} data-testid="backend-readonly-pilot-feedback">
+              {pilotFeedback}
             </div>
             <div style={{ ...styles.concernCard, marginTop: 10 }} data-testid="production-readiness-cutover-warning">
               Do not enable multi-device backend mode until migration preview, database backup, file storage backup, and role verification are complete.
@@ -1010,6 +1239,41 @@ function SettingsPage({
               <span style={styles.successPill}>Synced</span>
               <span style={styles.warningPill}>Conflict</span>
               <span style={styles.warningPill}>Needs review</span>
+            </div>
+            <div style={{ ...styles.concernCard, marginTop: 10 }} data-testid="sync-conflict-planning-summary">
+              Conflict detection planning: {syncConflictSummary.total} issue(s), {syncConflictSummary.conflicts} conflict(s), {syncConflictSummary.needsReview} needing review. No automatic resolution is performed.
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Cutover Safety Checklist" subtitle="Admin-only readiness tracking; backend write mode stays locked">
+            <div style={styles.moduleText} data-testid="cutover-safety-checklist-panel">
+              Use this checklist before any future backend pilot. It stores checklist state locally only and does not enable backend reads, writes, imports, or sync.
+            </div>
+            <div style={styles.inlineStatusRow}>
+              <span style={cutoverChecklistStatus === "ready for pilot" ? styles.successPill : cutoverChecklistStatus === "blocked" ? styles.warningPill : styles.neutralPill}>
+                Status: {cutoverChecklistStatus}
+              </span>
+              <span style={styles.infoPill}>
+                {checkedCutoverItems} / {CUTOVER_CHECKLIST_ITEMS.length} complete
+              </span>
+              <span style={styles.warningPill}>Backend write mode locked</span>
+            </div>
+            <div style={styles.toggleGrid}>
+              {CUTOVER_CHECKLIST_ITEMS.map((item) => (
+                <label key={item.key} style={styles.toggleCard}>
+                  <input
+                    type="checkbox"
+                    checked={cutoverChecklist[item.key]}
+                    onChange={(event) => onToggleCutoverChecklistItem(item.key, event.target.checked)}
+                  />
+                  <span>{item.label}</span>
+                </label>
+              ))}
+            </div>
+            <div style={{ ...styles.concernCard, marginTop: 10 }} data-testid="backend-write-mode-locked-note">
+              No backend write-mode activation is available in this phase. Complete backups, previews, privacy checks, and rollback planning before a future pilot phase unlocks any write path.
             </div>
           </Card>
         </div>

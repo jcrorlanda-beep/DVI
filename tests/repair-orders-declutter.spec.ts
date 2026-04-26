@@ -11,7 +11,7 @@ async function loadDemoDashboard(page: Page) {
 test("repair orders registry renders and selecting another RO updates the detail panel", async ({ page }) => {
   await loadDemoDashboard(page);
 
-  await page.getByRole("button", { name: /^Repair Orders$/ }).click();
+  await page.getByRole("button", { name: /Repair Orders/ }).first().click();
 
   const listItems = page.locator('[data-testid^="repair-order-list-item-"]');
   await expect(listItems.first()).toBeVisible();

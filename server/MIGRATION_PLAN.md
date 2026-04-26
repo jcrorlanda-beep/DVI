@@ -323,6 +323,17 @@ The future import flow should remain preview-first and non-destructive until use
 - Do not remove frontend/local-first behavior until the backend is proven.
 - Keep import batch IDs, `localId` to `remoteId` mapping, `importedAt`, and `importedBy` metadata before any future commit implementation.
 
+## Cutover Control Guards
+
+The frontend now has planning-only cutover controls. These controls do not switch the data source and do not write to the backend.
+
+- Data mode defaults to `localStorage`.
+- Backend read-only and write modes remain guarded.
+- Backend write mode is locked until a future explicit pilot phase.
+- Settings diagnostics can compare local counts with backend counts for customers, vehicles, and repair orders.
+- Sync conflict helpers identify duplicate customers, duplicate plates, duplicate RO numbers, and local records updated after import metadata.
+- The cutover checklist tracks backups, migration preview, duplicate review, role review, portal safety, supplier privacy, AI/SMS proxy checks, and rollback planning.
+
 ## Multi-Device Cutover Plan
 
 Cutover must be staged. Do not switch the entire frontend to backend mode at once.
@@ -351,5 +362,16 @@ Cutover risks:
 - user/role mismatch between frontend accounts and backend users
 - simultaneous editing from multiple browsers during migration
 - old localStorage records with legacy field names
+
+Conflict detection concepts before sync:
+
+- same `localId`, different backend `remoteId`
+- same RO number, different payload
+- same plate number across multiple vehicle records
+- same customer name/phone across multiple customer records
+- local record updated after backend import
+- backend record updated after local export
+
+Conflict statuses should remain informational until a later resolution phase: `none`, `warning`, `conflict`, and `needsReview`. No automatic conflict resolution should run during preview or pilot mode.
 
 Rollback rule: if counts or sample records do not match expectations, keep frontend in localStorage mode, disable backend write flags, and restore backend database/file storage from the pre-cutover backup if needed.
