@@ -223,12 +223,12 @@ export function ExpensePage({
               <input style={styles.input} value={form.vendor} onChange={(e) => setForm((f) => ({ ...f, vendor: e.target.value }))} placeholder="e.g. Puregold, Meralco" />
             </div>
             <div style={styles.formGroup}>
-              <label style={styles.label}>Description *</label>
-              <input style={styles.input} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="What was purchased/paid" />
+              <label htmlFor="expense-description" style={styles.label}>Description *</label>
+              <input id="expense-description" style={styles.input} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="What was purchased/paid" />
             </div>
             <div style={styles.formGroup}>
-              <label style={styles.label}>Amount (₱) *</label>
-              <input style={styles.input} type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0.00" />
+              <label htmlFor="expense-amount" style={styles.label}>Amount (₱) *</label>
+              <input id="expense-amount" style={styles.input} type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0.00" />
             </div>
             <div style={styles.formGroup}>
               <label style={styles.label}>Payment Method</label>

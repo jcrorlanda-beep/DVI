@@ -644,8 +644,8 @@ function BookingsPage({
 
               <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Customer Name</label>
-                  <input style={styles.input} value={form.customerName} onChange={(e) => setForm((prev) => ({ ...prev, customerName: e.target.value }))} />
+                  <label htmlFor="sbf-customerName" style={styles.label}>Customer Name</label>
+                  <input id="sbf-customerName" style={styles.input} value={form.customerName} onChange={(e) => setForm((prev) => ({ ...prev, customerName: e.target.value }))} />
                 </div>
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Company / Fleet</label>
@@ -655,8 +655,8 @@ function BookingsPage({
 
               <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Phone</label>
-                  <input style={styles.input} value={form.phone} onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))} />
+                  <label htmlFor="sbf-phone" style={styles.label}>Phone</label>
+                  <input id="sbf-phone" style={styles.input} value={form.phone} onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))} />
                 </div>
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Email</label>
@@ -666,8 +666,8 @@ function BookingsPage({
 
               <div style={isCompactLayout ? styles.formStack : styles.formGrid2}>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Plate Number</label>
-                  <input style={styles.input} value={form.plateNumber} onChange={(e) => setForm((prev) => ({ ...prev, plateNumber: e.target.value }))} />
+                  <label htmlFor="sbf-plateNumber" style={styles.label}>Plate Number</label>
+                  <input id="sbf-plateNumber" style={styles.input} value={form.plateNumber} onChange={(e) => setForm((prev) => ({ ...prev, plateNumber: e.target.value }))} />
                 </div>
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Conduction Number</label>
@@ -677,16 +677,16 @@ function BookingsPage({
 
               <div style={isCompactLayout ? styles.formStack : styles.formGrid3}>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Make</label>
-                  <input style={styles.input} value={form.make} onChange={(e) => setForm((prev) => ({ ...prev, make: e.target.value }))} />
+                  <label htmlFor="sbf-make" style={styles.label}>Make</label>
+                  <input id="sbf-make" style={styles.input} value={form.make} onChange={(e) => setForm((prev) => ({ ...prev, make: e.target.value }))} />
                 </div>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Model</label>
-                  <input style={styles.input} value={form.model} onChange={(e) => setForm((prev) => ({ ...prev, model: e.target.value }))} />
+                  <label htmlFor="sbf-model" style={styles.label}>Model</label>
+                  <input id="sbf-model" style={styles.input} value={form.model} onChange={(e) => setForm((prev) => ({ ...prev, model: e.target.value }))} />
                 </div>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Year</label>
-                  <input style={styles.input} value={form.year} onChange={(e) => setForm((prev) => ({ ...prev, year: e.target.value }))} />
+                  <label htmlFor="sbf-year" style={styles.label}>Year</label>
+                  <input id="sbf-year" style={styles.input} value={form.year} onChange={(e) => setForm((prev) => ({ ...prev, year: e.target.value }))} />
                 </div>
               </div>
 
@@ -712,8 +712,8 @@ function BookingsPage({
               />
 
               <div style={styles.formGroup}>
-                <label style={styles.label}>Concern</label>
-                <textarea style={styles.textarea} value={form.concern} onChange={(e) => setForm((prev) => ({ ...prev, concern: e.target.value }))} />
+                <label htmlFor="sbf-concern" style={styles.label}>Concern</label>
+                <textarea id="sbf-concern" style={styles.textarea} value={form.concern} onChange={(e) => setForm((prev) => ({ ...prev, concern: e.target.value }))} />
               </div>
               <div style={styles.formGroup}>
                 <label style={styles.label}>Notes</label>

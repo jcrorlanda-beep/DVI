@@ -4,12 +4,12 @@ async function login(page: Page, username: string, password: string) {
   await page.goto("/");
   await page.getByPlaceholder(/enter username/i).fill(username);
   await page.getByPlaceholder(/enter password/i).fill(password);
-  await page.getByRole("button", { name: /sign in/i }).click();
+  await page.getByRole("button", { name: "Sign In", exact: true }).click();
 }
 
 test("settings shows the security checklist and role audit", async ({ page }) => {
   await login(page, "admin", "admin123");
-  await page.getByRole("button", { name: /Settings/i, exact: true }).click();
+  await page.getByTestId("nav-settings").click();
   await expect(page.getByTestId("security-checklist-panel")).toBeVisible();
   await expect(page.getByTestId("security-module-audit-log")).toBeVisible();
   await expect(page.getByTestId("security-module-backup-restore")).toBeVisible();

@@ -4,12 +4,12 @@ async function loginAsAdmin(page: Page) {
   await page.goto("/");
   await page.getByPlaceholder(/enter username/i).fill("admin");
   await page.getByPlaceholder(/enter password/i).fill("admin123");
-  await page.getByRole("button", { name: /sign in/i }).click();
+  await page.getByRole("button", { name: "Sign In", exact: true }).click();
 }
 
 test("settings shows the backend proxy planning flag for AI", async ({ page }) => {
   await loginAsAdmin(page);
-  await page.getByRole("button", { name: /Settings/i, exact: true }).click();
+  await page.getByTestId("nav-settings").click();
   await expect(page.getByTestId("deployment-readiness-panel")).toBeVisible();
   await expect(page.getByTestId("backend-data-mode")).toBeVisible();
   await expect(page.getByTestId("backend-api-url")).toBeVisible();
@@ -34,7 +34,7 @@ test("settings shows the backend proxy planning flag for AI", async ({ page }) =
 
 test("settings backend health check fails safely when backend is offline", async ({ page }) => {
   await loginAsAdmin(page);
-  await page.getByRole("button", { name: /Settings/i, exact: true }).click();
+  await page.getByTestId("nav-settings").click();
   await expect(page.getByTestId("backend-diagnostics-panel")).toBeVisible();
   await page.getByTestId("backend-health-check-button").click();
   await expect(page.getByTestId("backend-health-status")).toContainText(/offline|online/i);

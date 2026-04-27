@@ -59,15 +59,15 @@ test("data migration helpers keep legacy bookings and payments readable", async 
   });
 
   await page.reload();
-  await page.getByRole("button", { name: "Bookings", exact: true }).click();
+  await page.getByTestId("nav-bookings").click();
   await expect(page.getByText(/Legacy Customer/i)).toBeVisible();
   await expect(page.getByText(/PMS\/Oil Change|PMS/i)).toBeVisible();
 
-  await page.getByRole("button", { name: "Payments", exact: true }).click();
+  await page.getByTestId("nav-payments").click();
   await expect(page.getByText(/PAY-LEGACY/i)).toBeVisible();
   await expect(page.getByText(/0\.00|Waived|Unpaid/i)).toBeVisible();
 
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByTestId("nav-settings").click();
   await expect(page.getByText(/Data Migration/i)).toBeVisible();
   await expect(page.getByText(/Always export a fresh backup/i)).toBeVisible();
 });

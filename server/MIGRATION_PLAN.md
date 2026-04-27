@@ -375,3 +375,295 @@ Conflict detection concepts before sync:
 Conflict statuses should remain informational until a later resolution phase: `none`, `warning`, `conflict`, and `needsReview`. No automatic conflict resolution should run during preview or pilot mode.
 
 Rollback rule: if counts or sample records do not match expectations, keep frontend in localStorage mode, disable backend write flags, and restore backend database/file storage from the pre-cutover backup if needed.
+
+## Document / File Backend Pilot
+
+The document/file pilot is not a full cutover.
+
+- Document metadata may be written through guarded `/api/pilot/documents` routes only when the write pilot is explicitly enabled.
+- File upload testing may use `/api/files/upload`; responses must return `fileId`/`storageKey`, not raw server paths.
+- localStorage document metadata remains the frontend source of truth until a future cutover phase.
+- Customer-visible documents are default-deny. `customerVisible=true` requires explicit review and must never be the default.
+- Customer portal document routes must return redacted customer DTOs only.
+- Signed download/preview tokens are still required before customer downloads are production-ready.
+- Bulk file migration is not automatic. Preview file metadata first, then upload files in controlled batches later.
+- Rollback requires restoring both PostgreSQL document metadata and the paired file storage folder/archive.
+
+---
+
+## Cutover Pilot Phases (220–223)
+
+### Phase 220 — Backend Read-Only Pilot Panel
+
+The Settings page now includes a full entity comparison table (9 entities):
+customers, vehicles, intakes, repair orders, inspections, parts requests, inventory items, payments, expenses.
+
+Each row shows: local count, backend count, status label (Not checked / Counts match / Mismatch detected / Backend unavailable / Needs review).
+
+Requirements:
+- App Data Mode must be `backendReadOnly` in Settings.
+- Backend server must be running.
+- No writes occur during comparison.
+
+### Phase 221 — Migration Preview UI
+
+The Settings page now has a **Migration Preview** card.
+
+Workflow:
+1. Click "Run Migration Preview".
+2. The frontend reads all entity arrays from localStorage.
+3. It POSTs to `/api/migration/core/import-preview` and `/api/migration/business/import-preview`.
+4. Results are displayed in three categories: Core Data, Business Modules, and Preview Metadata.
+5. If the backend is offline, a local-only analysis is shown instead.
+
+The preview is **preview-only**. No data is imported or committed.
+When completed, the `migrationPreviewCompleted` flag is set to `true` in local state,
+which allows the `evaluateBackendReadiness` guard to include it in readiness scoring.
+
+### Phase 222 — Write Pilot Guard
+
+The Settings page now has a **Write Pilot Guard** card (admin-only).
+
+Requirements display:
+- Backend health online
+- Database connected
+- Migration preview completed
+- Backup confirmed (local + database from cutover checklist)
+- Cutover checklist complete
+- Backend readiness guard passed
+
+The "Enable Write Pilot" button is disabled with explanation. No writes occur.
+A future phase will open the enable path once all requirements are verified.
+
+Write pilot status:
+- **Locked**: One or more requirements not met.
+- **Ready for admin testing**: All requirements met (enable path still disabled in this phase).
+- **Blocked**: Readiness guard is blocked.
+
+### Phase 223 — Write Pilot API Contracts
+
+Frontend contracts: `src/modules/api/writePilotContracts.ts`
+- `WritePilotWriteResult` DTO
+- `WritePilotConflict` and `WritePilotConflictResponse` DTOs
+- Stub functions for createCustomer, createVehicle, createIntake, createRo — all return `skipped_locked`
+
+Backend route stubs: `server/src/routes/writePilot.ts`
+- `GET /api/write-pilot/status` → `{ enabled: false, status: "locked" }`
+- `POST /api/write-pilot/customers` → 423 Locked
+- `POST /api/write-pilot/vehicles` → 423 Locked
+- `POST /api/write-pilot/intakes` → 423 Locked
+- `POST /api/write-pilot/repair-orders` → 423 Locked
+
+All backend write-pilot routes require no auth in this stub phase but will require admin auth
+before the enable path is opened.
+
+### Required Checklist Before Opening Write Pilot Enable Path
+
+- [ ] Backend health check: online
+- [ ] Database connection: confirmed
+- [ ] Migration preview: run and reviewed
+- [ ] Local backup: exported and verified
+- [ ] Database backup: confirmed
+- [ ] File storage backup: confirmed (if documents are in scope)
+- [ ] Cutover checklist: all items checked
+- [ ] Duplicate customers: resolved or acknowledged
+- [ ] Duplicate plates: resolved or acknowledged
+- [ ] RO number conflicts: resolved or acknowledged
+- [ ] User/role sync: verified
+- [ ] Customer portal access: verified
+- [ ] Supplier privacy: verified
+- [ ] AI/SMS proxy: verified
+- [ ] Rollback plan: documented and tested
+- [ ] Maintenance window: announced to staff
+
+---
+
+## Write Pilot Phases (225–239)
+
+### Phase 225 — Customer Backend Write Pilot
+
+Adds `POST /api/pilot/customers` and `PATCH /api/pilot/customers/:localId`.
+Requires `WRITE_PILOT_ENABLED=true` on the backend server.
+If not enabled: returns `{ syncStatus: "skipped_locked" }` — a no-op, not an error.
+If enabled: runs name/phone/email duplicate checks before writing to Prisma.
+
+Frontend helper: `createCustomerBackendPilot()`, `updateCustomerBackendPilot()` in
+`src/modules/api/writePilotHelpers.ts`.
+
+localStorage customer flow is unchanged — pilot is called in addition, not instead.
+
+### Phase 226 — Vehicle Backend Write Pilot
+
+Adds `POST /api/pilot/vehicles` and `PATCH /api/pilot/vehicles/:localId`.
+Duplicate checks: plate number, conduction number, and customer/make/model/year match.
+Missing plate and conduction number returns `syncStatus: "failed"`.
+
+### Phase 227 — Intake Backend Write Pilot
+
+Adds `POST /api/pilot/intakes` and `PATCH /api/pilot/intakes/:localId`.
+Conflict checks: duplicate intake number (against different localId), missing intake number.
+Idempotency: if the same localId already synced (same intakeNumber + same localId), returns existing `remoteId`.
+Preserves: intake number, customer/vehicle link, odometer, concern, requested services.
+
+### Phase 228 — Repair Order Backend Write Pilot
+
+Adds `POST /api/pilot/repair-orders` and `PATCH /api/pilot/repair-orders/:localId`.
+Conflict checks: duplicate RO number (against different localId).
+PATCH strips internal cost/margin fields (`unitCost`, `costTotal`, `margin`, `profit`) before updating.
+Preserves: RO number, customer/vehicle/intake references, status, work lines.
+
+### Phase 229 — Write Pilot Status UI + QA
+
+- `src/modules/api/writePilotAttemptLog.ts`: localStorage-backed attempt log (max 200 entries).
+  Key: `dvi_write_pilot_attempt_log_v1`.
+- Settings page: new "Backend Write Pilot Status" card showing last attempt per entity type,
+  recent attempt log (collapsible), and a footer safety note.
+- `BackendPilot` added to `AuditLogModule` type — pilot events appear in the audit log.
+
+### Phase 230 — Inspection Backend Write Pilot
+
+Adds `POST /api/pilot/inspections` and `PATCH /api/pilot/inspections/:localId`.
+Conflict check: duplicate inspection number (against different localId).
+Idempotency: if same localId already synced to same inspectionNumber, returns existing `remoteId`.
+Frontend helper: `createInspectionBackendPilot()`, `updateInspectionBackendPilot()`.
+
+### Phase 231 — QC Record Backend Write Pilot
+
+Adds `POST /api/pilot/qc` and `PATCH /api/pilot/qc/:localId`.
+Conflict check: duplicate QC number (against different localId).
+Idempotency: if same localId already synced to same qcNumber, returns existing `remoteId`.
+Frontend helper: `createQcBackendPilot()`, `updateQcBackendPilot()`.
+
+### Phase 232 — Release Record Backend Write Pilot
+
+Adds `POST /api/pilot/releases` and `PATCH /api/pilot/releases/:localId`.
+Conflict check: duplicate release number (against different localId).
+Idempotency: if same localId already synced to same releaseNumber, returns existing `remoteId`.
+Frontend helper: `createReleaseBackendPilot()`, `updateReleaseBackendPilot()`.
+
+### Phase 233 — Backjob + Service History Backend Write Pilot
+
+Adds `POST /api/pilot/backjobs`, `PATCH /api/pilot/backjobs/:localId`,
+`POST /api/pilot/service-history`, and `PATCH /api/pilot/service-history/:localId`.
+Backjob: conflict check on duplicate backjob number (against different localId).
+Service history: no unique number field — localId idempotency guard only.
+Frontend helpers: `createBackjobBackendPilot()`, `updateBackjobBackendPilot()`,
+`createServiceHistoryBackendPilot()`, `updateServiceHistoryBackendPilot()`.
+
+### Phase 234 — Workflow Pilot Status UI + QA
+
+- `WritePilotEntityType` extended: adds `"inspection"`, `"qcRecord"`, `"releaseRecord"`, `"backjob"`, `"serviceHistory"`.
+- `getPilotAttemptSummary()` now returns all 9 entity types.
+- Settings "Backend Write Pilot Status" card now shows all 9 entity rows (4 core + 5 workflow).
+
+### Phase 235 — Parts Request Backend Write Pilot
+
+Adds `POST /api/pilot/parts-requests` and `PATCH /api/pilot/parts-requests/:localId`.
+Idempotency check on `requestNumber`. Validates positive quantity.
+Privacy: `bids` and `selectedBidId` stripped from payload — competitor bid data is never written to the backend.
+Frontend helpers: `createPartsRequestBackendPilot()`, `updatePartsRequestBackendPilot()`.
+
+### Phase 236 — Inventory Backend Write Pilot
+
+Adds `POST /api/pilot/inventory`, `PATCH /api/pilot/inventory/:localId`,
+and `POST /api/pilot/inventory/:itemLocalId/movements`.
+Inventory item: informational SKU duplicate check (not @unique in schema). Negative `quantityOnHand` blocked on create.
+Privacy: `unitCost` and `sellingPrice` stripped from item payload — internal cost fields.
+Movement: requires item localId path param resolved to backend remoteId. Zero-quantity blocked.
+Frontend helpers: `createInventoryItemBackendPilot()`, `updateInventoryItemBackendPilot()`, `createInventoryMovementBackendPilot()`.
+
+### Phase 237 — Purchase Order / Supplier Backend Write Pilot
+
+Adds `POST/PATCH /api/pilot/purchase-orders`, `POST/PATCH /api/pilot/suppliers`,
+and stub routes `POST/PATCH /api/pilot/supplier-bids`.
+Purchase order: idempotency check on `poNumber`. Privacy: `totalCost` stripped — internal cost field.
+Supplier: informational name duplicate check (supplierName is not @unique in schema). Requires non-empty `supplierName`.
+Supplier bids: no separate `SupplierBid` model in Prisma schema. Bid data is embedded as JSON in `PartsRequest.bids`.
+  Supplier bid routes are stubs that always return `syncStatus: "skipped_locked"` — competitor bid data is never written to the backend.
+Frontend helpers: `createPurchaseOrderBackendPilot()`, `updatePurchaseOrderBackendPilot()`,
+  `createSupplierBackendPilot()`, `updateSupplierBackendPilot()`,
+  `createSupplierBidBackendPilot()` (sync no-op), `updateSupplierBidBackendPilot()` (sync no-op).
+
+### Phase 238 — Payments / Expenses / Invoices Backend Write Pilot
+
+Adds `POST/PATCH /api/pilot/payments`, `POST/PATCH /api/pilot/expenses`,
+and `POST/PATCH /api/pilot/invoices`.
+Payments: validates amount > 0. `paymentsRepository.create()` calls `preparePaymentInputForPersistence` internally to resolve RO/invoice links.
+Expenses: validates amount > 0.
+Invoices: validates total >= 0. Idempotency check on `invoiceNumber`.
+No accounting integration, no tax logic, no QuickBooks sync.
+Frontend helpers: `createPaymentBackendPilot()`, `updatePaymentBackendPilot()`,
+  `createExpenseBackendPilot()`, `updateExpenseBackendPilot()`,
+  `createInvoiceBackendPilot()`, `updateInvoiceBackendPilot()`.
+
+### Phase 239 — Business Backend Pilot Status UI + QA
+
+- `WritePilotEntityType` extended to 17 types: adds `"partsRequest"`, `"inventoryItem"`, `"inventoryMovement"`, `"purchaseOrder"`, `"supplier"`, `"payment"`, `"expense"`, `"invoice"`.
+- `getPilotAttemptSummary()` now returns all 17 entity types.
+- Settings "Backend Write Pilot Status" card now shows all 17 entity rows.
+- Business write pilot rules enforced:
+  - localStorage remains the default source of truth
+  - No automatic sync, no automatic migration
+  - Conflicts must be reviewed before any future cutover
+  - Cost/margin fields stripped from all business module payloads
+  - Supplier competitor bids never written to backend
+  - No accounting or QuickBooks integration
+  - Backend offline does not affect localStorage flow
+
+### Phase 240 — Document Metadata Backend Write Pilot
+
+Adds `POST /api/pilot/documents`, `PATCH /api/pilot/documents/:localId`, `DELETE /api/pilot/documents/:localId`.
+Payload validated by `validateDocumentPilotPayload()`: requires `fileName`, `sourceModule`; rejects sensitive patterns
+(`password`, `token`, `secret`, `.env`, `key.pem`, etc.); blocks path traversal sequences.
+`customerVisible` defaults to `false` (default-deny); documents with `customerVisible=true` are flagged for review before any customer portal exposure.
+Raw file paths (`storagePath`, `storageRoot`) are never returned to the frontend or customer routes.
+Frontend helpers: `createDocumentBackendPilot()`, `updateDocumentBackendPilot()`, `deleteDocumentBackendPilot()`.
+
+### Phase 241 — File Upload Backend Write Pilot
+
+Adds pilot helpers for binary file storage: `uploadFileBackendPilot()`, `getFileBackendPilot()`, `deleteFileBackendPilot()`.
+All helpers are guarded by `isBackendWritePilotRequested()` and operate through `/api/pilot/files/*` routes.
+`FILE_STORAGE_ROOT`/`UPLOAD_STORAGE_ROOT` is resolved server-side and never exposed in API responses.
+Allowed file extensions enforced by `MAX_UPLOAD_MB` environment variable.
+Pilot file uploads are small-batch only; bulk upload automation is blocked until signed tokens and a production backup routine exist.
+
+### Phase 242 — Customer-Safe Document Sharing Pilot
+
+Adds customer-facing read helpers: `listCustomerVisibleDocuments()`, `getCustomerVisibleDocument()`.
+Default-deny: only documents with `customerVisible=true` are returned. Raw paths never included.
+Internal documents (staff notes, audit attachments, supplier quotes, cost sheets) are never exposed.
+Signed preview/download tokens are required before production customer portal use; pilot stubs return placeholder safe links.
+
+### Phase 243 — Document/File Pilot Attempt Log + Settings UI
+
+`WritePilotEntityType` extended to 20 types: adds `"document"`, `"fileUpload"`, `"customerDocument"`.
+`getPilotAttemptSummary()` now returns all 20 entity types.
+`appendDocumentPilotAttempt(entityType, localId, label, result)` helper added for document/file-specific logging.
+Settings page now includes a custom **Document / File Backend Pilot Status** card showing:
+- File storage status and `MAX_UPLOAD_MB` config
+- Last pilot attempt for each of: document, fileUpload, customerDocument
+- Per-attempt sync status, localId, remoteId, and any warning/conflict message
+
+### Phase 244 — Document/File Pilot QA + Documentation
+
+Build suite: `npm run build` ✓ clean (116 modules), `npm run server:typecheck` ✓ clean.
+Documentation updates: DEPLOYMENT.md updated to Phase 225–244 (3 document routes added to route table, entity count updated to 20, document privacy rules added); server/MIGRATION_PLAN.md updated with Phase 240–244 per-phase docs; server/SECURITY_CHECKLIST.md updated with document/file pilot security rules (default-deny customer docs, no raw paths, signed tokens required for production); server/BACKUP_RESTORE_PLAN.md updated with file storage backup guidance (database + file storage must be backed up as one unit).
+
+### Write Pilot Rules (applies to all pilot routes)
+
+- Write pilot is **optional and guarded**.
+- `WRITE_PILOT_ENABLED` must be `true` in the backend environment to perform writes.
+- localStorage remains the default and active source of truth regardless of pilot status.
+- No automatic sync, no automatic migration, no automatic overwrite.
+- Conflicts must be reviewed manually before any future cutover.
+- Each write pilot attempt is logged to localStorage and to the app audit log.
+- Backend is identified by `remoteId` (Prisma CUID). Frontend uses `localId` (localStorage key).
+- localId → remoteId mapping is stored in the pilot attempt log for traceability.
+- Export a full backup before enabling any migration commit.
+
+### Write Pilot Rollback
+
+At any point, stop the write pilot by:
+1. Setting `WRITE_PILOT_ENABLED=false` (or unsetting it) and restarting the backend.
+2. Setting `AppDataMode` back to `localStorage` in Settings → Backend Proxy Planning.
+3. No localStorage data is modified by the pilot — rollback is immediate and safe.

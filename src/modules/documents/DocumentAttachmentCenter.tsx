@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { RepairOrderRecord } from "../shared/types";
 import { BackToListButton } from "../shared/BackToListButton";
+import { isBackendWritePilotRequested } from "../api/backendDataMode";
+import { createDocumentBackendPilot, updateDocumentBackendPilot, uploadFileBackendPilot } from "../api/writePilotHelpers";
 import {
   buildDocumentAttachmentPreview,
   buildLinkedAttachmentLabel,
@@ -38,8 +40,12 @@ export function DocumentAttachmentCenter({ repairOrders, isCompactLayout, curren
   const [selectedAttachmentId, setSelectedAttachmentId] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [fileWarning, setFileWarning] = useState("");
+  const [backendUploadStatus, setBackendUploadStatus] = useState<"local" | "ready" | "uploading" | "uploaded" | "failed" | "unavailable">("local");
+  const [backendUploadMessage, setBackendUploadMessage] = useState("Local metadata only. Backend file/document pilot is optional and guarded.");
   const backendApiUrl = typeof import.meta !== "undefined" ? String(import.meta.env.VITE_DVI_API_URL ?? "").trim() : "";
   const backendUploadEnabled = String(import.meta.env.VITE_DVI_USE_BACKEND ?? "").toLowerCase() === "true" && !!backendApiUrl;
+  const backendWritePilotRequested = isBackendWritePilotRequested();
+  const backendUploadReady = backendUploadEnabled && backendWritePilotRequested;
 
   useEffect(() => {
     window.localStorage.setItem("dvi_document_attachments_v1", JSON.stringify(attachments));
@@ -96,6 +102,21 @@ export function DocumentAttachmentCenter({ repairOrders, isCompactLayout, curren
       setAttachments((current) => [record, ...current]);
       setSelectedAttachmentId(record.id);
       setFileWarning(preview.warning || "");
+      void createDocumentBackendPilot({
+        localId: record.id,
+        fileName: record.fileName,
+        fileType: record.fileType,
+        mimeType: record.fileType,
+        fileSize: record.fileSize,
+        sourceModule: record.sourceModule,
+        linkedEntityId: record.linkedEntityId,
+        linkedEntityLabel: record.linkedEntityLabel,
+        customerVisible: false,
+        internalOnly: true,
+        uploadedAt: record.uploadedAt,
+        uploadedBy: record.uploadedBy,
+        note: record.note,
+      });
     } else {
       const record = normalizeDocumentAttachmentRecord({
         id: `doc_${Math.random().toString(36).slice(2, 10)}`,
@@ -119,11 +140,86 @@ export function DocumentAttachmentCenter({ repairOrders, isCompactLayout, curren
       setAttachments((current) => [record, ...current]);
       setSelectedAttachmentId(record.id);
       setFileWarning("");
+      void createDocumentBackendPilot({
+        localId: record.id,
+        fileName: record.fileName,
+        fileType: record.fileType,
+        mimeType: record.fileType,
+        fileSize: record.fileSize,
+        sourceModule: record.sourceModule,
+        linkedEntityId: record.linkedEntityId,
+        linkedEntityLabel: record.linkedEntityLabel,
+        customerVisible: false,
+        internalOnly: true,
+        uploadedAt: record.uploadedAt,
+        uploadedBy: record.uploadedBy,
+        note: record.note,
+      });
     }
 
     setFileName("");
     setNote("");
     setPendingFile(null);
+  };
+
+  const uploadSelectedToBackend = async () => {
+    if (!selectedAttachment) return;
+    if (!backendUploadReady) {
+      setBackendUploadStatus(backendUploadEnabled ? "unavailable" : "local");
+      setBackendUploadMessage("Backend upload pilot is locked or backend API is not configured. Local metadata remains intact.");
+      return;
+    }
+    if (!selectedAttachment.dataUrl) {
+      setBackendUploadStatus("failed");
+      setBackendUploadMessage("No local preview payload is available for upload. Metadata can remain local until the file is selected again.");
+      return;
+    }
+    if (selectedAttachment.fileSize > 10 * 1024 * 1024) {
+      setBackendUploadStatus("failed");
+      setBackendUploadMessage("File exceeds the safe frontend pilot limit. Use a backend-managed migration later.");
+      return;
+    }
+    if (!/^(image\/|text\/|application\/pdf|application\/json|application\/xml|application\/rtf|application\/msword|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document)/.test(selectedAttachment.fileType)) {
+      setBackendUploadStatus("failed");
+      setBackendUploadMessage("File type is not allowed for backend upload pilot.");
+      return;
+    }
+    setBackendUploadStatus("uploading");
+    setBackendUploadMessage("Uploading to backend storage pilot. Local metadata remains the source of truth.");
+    const upload = await uploadFileBackendPilot({
+      localId: selectedAttachment.id,
+      fileName: selectedAttachment.fileName,
+      mimeType: selectedAttachment.fileType,
+      fileSize: selectedAttachment.fileSize,
+      dataUrl: selectedAttachment.dataUrl,
+      sourceModule: selectedAttachment.sourceModule,
+      linkedEntityId: selectedAttachment.linkedEntityId,
+      linkedEntityLabel: selectedAttachment.linkedEntityLabel,
+      note: selectedAttachment.note,
+    });
+    if (!upload.success || !upload.fileId) {
+      setBackendUploadStatus("failed");
+      setBackendUploadMessage(upload.warning ?? "Backend upload failed. Local metadata was not changed.");
+      return;
+    }
+    const nextRecord = { ...selectedAttachment, fileId: upload.fileId, storageKey: upload.storageKey };
+    setAttachments((current) => current.map((row) => (row.id === selectedAttachment.id ? nextRecord : row)));
+    await updateDocumentBackendPilot(selectedAttachment.id, {
+      fileName: selectedAttachment.fileName,
+      fileType: selectedAttachment.fileType,
+      mimeType: selectedAttachment.fileType,
+      fileSize: selectedAttachment.fileSize,
+      sourceModule: selectedAttachment.sourceModule,
+      linkedEntityId: selectedAttachment.linkedEntityId,
+      linkedEntityLabel: selectedAttachment.linkedEntityLabel,
+      customerVisible: false,
+      internalOnly: true,
+      fileId: upload.fileId,
+      storageKey: upload.storageKey,
+      note: selectedAttachment.note,
+    });
+    setBackendUploadStatus("uploaded");
+    setBackendUploadMessage("Uploaded to backend storage pilot and linked to metadata. LocalStorage remains the active document index.");
   };
 
   const deleteAttachment = (attachmentId: string) => {
@@ -183,15 +279,18 @@ export function DocumentAttachmentCenter({ repairOrders, isCompactLayout, curren
         </div>
         <div style={styles.headerBadges}>
           <span style={styles.badge}>{attachments.length} indexed item(s)</span>
-          <span style={backendUploadEnabled ? styles.smallBadgeSuccess : styles.smallBadgeMuted}>
-            {backendUploadEnabled ? "Backend upload available" : "Local metadata / preview mode"}
+          <span style={backendUploadReady ? styles.smallBadgeSuccess : styles.smallBadgeMuted}>
+            {backendUploadReady ? "Backend upload pilot ready" : backendUploadEnabled ? "Backend configured / pilot locked" : "Local metadata / preview mode"}
           </span>
         </div>
       </div>
 
       <div style={styles.infoBanner} data-testid="document-center-upload-mode">
-        Current upload mode: {backendUploadEnabled ? `Backend upload configured at ${backendApiUrl}` : "Local metadata / preview mode"}.
+        Current upload mode: {backendUploadReady ? `Backend upload pilot ready at ${backendApiUrl}` : backendUploadEnabled ? "Backend API configured, but write pilot is locked" : "Local metadata / preview mode"}.
         The app still works offline; large production files should be stored on the backend/file server, not in browser localStorage.
+      </div>
+      <div style={styles.infoBanner} data-testid="document-center-backend-upload-status">
+        Backend upload status: {backendUploadStatus}. {backendUploadMessage}
       </div>
 
       <div style={{ ...styles.form, gridTemplateColumns: isCompactLayout ? "1fr" : "repeat(6, minmax(0, 1fr))" }}>
@@ -392,6 +491,9 @@ export function DocumentAttachmentCenter({ repairOrders, isCompactLayout, curren
           </div>
 
           <div style={styles.actions}>
+            <button type="button" style={backendUploadReady ? styles.button : styles.disabledButton} disabled={!backendUploadReady || !selectedAttachment.dataUrl || backendUploadStatus === "uploading"} onClick={() => void uploadSelectedToBackend()}>
+              Upload to backend storage
+            </button>
             <button type="button" style={styles.dangerButton} data-testid="document-center-delete" onClick={() => deleteAttachment(selectedAttachment.id)}>
               Delete Attachment
             </button>
@@ -415,6 +517,7 @@ const styles: Record<string, React.CSSProperties> = {
   input: { border: "1px solid #cbd5e1", borderRadius: 6, padding: "8px 10px", background: "#fff", color: "#0f172a", textTransform: "none", fontWeight: 600 },
   actions: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10 },
   button: { border: "none", borderRadius: 8, padding: "9px 12px", background: "#2563eb", color: "#fff", fontWeight: 800, cursor: "pointer" },
+  disabledButton: { border: "none", borderRadius: 8, padding: "9px 12px", background: "#cbd5e1", color: "#475569", fontWeight: 800, cursor: "not-allowed" },
   dangerButton: { border: "none", borderRadius: 8, padding: "9px 12px", background: "#b91c1c", color: "#fff", fontWeight: 800, cursor: "pointer" },
   list: { display: "grid", gap: 8, marginTop: 12 },
   card: { border: "1px solid #e2e8f0", borderRadius: 8, padding: 10, background: "#f8fafc" },

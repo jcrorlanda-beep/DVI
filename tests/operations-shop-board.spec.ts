@@ -19,7 +19,7 @@ test("technician schedule, bay board, capacity panel, and shop command board ren
   await expect(page.locator('[data-testid^="bay-card-"]').first()).toBeVisible();
 
   await expect(page.getByTestId("capacity-planning-panel")).toBeVisible();
-  await expect(page.getByText(/Active Jobs/i)).toBeVisible();
+  await expect(page.getByTestId("capacity-planning-panel").getByText(/Active Jobs/i)).toBeVisible();
   await expect(page.getByText(/Workload Score/i)).toBeVisible();
 
   await expect(page.getByTestId("shop-command-board")).toBeVisible();

@@ -47,6 +47,9 @@ import { EstimateBuilderPanel } from "./modules/repairOrders/EstimateBuilderPane
 import { ApprovalEvidencePanel } from "./modules/approvals/ApprovalEvidencePanel";
 import { DocumentAttachmentCenter } from "./modules/documents/DocumentAttachmentCenter";
 import { formatDocumentAttachmentSize, readDocumentAttachmentRecords, type DocumentAttachmentRecord } from "./modules/documents/documentAttachmentHelpers";
+import { backendEnabledByEnv } from "./modules/api/apiClient";
+import { listCustomerVisibleDocuments } from "./modules/api/writePilotHelpers";
+import { appendPilotAttempt } from "./modules/api/writePilotAttemptLog";
 import { getVisibleBidsForContext, isSupplierAssignedToRequest } from "./modules/parts/supplierPrivacy";
 import { ExpensePage } from "./modules/finance/ExpensePage";
 import { PaymentTrackingPage } from "./modules/finance/PaymentTrackingPage";
@@ -5771,40 +5774,40 @@ function LoginScreen({
           <>
             <form onSubmit={onPublicBookingSubmit} style={styles.loginForm}>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Customer Name</label>
-                <input style={styles.input} value={publicBookingForm.customerName} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, customerName: e.target.value }))} placeholder="Enter full name" />
+                <label htmlFor="pbf-customerName" style={styles.label}>Customer Name</label>
+                <input id="pbf-customerName" style={styles.input} value={publicBookingForm.customerName} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, customerName: e.target.value }))} placeholder="Enter full name" />
               </div>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Phone</label>
-                <input style={styles.input} value={publicBookingForm.phone} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, phone: e.target.value }))} placeholder="Enter phone number" />
+                <label htmlFor="pbf-phone" style={styles.label}>Phone</label>
+                <input id="pbf-phone" style={styles.input} value={publicBookingForm.phone} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, phone: e.target.value }))} placeholder="Enter phone number" />
               </div>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Email</label>
-                <input style={styles.input} value={publicBookingForm.email} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, email: e.target.value }))} placeholder="Enter email" />
+                <label htmlFor="pbf-email" style={styles.label}>Email</label>
+                <input id="pbf-email" style={styles.input} value={publicBookingForm.email} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, email: e.target.value }))} placeholder="Enter email" />
               </div>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Plate Number</label>
-                <input style={styles.input} value={publicBookingForm.plateNumber} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, plateNumber: e.target.value.toUpperCase() }))} placeholder="ABC-1234" />
+                <label htmlFor="pbf-plateNumber" style={styles.label}>Plate Number</label>
+                <input id="pbf-plateNumber" style={styles.input} value={publicBookingForm.plateNumber} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, plateNumber: e.target.value.toUpperCase() }))} placeholder="ABC-1234" />
               </div>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Make</label>
-                <input style={styles.input} value={publicBookingForm.make} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, make: e.target.value }))} placeholder="Toyota" />
+                <label htmlFor="pbf-make" style={styles.label}>Make</label>
+                <input id="pbf-make" style={styles.input} value={publicBookingForm.make} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, make: e.target.value }))} placeholder="Toyota" />
               </div>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Model</label>
-                <input style={styles.input} value={publicBookingForm.model} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, model: e.target.value }))} placeholder="Fortuner" />
+                <label htmlFor="pbf-model" style={styles.label}>Model</label>
+                <input id="pbf-model" style={styles.input} value={publicBookingForm.model} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, model: e.target.value }))} placeholder="Fortuner" />
               </div>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Year</label>
-                <input style={styles.input} value={publicBookingForm.year} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, year: e.target.value }))} placeholder="2021" />
+                <label htmlFor="pbf-year" style={styles.label}>Year</label>
+                <input id="pbf-year" style={styles.input} value={publicBookingForm.year} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, year: e.target.value }))} placeholder="2021" />
               </div>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Preferred Date</label>
-                <input type="date" style={styles.input} value={publicBookingForm.requestedDate} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, requestedDate: e.target.value }))} />
+                <label htmlFor="pbf-date" style={styles.label}>Preferred Date</label>
+                <input id="pbf-date" type="date" style={styles.input} value={publicBookingForm.requestedDate} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, requestedDate: e.target.value }))} />
               </div>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Preferred Time</label>
-                <input type="time" style={styles.input} value={publicBookingForm.requestedTime} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, requestedTime: e.target.value }))} />
+                <label htmlFor="pbf-time" style={styles.label}>Preferred Time</label>
+                <input id="pbf-time" type="time" style={styles.input} value={publicBookingForm.requestedTime} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, requestedTime: e.target.value }))} />
               </div>
               <div style={styles.formGroup}>
                 <label style={styles.label}>Service Type</label>
@@ -5852,8 +5855,8 @@ function LoginScreen({
               />
               <div style={styles.formHint}>{getBookingServicesPreview(publicBookingForm)}</div>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Concern / Requested Service</label>
-                <textarea style={styles.textarea} value={publicBookingForm.concern} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, concern: e.target.value }))} placeholder="Describe the service request" />
+                <label htmlFor="pbf-concern" style={styles.label}>Concern / Requested Service</label>
+                <textarea id="pbf-concern" style={styles.textarea} value={publicBookingForm.concern} onChange={(e) => setPublicBookingForm((prev) => ({ ...prev, concern: e.target.value }))} placeholder="Describe the service request" />
               </div>
               <div style={styles.formGroup}>
                 <label style={styles.label}>Notes</label>
@@ -5961,6 +5964,8 @@ function CustomerPortalPage({
   const [portalView, setPortalView] = useState<CustomerPortalView>(portalLaunchView ?? "dashboard");
   const [selectedVehicleKey, setSelectedVehicleKey] = useState("");
   const [documentAttachments, setDocumentAttachments] = useState<DocumentAttachmentRecord[]>(() => readDocumentAttachmentRecords());
+  const [backendCustomerDocuments, setBackendCustomerDocuments] = useState<DocumentAttachmentRecord[]>([]);
+  const [backendCustomerDocumentStatus, setBackendCustomerDocumentStatus] = useState("Backend customer document mode is optional. Local customer-visible documents are shown by default.");
 
   const customerLinkedPlateNumbers = Array.isArray(customer.linkedPlateNumbers) ? customer.linkedPlateNumbers : [];
   const customerLinkedRoIds = Array.isArray(customer.linkedRoIds) ? customer.linkedRoIds : [];
@@ -6081,6 +6086,76 @@ function CustomerPortalPage({
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
+  useEffect(() => {
+    if (!backendEnabledByEnv) {
+      setBackendCustomerDocumentStatus("Backend customer document mode is off. Showing local customer-visible documents only.");
+      return;
+    }
+    const query = `?customerId=${encodeURIComponent(customer.id)}`;
+    let active = true;
+    appendPilotAttempt({
+      entityType: "customerDocument",
+      localId: customer.id,
+      entityLabel: customer.fullName,
+      syncStatus: "skipped_locked",
+      remoteId: null,
+      warning: "backend_pilot.customer_document_view_attempt",
+    });
+    void listCustomerVisibleDocuments(query).then((result) => {
+      if (!active) return;
+      if (!result.success) {
+        setBackendCustomerDocuments([]);
+        setBackendCustomerDocumentStatus("Backend customer documents unavailable. Local customer-visible documents remain visible.");
+        appendPilotAttempt({
+          entityType: "customerDocument",
+          localId: customer.id,
+          entityLabel: customer.fullName,
+          syncStatus: "failed",
+          remoteId: null,
+          warning: "backend_pilot.customer_document_redacted",
+        });
+        return;
+      }
+      const docs = Array.isArray(result.data.items) ? result.data.items : [];
+      const safeDocs = docs.map((doc, index) => {
+        const row = doc && typeof doc === "object" ? (doc as Record<string, unknown>) : {};
+        return {
+          id: String(row.id ?? `backend_doc_${index}`),
+          roId: "",
+          roNumber: "",
+          documentType: "Other" as const,
+          fileName: String(row.fileName ?? row.title ?? "Document"),
+          note: "",
+          addedAt: String(row.createdAt ?? row.uploadedAt ?? new Date().toISOString()),
+          addedBy: "Backend",
+          fileType: String(row.mimeType ?? "application/octet-stream"),
+          fileSize: typeof row.fileSize === "number" ? row.fileSize : 0,
+          uploadedAt: String(row.uploadedAt ?? row.createdAt ?? new Date().toISOString()),
+          uploadedBy: "Backend",
+          sourceModule: "Other" as const,
+          linkedEntityId: "",
+          linkedEntityLabel: String(row.linkedEntityLabel ?? ""),
+          previewKind: "file" as const,
+          customerVisible: true,
+          internalOnly: false,
+        };
+      });
+      setBackendCustomerDocuments(safeDocs);
+      setBackendCustomerDocumentStatus(`Backend customer document pilot returned ${safeDocs.length} safe customer-visible document(s). Local documents still remain the fallback.`);
+      appendPilotAttempt({
+        entityType: "customerDocument",
+        localId: customer.id,
+        entityLabel: customer.fullName,
+        syncStatus: "synced",
+        remoteId: null,
+        warning: "backend_pilot.customer_document_view_attempt",
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [customer.id]);
+
   const pendingApprovalCount = linkedRepairOrders.reduce(
     (sum, row) => sum + row.workLines.filter((line) => (line.approvalDecision ?? "Pending") === "Pending").length,
     0
@@ -6175,11 +6250,18 @@ function CustomerPortalPage({
   const customerVisibleDocuments = useMemo(() => {
     const linkedRoIds = new Set(linkedRepairOrders.map((row) => row.id));
     const linkedRoNumbers = new Set(linkedRepairOrders.map((row) => row.roNumber));
-    return documentAttachments
+    const localDocuments = documentAttachments
       .filter((row) => row.customerVisible)
       .filter((row) => linkedRoIds.has(row.roId) || linkedRoIds.has(row.linkedEntityId) || linkedRoNumbers.has(row.roNumber))
       .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
-  }, [documentAttachments, linkedRepairOrders]);
+    const seen = new Set<string>();
+    return [...backendCustomerDocuments, ...localDocuments].filter((row) => {
+      const key = row.id || row.fileName;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [backendCustomerDocuments, documentAttachments, linkedRepairOrders]);
 
   const submitPortalBooking = (e: React.FormEvent) => {
     e.preventDefault();
@@ -6705,12 +6787,12 @@ function CustomerPortalPage({
                       ) : null}
                       <div style={isCompactLayout ? styles.formStack : styles.formGrid3}>
                         <div style={styles.formGroup}>
-                          <label style={styles.label}>Preferred Date</label>
-                          <input type="date" style={styles.input} value={bookingForm.requestedDate} onChange={(e) => setBookingForm((prev) => ({ ...prev, requestedDate: e.target.value }))} />
+                          <label htmlFor="cpbf-date" style={styles.label}>Preferred Date</label>
+                          <input id="cpbf-date" type="date" style={styles.input} value={bookingForm.requestedDate} onChange={(e) => setBookingForm((prev) => ({ ...prev, requestedDate: e.target.value }))} />
                         </div>
                         <div style={styles.formGroup}>
-                          <label style={styles.label}>Preferred Time</label>
-                          <input type="time" style={styles.input} value={bookingForm.requestedTime} onChange={(e) => setBookingForm((prev) => ({ ...prev, requestedTime: e.target.value }))} />
+                          <label htmlFor="cpbf-time" style={styles.label}>Preferred Time</label>
+                          <input id="cpbf-time" type="time" style={styles.input} value={bookingForm.requestedTime} onChange={(e) => setBookingForm((prev) => ({ ...prev, requestedTime: e.target.value }))} />
                         </div>
                         <div style={styles.formGroup}>
                           <label style={styles.label}>Service Type</label>
@@ -6759,8 +6841,8 @@ function CustomerPortalPage({
                       />
                       <div style={styles.formHint}>{getBookingServicesPreview(bookingForm)}</div>
                       <div style={styles.formGroup}>
-                        <label style={styles.label}>Concern / Request</label>
-                        <textarea style={styles.textarea} value={bookingForm.concern} onChange={(e) => setBookingForm((prev) => ({ ...prev, concern: e.target.value }))} placeholder="Describe the service request" />
+                        <label htmlFor="cpbf-concern" style={styles.label}>Concern / Request</label>
+                        <textarea id="cpbf-concern" style={styles.textarea} value={bookingForm.concern} onChange={(e) => setBookingForm((prev) => ({ ...prev, concern: e.target.value }))} placeholder="Describe the service request" />
                       </div>
                       <div style={styles.formGroup}>
                         <label style={styles.label}>Notes</label>
@@ -6943,9 +7025,13 @@ function CustomerPortalPage({
                   <div style={styles.formHint}>
                     Only documents explicitly marked customer-visible by the workshop are shown here. Internal-only files stay hidden.
                   </div>
+                  <div style={styles.formHint} data-testid="customer-portal-backend-document-status">
+                    {backendCustomerDocumentStatus}
+                  </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, marginTop: 10 }}>
                     <span style={styles.statusOk}>Visible {customerVisibleDocuments.length}</span>
                     <span style={styles.statusWarning}>Read-only</span>
+                    <span style={styles.statusNeutral}>Default deny</span>
                   </div>
                 </div>
 
@@ -18219,6 +18305,7 @@ function AppInner() {
                 <button
                   key={item.key}
                   type="button"
+                  data-testid={`nav-${item.key}`}
                   onClick={() => handleNavigate(item.key)}
                   style={{ ...styles.navButton, ...(active ? styles.navButtonActive : {}) }}
                 >

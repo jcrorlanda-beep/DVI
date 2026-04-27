@@ -11,29 +11,28 @@ async function loadDemoAs(page: Page, username: string, password: string) {
 test("admin sees the full operational dashboard and critical nav items", async ({ page }) => {
   await loadDemoAs(page, "admin", "admin123");
 
-  await expect(page.getByRole("button", { name: "Expenses", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Payments", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Audit Log", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Backup & Export", exact: true })).toBeVisible();
-  await expect(page.getByText(/Advisor Action Center/i)).toBeVisible();
-  await expect(page.getByText(/Owner Executive Dashboard/i)).toBeVisible();
+  await expect(page.getByTestId("nav-expenses")).toBeVisible();
+  await expect(page.getByTestId("nav-payments")).toBeVisible();
+  await expect(page.getByTestId("nav-audit")).toBeVisible();
+  await expect(page.getByTestId("nav-backup")).toBeVisible();
+  await expect(page.getByTestId("advisor-action-center-panel")).toBeVisible();
+  await expect(page.getByTestId("owner-executive-dashboard")).toBeVisible();
 });
 
 test("office staff can access payments but still sees locked admin-only areas", async ({ page }) => {
   await loadDemoAs(page, "office", "office123");
 
-  await expect(page.getByRole("button", { name: "Payments", exact: true })).toBeVisible();
+  await expect(page.getByTestId("nav-payments")).toBeVisible();
   await expect(page.getByText(/Owner Executive Dashboard/i)).toBeVisible();
-  await expect(page.getByText(/Access blocked for the current role/i)).toBeVisible();
+  await expect(page.getByText(/Access blocked for the current role/i).first()).toBeVisible();
 });
 
 test("service advisor can use booking and repair order workflow but not audit or backup", async ({ page }) => {
   await loadDemoAs(page, "advisor", "advisor123");
 
-  await expect(page.getByRole("button", { name: "Bookings", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Repair Orders", exact: true })).toBeVisible();
-  await expect(page.getByText(/Advisor Action Center/i)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Audit Log", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Backup & Export", exact: true })).toHaveCount(0);
+  await expect(page.getByTestId("nav-bookings")).toBeVisible();
+  await expect(page.getByTestId("nav-repairOrders")).toBeVisible();
+  await expect(page.getByTestId("advisor-action-center-panel")).toBeVisible();
+  await expect(page.getByTestId("nav-audit")).toHaveCount(0);
+  await expect(page.getByTestId("nav-backup")).toHaveCount(0);
 });
-

@@ -10,8 +10,7 @@ async function loadDemoAs(page: Page, username = "admin", password = "admin123")
 
 test("document attachment upload previews and deletes safely", async ({ page }) => {
   await loadDemoAs(page);
-  await page.getByRole("button", { name: "History" }).click();
-
+  // Document attachment center is on the Dashboard
   await expect(page.getByTestId("document-attachment-center")).toBeVisible();
   await expect(page.getByTestId("document-center-file-input")).toBeVisible();
 
@@ -62,9 +61,7 @@ test("legacy attachment metadata still opens with safe missing-preview state", a
   });
 
   await page.reload();
-  await loadDemoAs(page);
-  await page.getByRole("button", { name: "History" }).click();
-
+  // After reload, still logged in on Dashboard — document center re-reads from localStorage
   await expect(page.getByTestId("document-center-row-legacy-doc-001")).toBeVisible();
   await page.getByTestId("document-center-row-legacy-doc-001").click();
   await expect(page.getByTestId("document-detail-panel")).toContainText("legacy-note-only.pdf");

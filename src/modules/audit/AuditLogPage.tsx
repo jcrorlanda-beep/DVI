@@ -12,6 +12,7 @@ const MODULES: AuditLogModule[] = [
   "CustomerPortal",
   "Expenses",
   "Excel",
+  "BackendPilot",
   "System",
 ];
 
@@ -25,6 +26,7 @@ const MODULE_COLORS: Record<AuditLogModule, { bg: string; text: string }> = {
   CustomerPortal: { bg: "#ffedd5", text: "#9a3412" },
   Expenses: { bg: "#ecfdf5", text: "#065f46" },
   Excel: { bg: "#d1fae5", text: "#065f46" },
+  BackendPilot: { bg: "#e0f2fe", text: "#0369a1" },
   System: { bg: "#f1f5f9", text: "#475569" },
 };
 

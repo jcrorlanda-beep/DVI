@@ -315,6 +315,7 @@ export type AuditLogModule =
   | "CustomerPortal"
   | "Expenses"
   | "Excel"
+  | "BackendPilot"
   | "System";
 
 export type AuditLogRecord = {

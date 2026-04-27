@@ -152,6 +152,17 @@ Business-module migration is also preview-only. Supplier bids remain privacy-sco
 
 Backend file storage foundations are available for controlled testing only. The frontend Document Center still works in local metadata/preview mode unless a later cutover enables backend uploads.
 
+Document/file backend pilot rules:
+
+- localStorage Document Center remains the default source of truth.
+- Backend metadata writes use `/api/pilot/documents` only when the write pilot guard is explicitly enabled.
+- Backend file uploads use `/api/files/upload` and must not expose raw server paths to the frontend or customer portal.
+- Customer-visible documents are default-deny and must be explicitly reviewed before exposure.
+- Customer-facing document responses must hide supplier quotes, competitor bids, internal costs, margins, audit notes, staff-only notes, credentials, and raw file paths.
+- Signed preview/download tokens are required before public customer downloads are production-ready.
+- Bulk file migration is not automatic; upload/link records one at a time during pilot testing.
+- If backend document metadata and file storage get out of sync, keep localStorage as source of truth and restore backend database/file storage from the paired backup.
+
 Backend file env vars:
 
 | Variable | Required | Description |
@@ -326,3 +337,204 @@ To reset all app data:
 | "Port in use" | Another process on the same port | Use `--port <other>` flag |
 | Data lost after browser update | Browser cleared storage | Restore from backup JSON |
 | Other devices can't connect | Firewall or wrong IP | Allow the port in firewall; verify IP with `ipconfig` |
+
+---
+
+## Backend Cutover Pilot (Phase 220–223)
+
+### Current State
+
+- **localStorage is still the default and only active data source.**
+- Backend exists in parallel but is not used for any live data by default.
+- No automatic sync, no automatic migration, no automatic overwrite.
+
+### Read-Only Pilot
+
+The Settings page (Admin only) includes a **Backend Read-Only Pilot Panel** that compares
+local (localStorage) record counts against backend record counts for all major entities:
+customers, vehicles, intakes, repair orders, inspections, parts requests, inventory items,
+payments, and expenses.
+
+This is purely a diagnostic comparison — no data is merged, overwritten, or imported.
+To run it, the App Data Mode must be set to `backendReadOnly` in Settings → Backend Proxy Planning,
+and the backend server must be running.
+
+### Migration Preview
+
+The **Migration Preview** card in Settings runs a preview analysis of what a future backend
+migration would include based on current localStorage data.
+
+- If the backend is online: sends local data to the backend preview endpoints (`/api/migration/core/import-preview`, `/api/migration/business/import-preview`) and shows the server-side analysis.
+- If the backend is offline: runs a local-only analysis using conflict detection helpers.
+
+The preview is **read-only**. No data is written to the backend or removed from localStorage.
+
+### Write Pilot Guard
+
+The **Write Pilot Guard** card in Settings shows the current write-pilot status (Locked by default).
+It requires all of the following before the enable path can be opened:
+
+1. Backend health online
+2. Database connected
+3. Migration preview completed
+4. Backup confirmed (local + database)
+5. Cutover checklist complete
+6. Backend readiness guard passed
+
+The enable button is disabled and locked in this phase. A future phase will open the enable path
+after all requirements are verified.
+
+### Write Pilot API Contracts
+
+The backend exposes locked write-pilot stubs at:
+- `GET  /api/write-pilot/status` → always returns `{ enabled: false, status: "locked" }`
+- `POST /api/write-pilot/customers` → 423 Locked
+- `POST /api/write-pilot/vehicles` → 423 Locked
+- `POST /api/write-pilot/intakes` → 423 Locked
+- `POST /api/write-pilot/repair-orders` → 423 Locked
+
+Frontend contracts are in `src/modules/api/writePilotContracts.ts`.
+All write functions are no-ops that log a warning and return `syncStatus: "skipped_locked"`.
+
+### Rollback Plan
+
+At any time, the app can be reverted to pure localStorage mode:
+1. Set App Data Mode back to `localStorage` in Settings → Backend Proxy Planning.
+2. No data migration is needed — localStorage was never replaced.
+3. The backend server can be stopped without affecting the frontend.
+
+### Warning: Simultaneous Editing During Migration
+
+Do NOT allow staff to create records in the frontend while a migration commit is in progress.
+Simultaneous editing after a migration commit can create split data between localStorage and the backend.
+Announce a brief maintenance window before any future migration commit.
+
+---
+
+## Backend Write Pilot (Phase 225–244)
+
+### Current State
+
+- **localStorage is still the default and only active data source.**
+- Backend write pilot is **opt-in only** — requires `WRITE_PILOT_ENABLED=true` on the server.
+- No automatic sync, no automatic migration, no automatic overwrite.
+- Each pilot write attempt is logged to localStorage and the app audit log.
+
+### Write Pilot Routes
+
+| Route | Phase | Description |
+|-------|-------|-------------|
+| `POST /api/pilot/customers` | 225 | Create customer in backend (pilot) |
+| `PATCH /api/pilot/customers/:localId` | 225 | Update customer by localId (pilot) |
+| `POST /api/pilot/vehicles` | 226 | Create vehicle in backend (pilot) |
+| `PATCH /api/pilot/vehicles/:localId` | 226 | Update vehicle by localId (pilot) |
+| `POST /api/pilot/intakes` | 227 | Create intake in backend (pilot) |
+| `PATCH /api/pilot/intakes/:localId` | 227 | Update intake by localId (pilot) |
+| `POST /api/pilot/repair-orders` | 228 | Create repair order in backend (pilot) |
+| `PATCH /api/pilot/repair-orders/:localId` | 228 | Update RO by localId (pilot) |
+| `POST /api/pilot/inspections` | 230 | Create inspection in backend (pilot) |
+| `PATCH /api/pilot/inspections/:localId` | 230 | Update inspection by localId (pilot) |
+| `POST /api/pilot/qc` | 231 | Create QC record in backend (pilot) |
+| `PATCH /api/pilot/qc/:localId` | 231 | Update QC record by localId (pilot) |
+| `POST /api/pilot/releases` | 232 | Create release record in backend (pilot) |
+| `PATCH /api/pilot/releases/:localId` | 232 | Update release record by localId (pilot) |
+| `POST /api/pilot/backjobs` | 233 | Create backjob record in backend (pilot) |
+| `PATCH /api/pilot/backjobs/:localId` | 233 | Update backjob record by localId (pilot) |
+| `POST /api/pilot/service-history` | 233 | Create service history record in backend (pilot) |
+| `PATCH /api/pilot/service-history/:localId` | 233 | Update service history record by localId (pilot) |
+| `POST /api/pilot/parts-requests` | 235 | Create parts request in backend (pilot) |
+| `PATCH /api/pilot/parts-requests/:localId` | 235 | Update parts request by localId (pilot) |
+| `POST /api/pilot/inventory` | 236 | Create inventory item in backend (pilot) |
+| `PATCH /api/pilot/inventory/:localId` | 236 | Update inventory item by localId (pilot) |
+| `POST /api/pilot/inventory/:localId/movements` | 236 | Create inventory movement linked to item (pilot) |
+| `POST /api/pilot/purchase-orders` | 237 | Create purchase order in backend (pilot) |
+| `PATCH /api/pilot/purchase-orders/:localId` | 237 | Update purchase order by localId (pilot) |
+| `POST /api/pilot/suppliers` | 237 | Create supplier in backend (pilot) |
+| `PATCH /api/pilot/suppliers/:localId` | 237 | Update supplier by localId (pilot) |
+| `POST /api/pilot/supplier-bids` | 237 | Stub — no SupplierBid model; always returns skipped_locked |
+| `PATCH /api/pilot/supplier-bids/:localId` | 237 | Stub — no SupplierBid model; always returns skipped_locked |
+| `POST /api/pilot/payments` | 238 | Create payment in backend (pilot) |
+| `PATCH /api/pilot/payments/:localId` | 238 | Update payment by localId (pilot) |
+| `POST /api/pilot/expenses` | 238 | Create expense in backend (pilot) |
+| `PATCH /api/pilot/expenses/:localId` | 238 | Update expense by localId (pilot) |
+| `POST /api/pilot/invoices` | 238 | Create invoice in backend (pilot) |
+| `PATCH /api/pilot/invoices/:localId` | 238 | Update invoice by localId (pilot) |
+| `POST /api/pilot/documents` | 240 | Create document metadata in backend (pilot) |
+| `PATCH /api/pilot/documents/:localId` | 240 | Update document metadata by localId (pilot) |
+| `DELETE /api/pilot/documents/:localId` | 240 | Delete document metadata by localId (pilot) |
+
+All routes return HTTP 200 with `{ syncStatus: "skipped_locked" }` when `WRITE_PILOT_ENABLED` is not set.
+
+### Enabling the Write Pilot
+
+Set the server environment variable before starting the backend:
+
+```bash
+WRITE_PILOT_ENABLED=true npm run server:dev
+```
+
+Or in a `.env` file for the server (never commit this):
+
+```env
+WRITE_PILOT_ENABLED=true
+```
+
+**Requirements before enabling:**
+1. Run migration preview and review results.
+2. Export a full localStorage backup.
+3. Confirm database backup exists.
+4. Resolve duplicate customers, plates, and RO numbers.
+5. Complete the Cutover Safety Checklist in Settings.
+6. Announce a maintenance window to staff.
+
+### Response Shape
+
+All pilot routes return:
+
+```json
+{
+  "success": true,
+  "data": {
+    "localId": "the-frontend-local-id",
+    "remoteId": "cuid-from-backend-or-null",
+    "syncStatus": "synced | conflict | skipped_locked | failed",
+    "warning": "optional message",
+    "conflictReason": "optional conflict description"
+  }
+}
+```
+
+### Conflict Handling
+
+- `syncStatus: "conflict"` — duplicate or missing-link detected; no write performed.
+- `syncStatus: "skipped_locked"` — pilot not enabled; no write performed.
+- `syncStatus: "failed"` — backend unavailable or validation error; no write performed.
+- `syncStatus: "synced"` — record created/updated in backend; `remoteId` is populated.
+
+Conflicts are informational. The frontend still saves to localStorage regardless.
+Review conflicts before any future migration commit.
+
+### Write Pilot Status UI
+
+The Settings page includes a **Backend Write Pilot Status** card showing:
+- Last pilot attempt per entity type (all 20: customer, vehicle, intake, repair order, inspection, QC record, release record, backjob, service history, parts request, inventory item, inventory movement, purchase order, supplier, payment, expense, invoice, document, file upload, customer document)
+- Sync status, local ID, remote ID, and conflict/warning message
+- Recent attempt log (collapsible, last 20)
+- Refresh and admin-only clear log actions
+
+**Privacy rules enforced in pilot routes:**
+- Parts requests: `bids` and `selectedBidId` stripped — competitor bid data never written to backend
+- Inventory items: `unitCost` and `sellingPrice` stripped — internal cost fields
+- Purchase orders: `totalCost` and `cost` stripped — internal cost field
+- Supplier bids: no separate model; routes return `skipped_locked` always
+- No accounting integration, no tax logic, no QuickBooks sync
+- Documents: customer-visible sharing is default-deny; raw file paths never returned; internal/staff-only documents never exposed to customer routes
+- File upload/retrieval routes (`uploadFileBackendPilot`, `getFileBackendPilot`, `deleteFileBackendPilot`) are pilot-only; file storage root is never exposed in responses
+- Customer document routes (`listCustomerVisibleDocuments`, `getCustomerVisibleDocument`) require explicit `customerVisible=true` per document; signed download tokens required before production use
+
+### Rollback
+
+To stop the write pilot at any time:
+1. Remove or set `WRITE_PILOT_ENABLED=false` and restart the backend.
+2. Set `AppDataMode` back to `localStorage` in Settings → Backend Proxy Planning.
+3. localStorage is not affected — rollback is immediate and safe.

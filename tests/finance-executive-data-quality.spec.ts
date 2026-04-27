@@ -9,7 +9,7 @@ async function loadDemoAs(page: Page, username = "admin", password = "admin123")
 }
 
 async function openSettings(page: Page) {
-  await page.getByRole("button", { name: /Settings/i }).click();
+  await page.getByTestId("nav-settings").click();
 }
 
 test("revenue, margin, and owner dashboard render with populated values", async ({ page }) => {

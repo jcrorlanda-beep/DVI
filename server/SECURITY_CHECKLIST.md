@@ -55,6 +55,10 @@ This backend is a foundation only. It is not production-secure until the items b
 - Define retention rules for AI drafts, SMS logs, audit logs, and document metadata.
 - Back up backend file storage separately from PostgreSQL; uploaded files are not contained in database backups.
 - Customer-visible documents are default-deny and must be manually reviewed before exposure.
+- Document/file pilot routes must stay guarded and optional; localStorage remains the frontend source of truth.
+- Never expose raw file paths, storage roots, supplier quotes, competitor bids, margins, audit notes, staff-only notes, or credentials through customer document responses.
+- Public customer downloads require signed preview/download tokens before production use.
+- Audit document/file pilot attempts without logging raw file content, secrets, or private filesystem paths.
 - Supplier bid privacy must be regression-tested before supplier portal cutover.
 
 ## Production QA Gate

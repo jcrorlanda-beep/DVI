@@ -29,11 +29,15 @@ import { smsRoutes } from "./sms.js";
 import type { ApiRoute } from "./types.js";
 import { userRoutes } from "./users.js";
 import { vehicleRoutes } from "./vehicles.js";
+import { writePilotRoutes } from "./writePilot.js";
+import { pilotWriteRoutes } from "./pilotWrites.js";
 
 export const routes: ApiRoute[] = [
   ...healthRoutes,
   ...aiRoutes,
   ...smsRoutes,
+  ...writePilotRoutes,
+  ...pilotWriteRoutes,
   ...migrationRoutes,
   ...authRoutes,
   ...roleRoutes,

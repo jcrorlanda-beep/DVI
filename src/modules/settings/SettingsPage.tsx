@@ -6,7 +6,7 @@ import { OPENAI_ASSIST_LOG_STORAGE_KEY, type OpenAiAssistProviderMode, type Open
 import { DEFAULT_AI_MODULE_TOGGLES, getAiModuleLabel, readAiModuleToggles, saveAiModuleToggles, type AiModuleKey, type AiModuleToggleSettings } from "../ai/aiSafety";
 import { cleanupInvalidJsonStorage, validateStoredRecords, type DataQualitySummary } from "../dataQuality/dataQualityHelpers";
 import { CURRENT_DATA_MIGRATION_VERSION, getDataMigrationReminder, readDataMigrationVersion } from "../dataQuality/migrationHelpers";
-import { BACKEND_DATA_MODE_STORAGE_KEY, DVI_API_BASE_URL, backendEnabledByEnv, checkBackendHealth } from "../api/apiClient";
+import { BACKEND_DATA_MODE_STORAGE_KEY, DVI_API_BASE_URL, backendEnabledByEnv, checkBackendHealth, apiPost } from "../api/apiClient";
 import {
   APP_DATA_MODE_STORAGE_KEY,
   getCurrentDataMode,
@@ -42,6 +42,47 @@ import {
   canAccessSupplierManagement,
   canAccessTechnicianOperations,
 } from "../shared/roleAccess";
+import {
+  clearPilotAttemptLog,
+  getPilotAttemptSummary,
+  readPilotAttemptLog,
+  syncStatusLabel,
+  type WritePilotAttemptEntry,
+} from "../api/writePilotAttemptLog";
+
+type MigrationPreviewCoreResult = {
+  totalRecords: number;
+  recordsReady: number;
+  recordsNeedingReview: number;
+  totalCustomers?: number;
+  totalVehicles?: number;
+  totalIntakes?: number;
+  totalRepairOrders?: number;
+  duplicateCustomers?: string[];
+  duplicatePlates?: string[];
+  duplicateRoNumbers?: string[];
+  missingCustomerLinks?: string[];
+  missingVehicleLinks?: string[];
+  invalidStatuses?: string[];
+  canCommit?: boolean;
+  warning?: string;
+};
+
+type MigrationPreviewBusinessResult = {
+  totalRecords: number;
+  recordsReady: number;
+  recordsNeedingReview: number;
+  warning?: string;
+};
+
+type MigrationPreviewState = {
+  status: "idle" | "running" | "complete" | "backendUnavailable" | "error";
+  corePreview?: MigrationPreviewCoreResult | null;
+  businessPreview?: MigrationPreviewBusinessResult | null;
+  backendUsed?: boolean;
+  completedAt?: string;
+  errorMessage?: string;
+};
 
 const ROLE_COLORS: Record<UserRole, { bg: string; text: string }> = {
   Admin: { bg: "#fee2e2", text: "#991b1b" },
@@ -145,6 +186,17 @@ function readCutoverChecklist(): CutoverChecklistState {
   } catch {
     return fallback;
   }
+}
+
+function pilotStatusLabel(comparison: BackendPilotComparison): string {
+  if (comparison.status === "idle") return "Not checked";
+  if (comparison.status === "unavailable") return "Backend unavailable";
+  if (comparison.status === "skipped") return "Skipped (read mode off)";
+  if (comparison.backendCount === null) return "Not checked";
+  if (comparison.backendCount === comparison.localCount) return "Counts match";
+  if (comparison.warnings.some((w) => w.includes("Mismatch") || w.includes("mismatch") || w.includes("Count mismatch"))) return "Mismatch detected";
+  if (comparison.warnings.length > 0) return "Needs review";
+  return "Mismatch detected";
 }
 
 function getCutoverChecklistStatus(checklist: CutoverChecklistState, readiness: BackendReadinessResult): "incomplete" | "ready for pilot" | "blocked" {
@@ -267,7 +319,16 @@ function SettingsPage({
   const [customerPilot, setCustomerPilot] = React.useState<BackendPilotComparison>(() => buildPilotComparison(0, null));
   const [vehiclePilot, setVehiclePilot] = React.useState<BackendPilotComparison>(() => buildPilotComparison(0, null));
   const [repairOrderPilot, setRepairOrderPilot] = React.useState<BackendPilotComparison>(() => buildPilotComparison(0, null));
+  const [intakePilot, setIntakePilot] = React.useState<BackendPilotComparison>(() => buildPilotComparison(0, null));
+  const [inspectionPilot, setInspectionPilot] = React.useState<BackendPilotComparison>(() => buildPilotComparison(0, null));
+  const [partsRequestPilot, setPartsRequestPilot] = React.useState<BackendPilotComparison>(() => buildPilotComparison(0, null));
+  const [inventoryPilot, setInventoryPilot] = React.useState<BackendPilotComparison>(() => buildPilotComparison(0, null));
+  const [paymentPilot, setPaymentPilot] = React.useState<BackendPilotComparison>(() => buildPilotComparison(0, null));
+  const [expensePilot, setExpensePilot] = React.useState<BackendPilotComparison>(() => buildPilotComparison(0, null));
+  const [isRunningFullPilot, setIsRunningFullPilot] = React.useState(false);
   const [pilotFeedback, setPilotFeedback] = React.useState("Read-only pilot has not run.");
+  const [migrationPreview, setMigrationPreview] = React.useState<MigrationPreviewState>({ status: "idle" });
+  const [migrationPreviewCompleted, setMigrationPreviewCompleted] = React.useState(false);
   const [cutoverChecklist, setCutoverChecklist] = React.useState<CutoverChecklistState>(() => readCutoverChecklist());
   const [openAiAssistLogs, setOpenAiAssistLogs] = React.useState<OpenAiAssistLogEntry[]>(() => {
     if (typeof window === "undefined") return [];
@@ -281,6 +342,7 @@ function SettingsPage({
   const [aiModuleToggles, setAiModuleToggles] = React.useState<AiModuleToggleSettings>(() => readAiModuleToggles());
   const [aiSafetyFeedback, setAiSafetyFeedback] = React.useState("");
   const [isSavingAiSafety, setIsSavingAiSafety] = React.useState(false);
+  const [pilotAttemptLog, setPilotAttemptLog] = React.useState<WritePilotAttemptEntry[]>(() => readPilotAttemptLog());
   const dataQualityKeys = React.useMemo(
     () => [
       "dvi_phase2_intake_records_v1",
@@ -451,13 +513,13 @@ function SettingsPage({
         dataMode: appDataMode,
         health: backendHealthPayload,
         healthOnline: backendHealthStatus === "online",
-        migrationPreviewCompleted: false,
+        migrationPreviewCompleted: migrationPreviewCompleted,
         migrationCommitEnabled: false,
         fileStoragePlanned: appDataMode !== "localStorage",
         aiProxyRelevant: aiBackendMode === "Backend Proxy Future",
         smsProxyRelevant: smsBackendMode === "Backend Proxy Future",
       }),
-    [aiBackendMode, appDataMode, backendHealthPayload, backendHealthStatus, smsBackendMode]
+    [aiBackendMode, appDataMode, backendHealthPayload, backendHealthStatus, migrationPreviewCompleted, smsBackendMode]
   );
   const cutoverChecklistStatus = React.useMemo(
     () => getCutoverChecklistStatus(cutoverChecklist, backendReadiness),
@@ -525,6 +587,153 @@ function SettingsPage({
       warnings: [...comparison.warnings, ...getRoPilotWarnings(localRepairOrders)],
     });
     setPilotFeedback("Backend RO read-only comparison finished. No workflow records were merged or overwritten.");
+  };
+
+  const runFullReadOnlyPilot = async () => {
+    if (isRunningFullPilot) return;
+    setIsRunningFullPilot(true);
+    setPilotFeedback("Running full read-only comparison…");
+
+    const canRead = shouldRunReadOnlyPilot(appDataMode);
+    const skipped: BackendPilotComparison = { status: "skipped", localCount: 0, backendCount: null, warnings: ["Backend read mode is off."] };
+
+    const localCounts = {
+      customers: readLocalArrayCount("dvi_phase15a_customer_accounts_v1"),
+      vehicles: readLocalVehicleCount(),
+      intakes: readLocalArrayCount("dvi_phase2_intake_records_v1"),
+      repairOrders: readLocalRepairOrders().length,
+      inspections: readLocalArrayCount("dvi_phase3_inspection_records_v1"),
+      partsRequests: readLocalArrayCount("dvi_phase8_parts_requests_v1"),
+      inventory: readLocalArrayCount("dvi_inventory_items_v1"),
+      payments: readLocalArrayCount("dvi_phase10_payment_records_v1"),
+      expenses: readLocalArrayCount("dvi_phase53_expense_records_v1"),
+    };
+
+    if (!canRead) {
+      setCustomerPilot({ ...skipped, localCount: localCounts.customers });
+      setVehiclePilot({ ...skipped, localCount: localCounts.vehicles });
+      setIntakePilot({ ...skipped, localCount: localCounts.intakes });
+      setRepairOrderPilot({ ...skipped, localCount: localCounts.repairOrders });
+      setInspectionPilot({ ...skipped, localCount: localCounts.inspections });
+      setPartsRequestPilot({ ...skipped, localCount: localCounts.partsRequests });
+      setInventoryPilot({ ...skipped, localCount: localCounts.inventory });
+      setPaymentPilot({ ...skipped, localCount: localCounts.payments });
+      setExpensePilot({ ...skipped, localCount: localCounts.expenses });
+      setPilotFeedback("Full pilot skipped — data mode is localStorage. Switch App Data Mode to backendReadOnly to enable comparisons.");
+      setIsRunningFullPilot(false);
+      return;
+    }
+
+    const [
+      backendCustomers, backendVehicles, backendIntakes, backendROs,
+      backendInspections, backendParts, backendInventory, backendPayments, backendExpenses,
+    ] = await Promise.all([
+      fetchBackendListCount("/api/customers"),
+      fetchBackendListCount("/api/vehicles"),
+      fetchBackendListCount("/api/intakes"),
+      fetchBackendListCount("/api/repair-orders"),
+      fetchBackendListCount("/api/inspections"),
+      fetchBackendListCount("/api/parts-requests"),
+      fetchBackendListCount("/api/inventory"),
+      fetchBackendListCount("/api/payments"),
+      fetchBackendListCount("/api/expenses"),
+    ]);
+
+    const ros = readLocalRepairOrders();
+    setCustomerPilot(buildPilotComparison(localCounts.customers, backendCustomers.count, backendCustomers.warning));
+    setVehiclePilot(buildPilotComparison(localCounts.vehicles, backendVehicles.count, backendVehicles.warning));
+    setIntakePilot(buildPilotComparison(localCounts.intakes, backendIntakes.count, backendIntakes.warning));
+    const roPilot = buildPilotComparison(localCounts.repairOrders, backendROs.count, backendROs.warning);
+    setRepairOrderPilot({ ...roPilot, warnings: [...roPilot.warnings, ...getRoPilotWarnings(ros)] });
+    setInspectionPilot(buildPilotComparison(localCounts.inspections, backendInspections.count, backendInspections.warning));
+    setPartsRequestPilot(buildPilotComparison(localCounts.partsRequests, backendParts.count, backendParts.warning));
+    setInventoryPilot(buildPilotComparison(localCounts.inventory, backendInventory.count, backendInventory.warning));
+    setPaymentPilot(buildPilotComparison(localCounts.payments, backendPayments.count, backendPayments.warning));
+    setExpensePilot(buildPilotComparison(localCounts.expenses, backendExpenses.count, backendExpenses.warning));
+    setPilotFeedback("Full read-only comparison finished. No records were merged or overwritten.");
+    setIsRunningFullPilot(false);
+  };
+
+  const runMigrationPreview = async () => {
+    if (migrationPreview.status === "running") return;
+    setMigrationPreview({ status: "running" });
+
+    const readArray = (key: string): unknown[] => {
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(key) ?? "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch { return []; }
+    };
+
+    const customers = readArray("dvi_phase15a_customer_accounts_v1");
+    const intakes = readArray("dvi_phase2_intake_records_v1");
+    const repairOrders = readArray("dvi_phase4_repair_orders_v1");
+    const expenses = readArray("dvi_phase53_expense_records_v1");
+    const payments = readArray("dvi_phase10_payment_records_v1");
+    const invoices = readArray("dvi_phase10_invoice_records_v1");
+    const partsRequests = readArray("dvi_phase8_parts_requests_v1");
+    const inventory = readArray("dvi_inventory_items_v1");
+    const inspections = readArray("dvi_phase3_inspection_records_v1");
+
+    const localCore: MigrationPreviewCoreResult = {
+      totalCustomers: customers.length,
+      totalVehicles: readLocalVehicleCount(),
+      totalIntakes: intakes.length,
+      totalRepairOrders: repairOrders.length,
+      totalRecords: customers.length + intakes.length + repairOrders.length,
+      recordsReady: 0,
+      recordsNeedingReview: 0,
+      duplicateCustomers: syncConflictSummary.conflicts > 0 ? [`${syncConflictSummary.conflicts} conflict(s) detected locally`] : [],
+      duplicatePlates: [],
+      duplicateRoNumbers: [],
+      missingCustomerLinks: [],
+      missingVehicleLinks: [],
+      invalidStatuses: [],
+      canCommit: false,
+      warning: "Local-only preview. Connect to backend for full analysis.",
+    };
+    localCore.recordsReady = Math.max(localCore.totalRecords - syncConflictSummary.conflicts, 0);
+    localCore.recordsNeedingReview = syncConflictSummary.conflicts + syncConflictSummary.needsReview;
+
+    const localBusiness: MigrationPreviewBusinessResult = {
+      totalRecords: expenses.length + payments.length + invoices.length + partsRequests.length + inventory.length + inspections.length,
+      recordsReady: 0,
+      recordsNeedingReview: 0,
+      warning: "Local-only preview.",
+    };
+    localBusiness.recordsReady = localBusiness.totalRecords;
+
+    try {
+      const coreResult = await apiPost<{ data?: { corePreview?: MigrationPreviewCoreResult } }>(
+        "/api/migration/core/import-preview",
+        { body: { customers, intakes, repairOrders } }
+      );
+      const businessResult = await apiPost<{ data?: { businessPreview?: MigrationPreviewBusinessResult } }>(
+        "/api/migration/business/import-preview",
+        { body: { expenses, payments, invoices, partsRequests, inventory, inspections } }
+      );
+
+      if (coreResult.success) {
+        setMigrationPreview({
+          status: "complete",
+          corePreview: (coreResult.data as Record<string, unknown>)?.corePreview as MigrationPreviewCoreResult ?? localCore,
+          businessPreview: businessResult.success ? ((businessResult.data as Record<string, unknown>)?.businessPreview as MigrationPreviewBusinessResult ?? localBusiness) : localBusiness,
+          backendUsed: true,
+          completedAt: new Date().toISOString(),
+        });
+        setMigrationPreviewCompleted(true);
+        return;
+      }
+    } catch { /* fall through to local-only */ }
+
+    setMigrationPreview({
+      status: "backendUnavailable",
+      corePreview: localCore,
+      businessPreview: localBusiness,
+      backendUsed: false,
+      completedAt: new Date().toISOString(),
+    });
+    setMigrationPreviewCompleted(true);
   };
 
   const refreshOpenAiAssistLogs = () => {
@@ -683,6 +892,30 @@ function SettingsPage({
       </div>
 
       <div style={{ ...styles.grid, marginTop: 16 }}>
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Document / File Backend Pilot Status" subtitle="Document metadata, file storage, and customer-safe sharing remain optional">
+            <div style={styles.moduleText} data-testid="document-file-pilot-status-panel">
+              Document and file pilots are guarded by backend write mode and document permissions. LocalStorage remains the Document Center source of truth.
+            </div>
+            <div style={styles.inlineStatusRow}>
+              <span style={backendHealthPayload?.fileStorageConfigured ? styles.successPill : styles.neutralPill}>
+                File storage: {backendHealthPayload?.fileStorageConfigured ? "configured" : "not confirmed"}
+              </span>
+              <span style={styles.infoPill}>Max upload: {backendHealthPayload?.maxUploadMb ?? "unknown"} MB</span>
+              <span style={styles.neutralPill}>Allowed: images, PDFs, text/doc-like files</span>
+              <span style={styles.warningPill}>Raw paths hidden</span>
+            </div>
+            <div style={{ ...styles.concernCard, marginTop: 10 }}>
+              Metadata pilot: guarded. File upload pilot: guarded. Customer sharing pilot: default-deny and customer-visible only.
+            </div>
+            <div style={{ ...styles.concernCard, marginTop: 10 }}>
+              Last document attempt: {getPilotAttemptSummary().document ? `${syncStatusLabel(getPilotAttemptSummary().document!.syncStatus)} / ${getPilotAttemptSummary().document!.entityLabel}` : "No attempt"}.
+              {" "}Last upload attempt: {getPilotAttemptSummary().fileUpload ? `${syncStatusLabel(getPilotAttemptSummary().fileUpload!.syncStatus)} / ${getPilotAttemptSummary().fileUpload!.entityLabel}` : "No attempt"}.
+              {" "}Customer document access: {getPilotAttemptSummary().customerDocument ? syncStatusLabel(getPilotAttemptSummary().customerDocument!.syncStatus) : "No backend attempt logged"}.
+            </div>
+          </Card>
+        </div>
+
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
           <Card
             title="Data Quality + Legacy Cleanup"
@@ -1240,6 +1473,150 @@ function SettingsPage({
         </div>
 
         <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Backend Read-Only Pilot Panel" subtitle="Full entity comparison — no writes, no sync, no data-source switch">
+            <div style={styles.moduleText} data-testid="full-pilot-panel">
+              Compare local (localStorage) record counts against backend counts for all major entities.
+              No records are merged, overwritten, or imported. Backend read mode must be enabled for live comparisons.
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ minWidth: 560, width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: "var(--table-header-bg, #f8fafc)" }}>
+                    <th style={{ textAlign: "left", padding: "8px 10px", borderBottom: "1px solid var(--table-border, #e2e8f0)", color: "var(--text-secondary, #64748b)", fontWeight: 700 }}>Entity</th>
+                    <th style={{ textAlign: "right", padding: "8px 10px", borderBottom: "1px solid var(--table-border, #e2e8f0)", color: "var(--text-secondary, #64748b)", fontWeight: 700 }}>Local</th>
+                    <th style={{ textAlign: "right", padding: "8px 10px", borderBottom: "1px solid var(--table-border, #e2e8f0)", color: "var(--text-secondary, #64748b)", fontWeight: 700 }}>Backend</th>
+                    <th style={{ textAlign: "left", padding: "8px 10px", borderBottom: "1px solid var(--table-border, #e2e8f0)", color: "var(--text-secondary, #64748b)", fontWeight: 700 }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(
+                    [
+                      { label: "Customers", pilot: customerPilot, testId: "pilot-row-customers" },
+                      { label: "Vehicles", pilot: vehiclePilot, testId: "pilot-row-vehicles" },
+                      { label: "Intakes", pilot: intakePilot, testId: "pilot-row-intakes" },
+                      { label: "Repair Orders", pilot: repairOrderPilot, testId: "pilot-row-ros" },
+                      { label: "Inspections", pilot: inspectionPilot, testId: "pilot-row-inspections" },
+                      { label: "Parts Requests", pilot: partsRequestPilot, testId: "pilot-row-parts" },
+                      { label: "Inventory Items", pilot: inventoryPilot, testId: "pilot-row-inventory" },
+                      { label: "Payments", pilot: paymentPilot, testId: "pilot-row-payments" },
+                      { label: "Expenses", pilot: expensePilot, testId: "pilot-row-expenses" },
+                    ] as { label: string; pilot: BackendPilotComparison; testId: string }[]
+                  ).map(({ label, pilot, testId }) => {
+                    const statusLabel = pilotStatusLabel(pilot);
+                    const statusStyle = statusLabel === "Counts match" ? styles.successPill : statusLabel === "Not checked" || statusLabel === "Skipped (read mode off)" ? styles.neutralPill : styles.warningPill;
+                    return (
+                      <tr key={testId} data-testid={testId}>
+                        <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--table-border, #e2e8f0)", color: "var(--text-primary, #0f172a)", fontWeight: 600 }}>{label}</td>
+                        <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--table-border, #e2e8f0)", textAlign: "right", color: "var(--text-primary, #0f172a)" }}>{pilot.localCount}</td>
+                        <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--table-border, #e2e8f0)", textAlign: "right", color: "var(--text-secondary, #64748b)" }}>{pilot.backendCount ?? "—"}</td>
+                        <td style={{ padding: "8px 10px", borderBottom: "1px solid var(--table-border, #e2e8f0)" }}><span style={statusStyle}>{statusLabel}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ ...styles.inlineActions, marginTop: 12 }}>
+              <button
+                type="button"
+                style={styles.smallPrimaryButton}
+                data-testid="run-full-pilot-button"
+                disabled={isRunningFullPilot}
+                onClick={() => void runFullReadOnlyPilot()}
+              >
+                {isRunningFullPilot ? "Running…" : "Run Full Comparison"}
+              </button>
+            </div>
+            <div style={{ ...styles.concernCard, marginTop: 10 }} data-testid="full-pilot-feedback">
+              {pilotFeedback}
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Migration Preview" subtitle="Preview-only analysis — no data will be imported or committed">
+            <div style={{ ...styles.concernCard, marginBottom: 12, background: "#fef3c7", border: "1px solid #fde68a", color: "#92400e" }} data-testid="migration-preview-warning">
+              Preview only. No data will be imported, synced, or written to the backend or localStorage.
+            </div>
+            <div style={styles.moduleText} data-testid="migration-preview-panel">
+              Run a preview of what a future backend migration would include based on current localStorage data.
+              If the backend is offline, a local-only analysis is shown.
+            </div>
+            {migrationPreview.status !== "idle" && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginBottom: 12 }}>
+                <div style={styles.concernCard} data-testid="migration-preview-core">
+                  <strong>Core Data</strong>
+                  <br />
+                  {migrationPreview.corePreview ? (
+                    <>
+                      <span>Customers: {migrationPreview.corePreview.totalCustomers ?? "—"}</span><br />
+                      <span>Vehicles: {migrationPreview.corePreview.totalVehicles ?? "—"}</span><br />
+                      <span>Intakes: {migrationPreview.corePreview.totalIntakes ?? "—"}</span><br />
+                      <span>Repair Orders: {migrationPreview.corePreview.totalRepairOrders ?? "—"}</span><br />
+                      <span>Total records: {migrationPreview.corePreview.totalRecords}</span><br />
+                      <span>Ready: {migrationPreview.corePreview.recordsReady}</span><br />
+                      <span>Needs review: {migrationPreview.corePreview.recordsNeedingReview}</span>
+                      {(migrationPreview.corePreview.duplicateCustomers?.length ?? 0) > 0 && (
+                        <div style={{ marginTop: 6, color: "#b45309", fontSize: 12 }}>
+                          Duplicate customers: {migrationPreview.corePreview.duplicateCustomers?.length}
+                        </div>
+                      )}
+                      {(migrationPreview.corePreview.duplicatePlates?.length ?? 0) > 0 && (
+                        <div style={{ color: "#b45309", fontSize: 12 }}>
+                          Duplicate plates: {migrationPreview.corePreview.duplicatePlates?.length}
+                        </div>
+                      )}
+                      {(migrationPreview.corePreview.duplicateRoNumbers?.length ?? 0) > 0 && (
+                        <div style={{ color: "#b45309", fontSize: 12 }}>
+                          Duplicate RO numbers: {migrationPreview.corePreview.duplicateRoNumbers?.length}
+                        </div>
+                      )}
+                      {(migrationPreview.corePreview.invalidStatuses?.length ?? 0) > 0 && (
+                        <div style={{ color: "#b91c1c", fontSize: 12 }}>
+                          Invalid statuses: {migrationPreview.corePreview.invalidStatuses?.length}
+                        </div>
+                      )}
+                    </>
+                  ) : <span style={{ color: "var(--text-muted, #94a3b8)" }}>No data</span>}
+                </div>
+                <div style={styles.concernCard} data-testid="migration-preview-business">
+                  <strong>Business Modules</strong>
+                  <br />
+                  {migrationPreview.businessPreview ? (
+                    <>
+                      <span>Total records: {migrationPreview.businessPreview.totalRecords}</span><br />
+                      <span>Ready: {migrationPreview.businessPreview.recordsReady}</span><br />
+                      <span>Needs review: {migrationPreview.businessPreview.recordsNeedingReview}</span>
+                    </>
+                  ) : <span style={{ color: "var(--text-muted, #94a3b8)" }}>No data</span>}
+                </div>
+                <div style={styles.concernCard} data-testid="migration-preview-meta">
+                  <strong>Preview Metadata</strong>
+                  <br />
+                  <span>Source: {migrationPreview.backendUsed ? "Backend analysis" : "Local-only"}</span><br />
+                  <span>Status: {migrationPreview.status === "complete" ? "Complete" : migrationPreview.status === "backendUnavailable" ? "Backend unavailable — local only" : migrationPreview.status}</span><br />
+                  {migrationPreview.completedAt && <span>At: {new Date(migrationPreview.completedAt).toLocaleTimeString()}</span>}
+                </div>
+              </div>
+            )}
+            <div style={styles.inlineActions}>
+              <button
+                type="button"
+                style={styles.smallPrimaryButton}
+                data-testid="run-migration-preview-button"
+                disabled={migrationPreview.status === "running"}
+                onClick={() => void runMigrationPreview()}
+              >
+                {migrationPreview.status === "running" ? "Running preview…" : "Run Migration Preview"}
+              </button>
+              {migrationPreviewCompleted && (
+                <span style={styles.successPill} data-testid="migration-preview-completed-badge">Preview completed</span>
+              )}
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
           <Card title="Future Sync Status Planning" subtitle="Display-only labels for later backend sync">
             <div style={styles.moduleText} data-testid="sync-status-planning-panel">
               These statuses are planning labels only. No frontend records are syncing to the backend yet.
@@ -1253,6 +1630,208 @@ function SettingsPage({
             </div>
             <div style={{ ...styles.concernCard, marginTop: 10 }} data-testid="sync-conflict-planning-summary">
               Conflict detection planning: {syncConflictSummary.total} issue(s), {syncConflictSummary.conflicts} conflict(s), {syncConflictSummary.needsReview} needing review. No automatic resolution is performed.
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card title="Write Pilot Guard" subtitle="Backend write pilot — locked by default; admin-only visibility">
+            {canManageRoles ? (
+              <>
+                <div style={styles.moduleText} data-testid="write-pilot-guard-panel">
+                  The backend write pilot allows a controlled, limited number of writes to be sent to the backend alongside localStorage.
+                  It is locked until all requirements are met and an admin explicitly enables it. No writes occur by default.
+                </div>
+                {(() => {
+                  const req = [
+                    { label: "Backend health online", met: backendHealthStatus === "online" },
+                    { label: "Database available", met: backendHealthPayload?.databaseConnected === true },
+                    { label: "Migration preview completed", met: migrationPreviewCompleted },
+                    { label: "Backup confirmed (cutover checklist)", met: cutoverChecklist.localBackup && cutoverChecklist.databaseBackup },
+                    { label: "Cutover checklist complete", met: cutoverChecklistStatus === "ready for pilot" },
+                    { label: "Backend readiness guard passed", met: backendReadiness.status !== "blocked" },
+                  ];
+                  const allMet = req.every((r) => r.met);
+                  const writePilotStatus: string = backendReadiness.status === "blocked" ? "Blocked" : allMet ? "Ready for admin testing" : "Locked";
+                  const statusStyle = writePilotStatus === "Ready for admin testing" ? styles.successPill : writePilotStatus === "Blocked" ? styles.warningPill : styles.neutralPill;
+
+                  return (
+                    <>
+                      <div style={styles.inlineStatusRow}>
+                        <span style={statusStyle} data-testid="write-pilot-status-badge">Write Pilot: {writePilotStatus}</span>
+                        <span style={styles.warningPill}>Backend writes remain off</span>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 8, margin: "12px 0" }}>
+                        {req.map((r) => (
+                          <div key={r.label} style={{ ...styles.concernCard, display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={r.met ? styles.successPill : styles.neutralPill}>{r.met ? "✓" : "✗"}</span>
+                            <span style={{ fontSize: 13, color: r.met ? "var(--text-primary, #0f172a)" : "var(--text-secondary, #64748b)" }}>{r.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={styles.inlineActions}>
+                        <button
+                          type="button"
+                          style={{ ...styles.primaryButton, opacity: 0.45, cursor: "not-allowed" }}
+                          disabled
+                          data-testid="write-pilot-enable-button"
+                          title="Write pilot cannot be enabled in this phase. Complete all requirements first."
+                        >
+                          Enable Write Pilot (locked)
+                        </button>
+                      </div>
+                      <div style={{ ...styles.concernCard, marginTop: 10 }} data-testid="write-pilot-locked-note">
+                        Backend write pilot is locked. Complete all requirements above, then a future phase will unlock the enable path.
+                        No module will write to the backend until this guard is explicitly cleared and the enable path is opened.
+                      </div>
+                    </>
+                  );
+                })()}
+              </>
+            ) : (
+              <div style={styles.concernCard} data-testid="write-pilot-access-restricted">
+                Write Pilot Guard is visible to Admin only.
+              </div>
+            )}
+          </Card>
+        </div>
+
+        <div style={{ ...styles.gridItem, gridColumn: "span 12" }}>
+          <Card
+            title="Backend Write Pilot Status"
+            subtitle="Last pilot write attempt per entity — informational only; localStorage remains source of truth"
+            right={
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  style={styles.smallPrimaryButton}
+                  data-testid="pilot-status-refresh-button"
+                  onClick={() => setPilotAttemptLog(readPilotAttemptLog())}
+                >
+                  Refresh
+                </button>
+                {canManageRoles && (
+                  <button
+                    type="button"
+                    style={{ ...styles.smallPrimaryButton, background: "#fee2e2", color: "#991b1b" }}
+                    data-testid="pilot-status-clear-button"
+                    onClick={() => { clearPilotAttemptLog(); setPilotAttemptLog([]); }}
+                  >
+                    Clear Log
+                  </button>
+                )}
+              </div>
+            }
+          >
+            <div style={styles.moduleText} data-testid="pilot-status-panel">
+              This panel shows the most recent backend write pilot attempt for each entity type.
+              A "Locked / Skipped" result means the write pilot mode is not yet active — no backend write occurred.
+              LocalStorage is the source of truth in all cases.
+            </div>
+            {(() => {
+              const summary = getPilotAttemptSummary();
+              const ENTITIES: { key: keyof typeof summary; label: string }[] = [
+                { key: "customer", label: "Customers" },
+                { key: "vehicle", label: "Vehicles" },
+                { key: "intake", label: "Intakes" },
+                { key: "repairOrder", label: "Repair Orders" },
+                { key: "inspection", label: "Inspections" },
+                { key: "qcRecord", label: "QC Records" },
+                { key: "releaseRecord", label: "Release Records" },
+                { key: "backjob", label: "Backjobs" },
+                { key: "serviceHistory", label: "Service History" },
+                { key: "partsRequest", label: "Parts Requests" },
+                { key: "inventoryItem", label: "Inventory Items" },
+                { key: "inventoryMovement", label: "Inventory Movements" },
+                { key: "purchaseOrder", label: "Purchase Orders" },
+                { key: "supplier", label: "Suppliers" },
+                { key: "payment", label: "Payments" },
+                { key: "expense", label: "Expenses" },
+                { key: "invoice", label: "Invoices" },
+                { key: "document", label: "Documents" },
+                { key: "fileUpload", label: "File Uploads" },
+                { key: "customerDocument", label: "Customer Documents" },
+              ];
+              return (
+                <div style={{ overflowX: "auto" as const }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" as const, fontSize: 13 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...styles.th, textAlign: "left" }}>Entity</th>
+                        <th style={{ ...styles.th, textAlign: "left" }}>Status</th>
+                        <th style={{ ...styles.th, textAlign: "left" }}>Last Attempt</th>
+                        <th style={{ ...styles.th, textAlign: "left" }}>Local ID</th>
+                        <th style={{ ...styles.th, textAlign: "left" }}>Remote ID</th>
+                        <th style={{ ...styles.th, textAlign: "left" }}>Note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ENTITIES.map(({ key, label }) => {
+                        const entry = summary[key];
+                        const statusStyle = !entry
+                          ? styles.neutralPill
+                          : entry.syncStatus === "synced"
+                            ? styles.successPill
+                            : entry.syncStatus === "conflict"
+                              ? styles.warningPill
+                              : styles.neutralPill;
+                        return (
+                          <tr key={key} data-testid={`pilot-status-row-${key}`}>
+                            <td style={styles.td}><strong>{label}</strong></td>
+                            <td style={styles.td}>
+                              <span style={statusStyle}>
+                                {entry ? syncStatusLabel(entry.syncStatus) : "No attempt"}
+                              </span>
+                            </td>
+                            <td style={styles.td}>{entry ? new Date(entry.attemptedAt).toLocaleString() : "—"}</td>
+                            <td style={{ ...styles.td, fontFamily: "monospace", fontSize: 11 }}>{entry?.localId ?? "—"}</td>
+                            <td style={{ ...styles.td, fontFamily: "monospace", fontSize: 11 }}>{entry?.remoteId ?? "—"}</td>
+                            <td style={styles.td}>{entry?.conflictReason ?? entry?.warning ?? "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+            {pilotAttemptLog.length > 0 && (
+              <details style={{ marginTop: 14 }}>
+                <summary style={{ fontSize: 13, color: "var(--text-secondary, #64748b)", cursor: "pointer" }}>
+                  Recent pilot attempts ({pilotAttemptLog.length})
+                </summary>
+                <div style={{ ...styles.logList, marginTop: 8 }} data-testid="pilot-attempt-log-list">
+                  {pilotAttemptLog.slice(0, 20).map((entry, i) => (
+                    <div key={i} style={styles.logCard}>
+                      <div style={styles.logHeader}>
+                        <strong>{entry.entityType}</strong>
+                        <span
+                          style={
+                            entry.syncStatus === "synced"
+                              ? styles.successPill
+                              : entry.syncStatus === "conflict"
+                                ? styles.warningPill
+                                : styles.neutralPill
+                          }
+                        >
+                          {syncStatusLabel(entry.syncStatus)}
+                        </span>
+                      </div>
+                      <div style={styles.logMeta}>Label: {entry.entityLabel}</div>
+                      <div style={styles.logMeta}>Local ID: {entry.localId}</div>
+                      {entry.remoteId && <div style={styles.logMeta}>Remote ID: {entry.remoteId}</div>}
+                      {entry.conflictReason && <div style={styles.logMeta}>Conflict: {entry.conflictReason}</div>}
+                      {entry.warning && <div style={styles.logMeta}>Warning: {entry.warning}</div>}
+                      <div style={styles.logMeta}>{new Date(entry.attemptedAt).toLocaleString()}</div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+            <div style={{ ...styles.concernCard, marginTop: 12 }} data-testid="pilot-status-footer-note">
+              Write pilot is optional and guarded. localStorage remains the default source of truth.
+              No automatic sync runs. Conflicts must be reviewed before any future cutover.
+              Export a backup before enabling any migration commit.
             </div>
           </Card>
         </div>

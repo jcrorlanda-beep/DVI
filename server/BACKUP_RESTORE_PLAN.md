@@ -42,6 +42,10 @@ psql "$RESTORE_DATABASE_URL" < dvi-backup-YYYYMMDD.sql
 
 Database backups do not include uploaded files. Back up `FILE_STORAGE_ROOT` or `UPLOAD_STORAGE_ROOT` alongside PostgreSQL.
 
+During the document/file backend pilot, treat the database metadata and file storage folder as one backup unit. If metadata points to missing files, or files exist without document metadata, keep the frontend in localStorage mode and restore the paired database/file backup before retrying.
+
+Do not bulk-upload local browser files automatically. Pilot uploads should be reviewed, linked, and verified in small batches until signed customer download tokens and a production file backup routine exist.
+
 Recommended pairing:
 
 - database dump file

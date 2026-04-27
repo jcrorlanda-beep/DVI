@@ -5,12 +5,12 @@ async function loginAsAdmin(page: Page) {
   await page.getByPlaceholder(/enter username/i).fill("admin");
   await page.getByPlaceholder(/enter password/i).fill("admin123");
   await page.getByRole("button", { name: "Sign In", exact: true }).click();
-  await expect(page.getByText("Dashboard", { exact: true })).toBeVisible();
+  await expect(page.getByRole("banner").getByText("Dashboard")).toBeVisible();
 }
 
 async function openStaffBookings(page: Page) {
   await loginAsAdmin(page);
-  await page.getByRole("button", { name: "Bookings", exact: true }).click();
+  await page.getByTestId("nav-bookings").click();
   await expect(page.getByTestId("booking-calendar-panel")).toBeVisible();
 }
 
@@ -137,7 +137,7 @@ test("old booking records without requestedServices render safely", async ({ pag
   });
 
   await loginAsAdmin(page);
-  await page.getByRole("button", { name: "Bookings", exact: true }).click();
+  await page.getByTestId("nav-bookings").click();
   await expect(page.getByText("Legacy Booking Customer")).toBeVisible();
   await expect(page.getByText(/Brake Service/i)).toBeVisible();
 });

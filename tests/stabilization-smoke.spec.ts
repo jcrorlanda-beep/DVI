@@ -90,7 +90,7 @@ test("customer portal and settings restore pages stay readable", async ({ page }
   await page.getByPlaceholder(/enter username/i).fill("admin");
   await page.getByPlaceholder(/enter password/i).fill("admin123");
   await page.getByRole("button", { name: "Sign In", exact: true }).click();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByTestId("nav-settings").click();
   await expect(page.getByText("Data Quality + Legacy Cleanup")).toBeVisible();
   await expect(page.getByTestId("data-quality-cleanup")).toBeVisible();
 });

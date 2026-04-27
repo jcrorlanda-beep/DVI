@@ -60,7 +60,7 @@ function decodeUploadPayload(data: Record<string, unknown>) {
 
 export function getUploadConfig() {
   return {
-    storageRoot: config.fileStorageRoot,
+    storageConfigured: Boolean(config.fileStorageRoot),
     maxUploadMb: config.maxUploadMb,
     allowedTypes: ["images", "PDFs", "text/doc-like files"],
   };
